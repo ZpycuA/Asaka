@@ -2887,9 +2887,22 @@ try {
       kind,
     });
 
-    this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
+        this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
     this.world.start();
     e.bus.emit('matchStarted', { kind });
+
+    // ★ 在用户点击按钮的同步栈里主动请求 pointerlock，避免"必须拖一下才能转视角"
+    if (!isMobile) {
+      const canvas = e.renderer.canvas;
+      if (typeof canvas.requestPointerLock === 'function') {
+        try {
+          const p = canvas.requestPointerLock();
+          if (p && typeof p.catch === 'function') {
+            p.catch((err) => { console.warn('[PointerLock] 首次请求失败，需用户点击', err); });
+          }
+        } catch (_) {}
+      }
+    }
   } catch (err) {
     console.error('[GameApp] startMatch failed:', err);
     alert('启动失败，请查看控制台：' + (err && err.message ? err.message : String(err)));
