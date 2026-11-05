@@ -40,6 +40,56 @@ const COMBAT = Object.freeze({
 });
 
 /* ============================================================
+   [0.5] 动作映射表 · 单一真相源
+   ------------------------------------------------------------
+   · keys   → PC 键位注册（engine.input.registerAction）
+   · mouse  → 鼠标键位注册
+   · mobile → 移动端按钮配置（null 表示无移动按钮）
+   · actionId → 按钮实际触发的 action（默认等于自身 key，用于 fire_left 复用 fire）
+   ============================================================ */
+const ACTION_MAP = {
+  fire: {
+    keys: [],
+    mouse: 'left',
+    label: '开火',
+    mobile: { right: '20px', bottom: '80px', size: 80, color: 'rgba(255,80,80,.4)', border: 'rgba(255,100,100,.8)', mode: 'hold', rotate: true },
+  },
+  reload: {
+    keys: ['r'],
+    label: '换弹',
+    mobile: { right: '20px', bottom: '180px', size: 60, color: 'rgba(200,200,200,.3)', border: 'rgba(255,255,255,.6)', mode: 'hold' },
+  },
+  jump: {
+    keys: [' '],
+    label: '跳跃',
+    mobile: { right: '120px', bottom: '40px', size: 60, color: 'rgba(80,255,150,.4)', border: 'rgba(100,255,150,.8)', mode: 'hold' },
+  },
+  search: {
+    keys: ['g'],
+    label: '搜索',
+    mobile: { right: '90px', bottom: '180px', size: 55, color: 'rgba(255,210,80,.35)', border: 'rgba(255,210,80,.7)', mode: 'click' },
+  },
+  bag: {
+    keys: ['b'],
+    label: '背包',
+    mobile: { right: '20px', bottom: '260px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
+  },
+  switchWeapon: { keys: ['f'], label: '切枪' },
+  skill1:       { keys: ['q'], label: '技能1' },
+  skill2:       { keys: ['e'], label: '技能2' },
+  protectL1:    { keys: ['1'], label: '防护 L1' },
+  protectL2:    { keys: ['2'], label: '防护 L2' },
+  protectL3:    { keys: ['3'], label: '防护 L3' },
+  sprint:       { keys: ['shift'], label: '疾跑' },
+  fire_left: {
+    keys: [],
+    label: '开火',
+    actionId: 'fire',
+    mobile: { left: '30px', bottom: '150px', size: 70, color: 'rgba(255,80,80,.3)', border: 'rgba(255,100,100,.6)', mode: 'hold', rotate: true },
+  },
+};
+
+/* ============================================================
    [1] 战斗系统 · 纯函数
    ============================================================ */
 const CombatSystem = {
@@ -1229,9 +1279,15 @@ _updatePlayer(dt){
     }
   }
 
-  // ★ 2. 硬核体力值系统与自动疾跑
+    // ★ 2. 硬核体力值系统与自动疾跑
   const mv = e.input.getMoveVector();
   const isMoving = (mv.x !== 0 || mv.z !== 0);
+
+  // ★ 移动打断搜索：玩家按方向键/推摇杆即退出搜索面板，不再"卡住"
+  if (this._searching && (Math.abs(mv.x) > 0.15 || Math.abs(mv.z) > 0.15)) {
+    this._closeSearch();
+    this._log('搜索已取消', 'y');
+  }
   
   // 摇杆推到底(magnitude > 0.9) 或者 按住Shift(PC) / 疾跑按键(移动端) 触发疾跑
   const wantsToSprint = e.input.keys.has('shift') || 
