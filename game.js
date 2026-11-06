@@ -1207,12 +1207,14 @@ this.containers.push({ x: cx, z: cz, mesh, body: cBody, opened: false, loot: nul
 }
 
   _registerInputActions(){
-    const input = this.engine.input;
-    input.registerAction('reload', { keys: ['r'] });
-    input.registerAction('switchWeapon', { keys: ['f'] });
-    input.registerAction('search', { keys: ['g'] });
-    input.registerAction('skill1', { keys: ['q'] });
-    input.registerAction('skill2', { keys: ['e'] });
+  const input = this.engine.input;
+  for (const [name, cfg] of Object.entries(ACTION_MAP)) {
+    if (!cfg.keys && !cfg.mouse) continue;
+    const reg = {};
+    if (cfg.keys) reg.keys = cfg.keys.slice();
+    if (cfg.mouse) reg.mouse = cfg.mouse;
+    input.registerAction(name, reg);
+  }
   }
 
  update(dt){
@@ -3434,69 +3436,62 @@ _bindCameraControls() {
     return;
   }
   container.style.display = 'block';
-
-  // 每次重建按钮，确保引用不丢
   container.innerHTML = '';
   this._mobileButtons = {};
 
-  const layout = [
-    { id: 'fire',       label: '开火', right: '20px',  bottom: '80px',  size: 80, color: 'rgba(255,80,80,.4)',   border: 'rgba(255,100,100,.8)', mode: 'hold',  rotate: true },
-    { id: 'jump',       label: '跳跃', right: '120px', bottom: '40px',  size: 60, color: 'rgba(80,255,150,.4)',  border: 'rgba(100,255,150,.8)', mode: 'hold' },
-    { id: 'reload',     label: '换弹', right: '20px',  bottom: '180px', size: 60, color: 'rgba(200,200,200,.3)', border: 'rgba(255,255,255,.6)', mode: 'hold' },
-    { id: 'fire_left',  label: '开火', left:  '30px',  bottom: '150px', size: 70, color: 'rgba(255,80,80,.3)',   border: 'rgba(255,100,100,.6)', mode: 'hold',  rotate: true },
-    { id: 'bag',        label: '背包', right: '20px',  bottom: '260px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
-    { id: 'search',     label: '搜索', right: '90px',  bottom: '180px', size: 55, color: 'rgba(255,210,80,.35)', border: 'rgba(255,210,80,.7)',  mode: 'click', conditional: 'search' },
-  ];
-
-  for (const btn of layout) {
+  for (const [name, cfg] of Object.entries(ACTION_MAP)) {
+    if (!cfg.mobile) continue;
+    const m = cfg.mobile;
     const el = document.createElement('div');
     el.className = 'mobile-btn';
-    el.dataset.actionId = btn.id;
-    if (btn.conditional === 'search') el.dataset.conditional = 'search';
+    el.dataset.actionId = name;
 
     let posCss = '';
-    if (btn.left) posCss += `left:${btn.left};`;
-    if (btn.right) posCss += `right:${btn.right};`;
-    posCss += `bottom:${btn.bottom};`;
+    if (m.left) posCss += `left:${m.left};`;
+    if (m.right) posCss += `right:${m.right};`;
+    posCss += `bottom:${m.bottom};`;
 
     el.style.cssText = `
       position:absolute;${posCss}
-      width:${btn.size}px;height:${btn.size}px;border-radius:50%;
-      background:${btn.color};border:2px solid ${btn.border};
+      width:${m.size}px;height:${m.size}px;border-radius:50%;
+      background:${m.color};border:2px solid ${m.border};
       color:#fff;display:flex;align-items:center;justify-content:center;
-      pointer-events:auto;font-weight:800;font-size:${Math.max(11, btn.size * 0.18)}px;
+      pointer-events:auto;font-weight:800;font-size:${Math.max(11, m.size * 0.18)}px;
       user-select:none;-webkit-user-select:none;touch-action:none;
       box-shadow:0 4px 12px rgba(0,0,0,.4);z-index:36;
       transition:opacity .2s, transform .1s;
     `;
-    el.textContent = btn.label;
-    if (btn.conditional === 'search') el.style.display = 'none';
+    el.textContent = cfg.label;
 
-    if (btn.mode === 'click') {
+    // 搜索按钮初始就显示（半透明），由 _updateMobileButtons 控制亮度
+    if (name === 'search') el.style.opacity = '0.5';
+
+    const actionKey = cfg.actionId || name;
+
+    if (m.mode === 'click') {
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault(); e.stopPropagation();
         el.style.transform = 'scale(0.9)';
         setTimeout(() => { el.style.transform = 'scale(1)'; }, 100);
-        if (btn.id === 'bag') {
+        if (name === 'bag') {
           if (this.bagUI) this.bagUI.toggle();
-        } else if (btn.id === 'search') {
+        } else if (name === 'search') {
           this._trySearchContainer();
         }
       });
     } else {
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault(); e.stopPropagation();
-        this.engine.input.setActionState(btn.id, true);
+        this.engine.input.setActionState(actionKey, true);
         el.style.transform = 'scale(0.9)';
-        if (btn.rotate) {
+        if (m.rotate) {
           el._dragPointerId = e.pointerId;
           el._lastX = e.clientX;
           el._lastY = e.clientY;
           try { el.setPointerCapture(e.pointerId); } catch (_) {}
         }
       });
-
-      if (btn.rotate) {
+      if (m.rotate) {
         el.addEventListener('pointermove', (e) => {
           if (el._dragPointerId !== e.pointerId) return;
           const dx = e.clientX - el._lastX;
@@ -3508,22 +3503,21 @@ _bindCameraControls() {
           }
         });
       }
-
       const release = (e) => {
         e.preventDefault(); e.stopPropagation();
-        this.engine.input.setActionState(btn.id, false);
+        this.engine.input.setActionState(actionKey, false);
         el.style.transform = 'scale(1)';
-        if (btn.rotate) el._dragPointerId = null;
+        if (m.rotate) el._dragPointerId = null;
       };
       el.addEventListener('pointerup', release);
       el.addEventListener('pointercancel', release);
       el.addEventListener('pointerleave', (e) => {
-        if (btn.rotate && el._dragPointerId === e.pointerId) return;
+        if (m.rotate && el._dragPointerId === e.pointerId) return;
         release(e);
       });
     }
 
-    this._mobileButtons[btn.id] = el;
+    this._mobileButtons[name] = el;
     container.appendChild(el);
   }
 }
