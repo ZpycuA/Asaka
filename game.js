@@ -1336,10 +1336,17 @@ if (isMoving && !this._searching) p.body.wake();
   p.angle = e.cameraCtl.yaw;
 
   // 更新耦合防护状态（耗能/恢复）
-  this._updateProtection(dt);
+this._updateProtection(dt);
 
-  // 技能冷却
-  for (const sk of p.skills) {
+// ★ 防护数字键（1/2/3）· edge trigger，避免按住时反复 toggle
+if (p.charSpec && p.charSpec.prazer) {
+  if (this._wasPressed('protectL1')) this._toggleProtection('L1');
+  if (this._wasPressed('protectL2')) this._toggleProtection('L2');
+  if (this._wasPressed('protectL3')) this._toggleProtection('L3');
+}
+
+// 技能冷却
+for (const sk of p.skills) {
     if (!sk.ready) {
       sk.cd -= dt;
       if (sk.cd <= 0) { sk.ready = true; sk.cd = 0; }
@@ -1375,9 +1382,17 @@ if (!this._searching) {
 
   
 
-  _updateProtection(dt){
-    const p = this.player;
-    if (!p.charSpec.prazer) return;
+  _wasPressed(action) {
+  if (!this._actionPrev) this._actionPrev = {};
+  const current = !!this.engine.input.isActive(action);
+  const prev = this._actionPrev[action] || false;
+  this._actionPrev[action] = current;
+  return current && !prev;
+}
+
+_updateProtection(dt){
+  const p = this.player;
+  if (!p.charSpec.prazer) return;
 
     if (p.protectionHold && p.protection && p.coupling > 0) {
       const drain = COMBAT.PROTECT_DRAIN[p.protection] || 0;
