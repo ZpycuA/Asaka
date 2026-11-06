@@ -506,8 +506,8 @@ _renderMinimap(){
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = 'rgba(8,14,22,0.9)';
-  ctx.fillRect(0, 0, w, h);
+ctx.fillStyle = 'rgba(220,228,238,0.95)';
+ctx.fillRect(0, 0, w, h);
 
   const p = this.world.player;
   if (!p) return;
@@ -541,18 +541,21 @@ _renderMinimap(){
   }
 
   // 绘制玩家（始终在中心）
-  ctx.fillStyle = '#7fe0ff';
-  ctx.beginPath();
-  ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-  ctx.fill();
-  
-  // 玩家朝向线
-  ctx.strokeStyle = 'rgba(120,225,255,0.8)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + Math.sin(this.engine.cameraCtl.yaw) * 12, cy - Math.cos(this.engine.cameraCtl.yaw) * 12);
-  ctx.stroke();
+ctx.fillStyle = '#1a6ab8';
+ctx.beginPath();
+ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+ctx.fill();
+ctx.strokeStyle = '#ffffff';
+ctx.lineWidth = 1.5;
+ctx.stroke();
+
+// 玩家朝向线
+ctx.strokeStyle = 'rgba(26,106,184,0.9)';
+ctx.lineWidth = 2;
+ctx.beginPath();
+ctx.moveTo(cx, cy);
+ctx.lineTo(cx + Math.sin(this.engine.cameraCtl.yaw) * 14, cy - Math.cos(this.engine.cameraCtl.yaw) * 14);
+ctx.stroke();
 }
 
 _renderDamageIndicator(){
@@ -816,9 +819,9 @@ class GameWorld {
   const half = mapSize / 2;
 
   const groundGeo = new THREE.PlaneGeometry(mapSize, mapSize);
-  const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x1a2536, roughness: 0.95, metalness: 0.05,
-  });
+const groundMat = new THREE.MeshStandardMaterial({
+  color: 0xa8b4c0, roughness: 0.85, metalness: 0.05,
+});
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
   r.scene.add(ground);
@@ -838,9 +841,9 @@ class GameWorld {
     if (Math.hypot(x, z) < 6) continue;
 
     const mesh = this.engine.meshes.build('obstacle', {
-      w, h, d,
-      color: Math.random() < 0.5 ? 0x22314a : 0x28394f,
-    });
+  w, h, d,
+  color: Math.random() < 0.5 ? 0xc8d0d8 : 0xb4bcc8,
+});
     mesh.position.x = x;
     mesh.position.z = z;
     r.scene.add(mesh);
@@ -857,7 +860,7 @@ class GameWorld {
     this.obstacles.push({ mesh, body });
     
     // ★ 将障碍物加入小地图兴趣点
-    this.pois.push({ x, z, type: 'obstacle', w, h: d, color: 'rgba(90,130,175,0.5)' });
+    this.pois.push({ x, z, type: 'obstacle', w, h: d, color: 'rgba(120,140,160,0.65)' });
   }
 }
 
