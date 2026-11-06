@@ -158,40 +158,48 @@ c.registerAll('chestRig', CHEST_RIG);
      heavyArmor: 是否重装（布雯）
      ========================================================== */
   const CHARACTERS = {
-    captain: {
-      name: 'content.char.captain.name', tag: 'content.char.captain.tag',
-      hp: 115, speed: 6.3, radius: 1.2,
-      weapon: 'ar556', sidearm: 'p9',
-      prazer: false, A: 0,
-      color: 0x5a6b7c,
-      skills: ['drone', 'rally'],
-    },
-    kate: {
-      name: 'content.char.kate.name', tag: 'content.char.kate.tag',
-      hp: 130, speed: 5.8, radius: 1.1,
-      weapon: 'sr762', sidearm: 'p9',
-      prazer: true, A: 3,
-      color: 0xff9ec4,
-      skills: ['jump', 'aimbuff'],
-    },
-    lingna: {
-      name: 'content.char.lingna.name', tag: 'content.char.lingna.tag',
-      hp: 130, speed: 5.9, radius: 1.1,
-      weapon: 'ar556', sidearm: 'smg45',
-      prazer: true, A: 3,
-      color: 0xffb066,
-      skills: ['dash', 'suppress'],
-    },
-    buwen: {
-      name: 'content.char.buwen.name', tag: 'content.char.buwen.tag',
-      hp: 230, speed: 2.65, radius: 1.4,
-      weapon: 'sg12', sidearm: 'p9',
-      prazer: false, A: 0,
-      color: 0xc8e05a,
-      heavyArmor: true,
-      skills: ['shield', 'taunt'],
-    },
-  };
+  captain: {
+    name: 'content.char.captain.name', tag: 'content.char.captain.tag',
+    hp: 115, speed: 4.6, radius: 1.2,
+    weapon: 'ar556', sidearm: 'p9',
+    prazer: false, A: 0,
+    color: 0x5a6b7c,
+    skills: ['drone', 'rally'],
+    staminaRegen: { move: 8, idle: 25 },
+    sprintCost: 10,
+  },
+  kate: {
+    name: 'content.char.kate.name', tag: 'content.char.kate.tag',
+    hp: 130, speed: 5.2, radius: 1.1,
+    weapon: 'sr762', sidearm: 'p9',
+    prazer: true, A: 3,
+    color: 0xff9ec4,
+    skills: ['jump', 'aimbuff'],
+    staminaRegen: { move: 12, idle: 35 },
+    sprintCost: 8,
+  },
+  lingna: {
+    name: 'content.char.lingna.name', tag: 'content.char.lingna.tag',
+    hp: 130, speed: 5.3, radius: 1.1,
+    weapon: 'ar556', sidearm: 'smg45',
+    prazer: true, A: 3,
+    color: 0xffb066,
+    skills: ['dash', 'suppress'],
+    staminaRegen: { move: 12, idle: 35 },
+    sprintCost: 8,
+  },
+  buwen: {
+    name: 'content.char.buwen.name', tag: 'content.char.buwen.tag',
+    hp: 115, speed: 6.3, radius: 1.2,
+    weapon: 'sg12', sidearm: 'p9',
+    prazer: false, A: 0,
+    color: 0xc8e05a,
+    heavyArmor: true,
+    skills: ['shield', 'taunt'],
+    staminaRegen: { move: 4, idle: 12 },
+    sprintCost: 15,
+  },
+};
   c.registerAll('characters', CHARACTERS);
 
   /* ==========================================================
