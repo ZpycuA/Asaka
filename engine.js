@@ -876,11 +876,11 @@ class Renderer3D {
       alpha: false,
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setClearColor(0x080b10);
-    this.renderer.shadowMap.enabled = true;
+this.renderer.setClearColor(0xc8d4e0);
+this.renderer.shadowMap.enabled = true;
 
-    this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x080b10, 30, 80);
+this.scene = new THREE.Scene();
+this.scene.fog = new THREE.Fog(0xd0dce8, 60, 200);
 
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.set(0, 20, 20);
@@ -902,15 +902,15 @@ class Renderer3D {
     while (this._lightGroup.children.length) {
       this._lightGroup.remove(this._lightGroup.children[0]);
     }
-    const ambient = new THREE.AmbientLight(0x8fb4d8, 0.55);
-    this._lightGroup.add(ambient);
-    const sun = new THREE.DirectionalLight(0xcfe6ff, 0.85);
-    sun.position.set(30, 60, 30);
-    sun.castShadow = true;
-    this._lightGroup.add(sun);
-    const rim = new THREE.DirectionalLight(0xff9ec4, 0.35);
-    rim.position.set(-40, 30, -20);
-    this._lightGroup.add(rim);
+    const ambient = new THREE.AmbientLight(0xffffff, 1.1);
+this._lightGroup.add(ambient);
+const sun = new THREE.DirectionalLight(0xfff4e0, 1.5);
+sun.position.set(30, 60, 30);
+sun.castShadow = true;
+this._lightGroup.add(sun);
+const rim = new THREE.DirectionalLight(0xffb0d0, 0.4);
+rim.position.set(-40, 30, -20);
+this._lightGroup.add(rim);
   }
 
     resize(){
