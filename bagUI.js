@@ -4,6 +4,7 @@
    ============================================================ */
 
 import * as THREE from 'three'
+import { GridContainer } from './inventory.js';
 
 const CELL = 48;
 
