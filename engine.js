@@ -1053,10 +1053,10 @@ const buildHumanoid = (spec, opts) => {
   rleg.userData.part = 'rleg';
   g.add(rleg);
 
-  // 手持武器
-  const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.12), gunMat);
-  muzzle.position.set(0.32, 1.55, 0.30);
-  g.add(muzzle);
+  // 手持武器（枪管指向局部 +z）
+const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.7), gunMat);
+muzzle.position.set(0.25, 1.55, 0.40);
+g.add(muzzle);
 
   // 地面光环
   const ring = new THREE.Mesh(
