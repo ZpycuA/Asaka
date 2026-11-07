@@ -198,58 +198,92 @@ getTotalValue() {
   return total;
 }
 
-splitStack(uid, count) {
+splitStack(uid, count, preferredContainer) {
   const item = this.items.get(uid);
-  if (!item) return null;
-  if (item.qty <= 1) return null;
-  if (count <= 0 || count >= item.qty) return null;
-  const newUid = this.createItem(item.table, item.defId, { qty: count, lockValue: true });
-  if (!newUid) return null;
-  item.qty -= count;
-  return newUid;
+  if (!item) return { ok: false, reason: 'no_item' };
+  if (item.qty <= 1) return { ok: false, reason: 'qty_too_small' };
+  if (count <= 0 || count >= item.qty) return { ok: false, reason: 'bad_count' };
+
+  const newUid = this.createItem(item.table, item.defId, {
+    qty: count,
+    lockValue: true,
+    dur: item.dur,
+  });
+  if (!newUid) return { ok: false, reason: 'create_failed' };
+
+  const originalParent = this.parentOf.get(uid);
+  const targets = [];
+  if (preferredContainer) targets.push(preferredContainer);
+  if (originalParent && originalParent.startsWith('c:')) {
+    const origContainer = originalParent.slice(2);
+    if (!targets.includes(origContainer)) targets.push(origContainer);
+  }
+  for (const t of ['stash', 'bag', 'chest', 'pocket', 'safe']) {
+    if (!targets.includes(t)) targets.push(t);
+  }
+
+  for (const t of targets) {
+    const c = this.containers[t];
+    if (!c) continue;
+    const r = this.addToContainer(t, newUid, { noMerge: true });
+    if (r.ok) {
+      item.qty -= count;
+      return { ok: true, newUid };
+    }
+  }
+
+  this.destroyItem(newUid);
+  return { ok: false, reason: 'no_space' };
 }
 
   /* ====================== 容器操作 ====================== */
-  addToContainer(name, uid) {
-    const container = this.containers[name];
-    const item = this.items.get(uid);
-    if (!container || !item) return { ok: false, reason: 'no_target' };
+  addToContainer(name, uid, opts) {
+  opts = opts || {};
+  const container = this.containers[name];
+  const item = this.items.get(uid);
+  if (!container || !item) return { ok: false, reason: 'no_target' };
 
-    if (this.wouldCreateCycle(uid, 'c:' + name)) {
-      return { ok: false, reason: 'cycle' };
-    }
+  if (this.wouldCreateCycle(uid, 'c:' + name)) {
+    return { ok: false, reason: 'cycle' };
+  }
 
-    /* 栈合并（同 defId 同 dur） */
-    if (STACK_LIMITS[item.table] > 1 && item.dur === item.durMax) {
-      const limit = STACK_LIMITS[item.table];
-      for (const otherUid of container.uids) {
-        const other = this.items.get(otherUid);
-        if (!other) continue;
-        if (other.table !== item.table) continue;
-        if (other.defId !== item.defId) continue;
-        if (other.dur !== item.dur) continue;
-        const space = limit - other.qty;
-        if (space >= item.qty) {
-          other.qty += item.qty;
-          this._detach(uid);
-          this.destroyItem(uid);
-          return { ok: true, merged: true };
-        } else if (space > 0) {
+  const stackLimit = item.stackLimit || STACK_LIMITS[item.table] || 1;
+  const canMerge = !opts.noMerge && stackLimit > 1 && item.dur === item.durMax;
+  const wasFull = container.uids.length >= container.cap;
+
+  if (canMerge) {
+    for (const otherUid of container.uids) {
+      const other = this.items.get(otherUid);
+      if (!other) continue;
+      if (other.table !== item.table) continue;
+      if (other.defId !== item.defId) continue;
+      if (other.dur !== item.dur) continue;
+      const otherLimit = other.stackLimit || STACK_LIMITS[other.table] || 1;
+      const space = otherLimit - other.qty;
+      if (space >= item.qty) {
+        other.qty += item.qty;
+        this._detach(uid);
+        this.destroyItem(uid);
+        return { ok: true, merged: true };
+      } else if (space > 0) {
+        // 部分合并：只有容器不满时才允许（否则物品无处安放）
+        if (!wasFull) {
           other.qty += space;
           item.qty -= space;
         }
       }
     }
-
-    if (container.uids.length >= container.cap) {
-      return { ok: false, reason: 'full' };
-    }
-
-    this._detach(uid);
-    container.uids.push(uid);
-    this.parentOf.set(uid, 'c:' + name);
-    return { ok: true };
   }
+
+  if (wasFull) {
+    return { ok: false, reason: 'full' };
+  }
+
+  this._detach(uid);
+  container.uids.push(uid);
+  this.parentOf.set(uid, 'c:' + name);
+  return { ok: true };
+}
 
   removeFromContainer(name, uid) {
     const container = this.containers[name];
