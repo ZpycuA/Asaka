@@ -2227,11 +2227,13 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
   }
 }
 
-_damagePlayer(player, energy, pen, isHead = false, srcX, srcZ, sourceEnt = null){
+_damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null){
   if (!player.alive) return;
 
   const profile = this.engine.profile;
   const hpBefore = player.hp;
+  const isHead = part === 'head';
+  const isTorso = part === 'thorax' || part === 'abdomen';
 
   /* ===== 1. 耦合防护（Prazer 专属） ===== */
   const coup = CombatSystem.applyCoupling(player, energy, 'ballistic');
@@ -2253,61 +2255,39 @@ _damagePlayer(player, energy, pen, isHead = false, srcX, srcZ, sourceEnt = null)
   /* ===== 3. 护甲层吸收（按命中部位分层） ===== */
   let armorSnapshot = null;
 
+  const applyOne = (piece, layerName) => {
+    if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
+    const beforeDur = piece.dur;
+    const res = CombatSystem.applyArmor(piece, remaining, pen);
+    remaining = res.remaining;
+    if (res.absorbed > 0) {
+      return {
+        layer: layerName,
+        lv: piece.lv,
+        absorbed: res.absorbed,
+        wear: beforeDur - piece.dur,
+        broke: piece.dur <= 0,
+      };
+    }
+    return null;
+  };
+
   if (isHead) {
     /* ---- 头部：shell（头盔壳）→ visor（面罩） ---- */
-    const shellBefore = { lv: player.armor.shell.lv, dur: player.armor.shell.dur };
-    const shellRes = CombatSystem.applyArmor(player.armor.shell, remaining, pen);
-    const shellAfter = { dur: player.armor.shell.dur, broke: player.armor.shell.dur <= 0 };
-    remaining = shellRes.remaining;
-
-    const visorBefore = { lv: player.armor.visor.lv, dur: player.armor.visor.dur };
-    const visorRes = CombatSystem.applyArmor(player.armor.visor, remaining, pen);
-    const visorAfter = { dur: player.armor.visor.dur, broke: player.armor.visor.dur <= 0 };
-    remaining = visorRes.remaining;
-
-    /* 快照：优先显示头盔壳吸收，否则面罩 */
-    if (shellRes.absorbed > 0 && shellBefore.lv > 0) {
-      armorSnapshot = {
-        layer: '头盔壳', lv: shellBefore.lv,
-        absorbed: shellRes.absorbed,
-        wear: shellBefore.dur - shellAfter.dur,
-        broke: shellAfter.broke,
-      };
-    } else if (visorRes.absorbed > 0 && visorBefore.lv > 0) {
-      armorSnapshot = {
-        layer: '面罩', lv: visorBefore.lv,
-        absorbed: visorRes.absorbed,
-        wear: visorBefore.dur - visorAfter.dur,
-        broke: visorAfter.broke,
-      };
-    }
-  } else {
+    const s1 = applyOne(player.armor.shell, '头盔壳');
+    const s2 = applyOne(player.armor.visor, '面罩');
+    if (s1) armorSnapshot = s1;
+    else if (s2) armorSnapshot = s2;
+  } else if (isTorso) {
     /* ---- 躯干：plate（插板）→ fiber（纤维） ---- */
-    const plateBefore = { lv: player.armor.plate.lv, dur: player.armor.plate.dur };
-    const plateRes = CombatSystem.applyArmor(player.armor.plate, remaining, pen);
-    const plateAfter = { dur: player.armor.plate.dur, broke: player.armor.plate.dur <= 0 };
-    remaining = plateRes.remaining;
-
-    const fiberBefore = { lv: player.armor.fiber.lv, dur: player.armor.fiber.dur };
-    const fiberRes = CombatSystem.applyArmor(player.armor.fiber, remaining, pen);
-    const fiberAfter = { dur: player.armor.fiber.dur, broke: player.armor.fiber.dur <= 0 };
-    remaining = fiberRes.remaining;
-
-    if (plateRes.absorbed > 0 && plateBefore.lv > 0) {
-      armorSnapshot = {
-        layer: '插板', lv: plateBefore.lv,
-        absorbed: plateRes.absorbed,
-        wear: plateBefore.dur - plateAfter.dur,
-        broke: plateAfter.broke,
-      };
-    } else if (fiberRes.absorbed > 0 && fiberBefore.lv > 0) {
-      armorSnapshot = {
-        layer: '纤维', lv: fiberBefore.lv,
-        absorbed: fiberRes.absorbed,
-        wear: fiberBefore.dur - fiberAfter.dur,
-        broke: fiberAfter.broke,
-      };
-    }
+    const s1 = applyOne(player.armor.plate, '插板');
+    const s2 = applyOne(player.armor.fiber, '纤维');
+    if (s1) armorSnapshot = s1;
+    else if (s2) armorSnapshot = s2;
+  } else {
+    /* ---- 四肢：仅 fiber 覆盖 ---- */
+    const s1 = applyOne(player.armor.fiber, '纤维');
+    if (s1) armorSnapshot = s1;
   }
 
   /* ===== 4. 爆头处理（HEAD_MULT + 即死/半死判定） ===== */
@@ -2318,13 +2298,10 @@ _damagePlayer(player, energy, pen, isHead = false, srcX, srcZ, sourceEnt = null)
     const lethalEnergy = player.hp * bodyCoeff;
 
     if (profile.get('combat.headshotInstantKill', false)) {
-      /* 硬核：头盔被穿透 + 能量足够 → 精确致死 */
       if (remaining >= lethalEnergy) {
         remaining = lethalEnergy;
       }
-      /* 否则：按实际数值扣血（头盔挡住了，不死） */
     } else {
-      /* 街机：爆头再痛也不致死，最多留 1% HP */
       if (remaining >= lethalEnergy) {
         remaining = lethalEnergy * 0.99;
       }
@@ -2355,7 +2332,7 @@ this.combatLog.push({
     ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon }
     : { name: '未知' },
   amount: dmg,
-  part: isHead ? 'head' : 'thorax',
+  part: part
   pierced: pen >= 3,
   armor: armorSnapshot,
   coupling: couplingSnapshot,
