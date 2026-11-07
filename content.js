@@ -37,11 +37,11 @@ export function registerDefaultContent(engine) {
    ⚠ 这两者独立：tier 高不代表穿透高，反之亦然
    ========================================================== */
 const AMMO = {
-  '9mm':    { name: 'content.ammo.9mm.name',    massG: 8.0,  v0: 360, tier: 0, pen: 0, value: 15, rarity: 'L0', stackLimit: 999 },
-  '5.56':   { name: 'content.ammo.556.name',    massG: 4.0,  v0: 940, tier: 2, pen: 3, value: 60, rarity: 'L1', stackLimit: 999 },
-  '7.62':   { name: 'content.ammo.762.name',    massG: 8.0,  v0: 730, tier: 2, pen: 5, value: 80, rarity: 'L2', stackLimit: 999 },
-  '.45acp': { name: 'content.ammo.45acp.name',  massG: 14.9, v0: 290, tier: 0, pen: 1, value: 25, rarity: 'L0', stackLimit: 999 },
-  '12ga':   { name: 'content.ammo.12ga.name',   massG: 3.5,  v0: 410, tier: 0, pen: 0, value: 40, rarity: 'L0', stackLimit: 999 },
+  '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    massG: 8.0,  v0: 360, tier: 0, pen: 0, value: 15, rarity: 'L0', stackLimit: 999 },
+  '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    massG: 4.0,  v0: 940, tier: 2, pen: 3, value: 60, rarity: 'L1', stackLimit: 999 },
+  '7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    massG: 8.0,  v0: 730, tier: 2, pen: 5, value: 80, rarity: 'L2', stackLimit: 999 },
+  '.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  massG: 14.9, v0: 290, tier: 0, pen: 1, value: 25, rarity: 'L0', stackLimit: 999 },
+  '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   massG: 3.5,  v0: 410, tier: 0, pen: 0, value: 40, rarity: 'L0', stackLimit: 999 },
 };
   c.registerAll('ammo', AMMO);
 
@@ -57,13 +57,13 @@ const AMMO = {
      auto:      是否全自动
      pellets:   每次射击弹丸数（霰弹 > 1）
      ========================================================== */
-  const WEAPONS = {
-  p9:    { name: 'content.weapon.p9.name',    ammoType: '9mm',    rpm: 420, mag: 15, reload: 1.5, range: 80,  spread: 0.032, auto: false, pellets: 1, color: 0x6a6a7a, value: 600,  rarity: 'L0', stackLimit: 1 },
-  smg45: { name: 'content.weapon.smg45.name', ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1 },
-  ar556: { name: 'content.weapon.ar556.name', ammoType: '5.56',   rpm: 700, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1 },
-  ak762: { name: 'content.weapon.ak762.name', ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1 },
-  sr762: { name: 'content.weapon.sr762.name', ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 250, spread: 0.002, auto: false, pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1 },
-  sg12:  { name: 'content.weapon.sg12.name',  ammoType: '12ga',   rpm: 85,  mag: 6,  reload: 3.0, range: 35,  spread: 0.100, auto: false, pellets: 9, color: 0x5a4a2a, value: 2500, rarity: 'L3', stackLimit: 1 },
+    const WEAPONS = {
+  p9:    { name: 'content.weapon.p9.name',    desc: 'content.weapon.p9.desc',    ammoType: '9mm',    rpm: 420, mag: 15, reload: 1.5, range: 80,  spread: 0.032, auto: false, pellets: 1, color: 0x6a6a7a, value: 600,  rarity: 'L0', stackLimit: 1 },
+  smg45: { name: 'content.weapon.smg45.name', desc: 'content.weapon.smg45.desc', ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1 },
+  ar556: { name: 'content.weapon.ar556.name', desc: 'content.weapon.ar556.desc', ammoType: '5.56',   rpm: 700, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1 },
+  ak762: { name: 'content.weapon.ak762.name', desc: 'content.weapon.ak762.desc', ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1 },
+  sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 250, spread: 0.002, auto: false, pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1 },
+  sg12:  { name: 'content.weapon.sg12.name',  desc: 'content.weapon.sg12.desc',  ammoType: '12ga',   rpm: 85,  mag: 6,  reload: 3.0, range: 35,  spread: 0.100, auto: false, pellets: 9, color: 0x5a4a2a, value: 2500, rarity: 'L3', stackLimit: 1 },
 };
   c.registerAll('weapons', WEAPONS);
 
@@ -91,44 +91,44 @@ const AMMO = {
    cap:      容器容量（仅背包/胸挂）
    ========================================================== */
 const HELMET_SHELL = {
-  lv3: { name: 'content.helmetShell.lv3.name', armorLv: 3, maxDur: 100, value: 800,  rarity: 'L1', stackLimit: 1 },
-  lv4: { name: 'content.helmetShell.lv4.name', armorLv: 4, maxDur: 100, value: 1500, rarity: 'L2', stackLimit: 1 },
+  lv3: { name: 'content.helmetShell.lv3.name', desc: 'content.helmetShell.lv3.desc', armorLv: 3, maxDur: 100, value: 800,  rarity: 'L1', stackLimit: 1 },
+  lv4: { name: 'content.helmetShell.lv4.name', desc: 'content.helmetShell.lv4.desc', armorLv: 4, maxDur: 100, value: 1500, rarity: 'L2', stackLimit: 1 },
 };
 c.registerAll('helmetShell', HELMET_SHELL);
 
 const HELMET_VISOR = {
-  lv3: { name: 'content.helmetVisor.lv3.name', armorLv: 3, maxDur: 100, value: 600,  rarity: 'L1', stackLimit: 1 },
-  lv4: { name: 'content.helmetVisor.lv4.name', armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
+  lv3: { name: 'content.helmetVisor.lv3.name', desc: 'content.helmetVisor.lv3.desc', armorLv: 3, maxDur: 100, value: 600,  rarity: 'L1', stackLimit: 1 },
+  lv4: { name: 'content.helmetVisor.lv4.name', desc: 'content.helmetVisor.lv4.desc', armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
 };
 c.registerAll('helmetVisor', HELMET_VISOR);
 
 const HELMET_EAR = {
-  basic: { name: 'content.helmetEar.basic.name', maxDur: 100, value: 400, rarity: 'L1', stackLimit: 1 },
+  basic: { name: 'content.helmetEar.basic.name', desc: 'content.helmetEar.basic.desc', maxDur: 100, value: 400, rarity: 'L1', stackLimit: 1 },
 };
 c.registerAll('helmetEar', HELMET_EAR);
 
 const VEST_FIBER = {
-  lv3: { name: 'content.vestFiber.lv3.name', armorLv: 3, maxDur: 100, value: 900,  rarity: 'L2', stackLimit: 1 },
-  lv4: { name: 'content.vestFiber.lv4.name', armorLv: 4, maxDur: 100, value: 1600, rarity: 'L3', stackLimit: 1 },
+  lv3: { name: 'content.vestFiber.lv3.name', desc: 'content.vestFiber.lv3.desc', armorLv: 3, maxDur: 100, value: 900,  rarity: 'L2', stackLimit: 1 },
+  lv4: { name: 'content.vestFiber.lv4.name', desc: 'content.vestFiber.lv4.desc', armorLv: 4, maxDur: 100, value: 1600, rarity: 'L3', stackLimit: 1 },
 };
 c.registerAll('vestFiber', VEST_FIBER);
 
 const VEST_PLATE = {
-  lv4: { name: 'content.vestPlate.lv4.name', armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
-  lv5: { name: 'content.vestPlate.lv5.name', armorLv: 5, maxDur: 100, value: 2400, rarity: 'L3', stackLimit: 1 },
+  lv4: { name: 'content.vestPlate.lv4.name', desc: 'content.vestPlate.lv4.desc', armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
+  lv5: { name: 'content.vestPlate.lv5.name', desc: 'content.vestPlate.lv5.desc', armorLv: 5, maxDur: 100, value: 2400, rarity: 'L3', stackLimit: 1 },
 };
 c.registerAll('vestPlate', VEST_PLATE);
 
 const BACKPACK = {
-  small:  { name: 'content.backpack.small.name',  cap: 8,  value: 300,  rarity: 'L1', stackLimit: 1 },
-  medium: { name: 'content.backpack.medium.name', cap: 16, value: 800,  rarity: 'L2', stackLimit: 1 },
-  large:  { name: 'content.backpack.large.name',  cap: 24, value: 1800, rarity: 'L3', stackLimit: 1 },
+  small:  { name: 'content.backpack.small.name',  desc: 'content.backpack.small.desc',  cap: 8,  value: 300,  rarity: 'L1', stackLimit: 1 },
+  medium: { name: 'content.backpack.medium.name', desc: 'content.backpack.medium.desc', cap: 16, value: 800,  rarity: 'L2', stackLimit: 1 },
+  large:  { name: 'content.backpack.large.name',  desc: 'content.backpack.large.desc',  cap: 24, value: 1800, rarity: 'L3', stackLimit: 1 },
 };
 c.registerAll('backpack', BACKPACK);
 
 const CHEST_RIG = {
-  small: { name: 'content.chestRig.small.name', cap: 4, value: 400, rarity: 'L1', stackLimit: 1 },
-  large: { name: 'content.chestRig.large.name', cap: 6, value: 900, rarity: 'L2', stackLimit: 1 },
+  small: { name: 'content.chestRig.small.name', desc: 'content.chestRig.small.desc', cap: 4, value: 400, rarity: 'L1', stackLimit: 1 },
+  large: { name: 'content.chestRig.large.name', desc: 'content.chestRig.large.desc', cap: 6, value: 900, rarity: 'L2', stackLimit: 1 },
 };
 c.registerAll('chestRig', CHEST_RIG);
 
