@@ -414,11 +414,15 @@ class HUDSystem {
   this._setStyle('hp-bar', 'width', hpPct + '%');
   this._setText('hp-text', Math.round(hpPct) + '%');
 
-  if (p.stamina !== undefined) {
-    const stPct = Math.max(0, Math.min(100, p.stamina / p.maxStamina * 100));
-    this._setStyle('stamina-bar', 'width', stPct + '%');
-    this._setStyle('stamina-bar', 'background', stPct < 20 ? '#ff5b5b' : 'linear-gradient(90deg,#ffd93d,#fff08a)');
-  }
+ if (p.stamina !== undefined) {
+  const stPct = Math.max(0, Math.min(100, p.stamina / p.maxStamina * 100));
+  this._setStyle('stamina-bar', 'width', stPct + '%');
+  let stBg;
+  if (stPct < 15)      stBg = 'linear-gradient(90deg,#d94040,#ff6a4a)';
+  else if (stPct < 35) stBg = 'linear-gradient(90deg,#e09a30,#ffc850)';
+  else                 stBg = 'linear-gradient(90deg,#ffd93d,#fff08a)';
+  this._setStyle('stamina-bar', 'background', stBg);
+}
 
   if (p.charSpec && p.charSpec.prazer) {
     const cpPct = Math.max(0, Math.min(100, p.coupling / p.maxCoupling * 100));
@@ -1285,33 +1289,38 @@ _updatePlayer(dt){
   }
 
     // ★ 2. 硬核体力值系统与自动疾跑
-  const mv = e.input.getMoveVector();
-  const isMoving = (mv.x !== 0 || mv.z !== 0);
+const mv = e.input.getMoveVector();
+const isMoving = (mv.x !== 0 || mv.z !== 0);
 
-  // ★ 移动打断搜索：玩家按方向键/推摇杆即退出搜索面板，不再"卡住"
-  if (this._searching && (Math.abs(mv.x) > 0.15 || Math.abs(mv.z) > 0.15)) {
-    this._closeSearch();
-    this._log('搜索已取消', 'y');
-  }
-  
-  // 摇杆推到底(magnitude > 0.9) 或者 按住Shift(PC) / 疾跑按键(移动端) 触发疾跑
-  const wantsToSprint = e.input.keys.has('shift') || 
-                        e.input.isActive('sprint') || 
-                        (e.input.joystickLeft && e.input.joystickLeft.vector.magnitude > 0.9);
-  
-  let isSprinting = false;
-  
-  if (isMoving && wantsToSprint && p.stamina > 5) {
-    isSprinting = true;
-    p.stamina = Math.max(0, p.stamina - dt * 15); // 冲刺每秒消耗体力
-  } else {
-    // 走路缓慢恢复，站定快速恢复
-    const regen = isMoving ? 5 : 20;
-    p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen); 
-  }
-  
-  const baseSpeed = p.charSpec.speed * (p.speedMul !== undefined ? p.speedMul : 1);
-  const speed = isSprinting ? baseSpeed * 1.8 : baseSpeed; // 冲刺速度加成
+// ★ 移动打断搜索：玩家按方向键/推摇杆即退出搜索面板，不再"卡住"
+if (this._searching && (Math.abs(mv.x) > 0.15 || Math.abs(mv.z) > 0.15)) {
+  this._closeSearch();
+  this._log('搜索已取消', 'y');
+}
+
+const wantsToSprint = e.input.keys.has('shift') ||
+                      e.input.isActive('sprint') ||
+                      (e.input.joystickLeft && e.input.joystickLeft.vector.magnitude > 0.9);
+
+// 体力参数从角色 spec 读，缺省 10 消耗 / 8 走 / 25 站
+const spec = p.charSpec || {};
+const sprintCost = spec.sprintCost !== undefined ? spec.sprintCost : 10;
+const regenMove  = spec.staminaRegen && spec.staminaRegen.move !== undefined ? spec.staminaRegen.move : 8;
+const regenIdle  = spec.staminaRegen && spec.staminaRegen.idle !== undefined ? spec.staminaRegen.idle : 25;
+
+let isSprinting = false;
+if (isMoving && wantsToSprint && p.stamina > 2) {
+  isSprinting = true;
+  p.stamina = Math.max(0, p.stamina - dt * sprintCost);
+} else {
+  const regen = isMoving ? regenMove : regenIdle;
+  p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen);
+}
+
+const baseSpeed = p.charSpec.speed * (p.speedMul !== undefined ? p.speedMul : 1);
+// 冲刺系数：Prazer 1.6，人类 1.55，重装 1.2
+const sprintMul = spec.heavyArmor ? 1.2 : (spec.prazer ? 1.6 : 1.55);
+const speed = isSprinting ? baseSpeed * sprintMul : baseSpeed;
 
   // ★ 3. 移动计算（搜索时锁定移动）
 let moveX = 0, moveZ = 0;
