@@ -1067,10 +1067,12 @@ const buildHumanoid = (spec, opts) => {
   ring.position.y = 0.02;
   g.add(ring);
 
-  // ★ Prazer 轮廓流光（B 方案：每个部位复制一份 BackSide 放大体）
-// 副作用：部位接缝处会有内轮廓线，视作能量从裂缝逸散，符合设定
+ // ★ Prazer 轮廓流光（B 方案：每个部位复制一份 BackSide 放大体）
+// 默认不可见，由 _updateGlowState 在耦合能消耗时点亮
+// forceGlow = true 时（背包预览）强制可见
 if (spec.prazer) {
   const glowColor = spec.glowColor !== undefined ? spec.glowColor : 0xb98cff;
+  const initialVisible = !!spec.forceGlow;
   const glowMeshes = [];
   g.traverse(obj => {
     if (obj.isMesh && obj.userData.part) glowMeshes.push(obj);
@@ -1080,7 +1082,7 @@ if (spec.prazer) {
       color: glowColor,
       side: THREE.BackSide,
       transparent: true,
-      opacity: 0.5,
+      opacity: initialVisible ? 0.5 : 0,
       depthWrite: false,
     }));
     glow.scale.set(1.08, 1.08, 1.08);
@@ -1088,6 +1090,7 @@ if (spec.prazer) {
     glow.rotation.copy(m.rotation);
     glow.name = '__prazer_glow__';
     glow.userData.isGlow = true;
+    glow.visible = initialVisible;
     g.add(glow);
   }
 }
