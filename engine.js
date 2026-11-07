@@ -1411,104 +1411,148 @@ class PhysicsWorld {
     return true;
   }
   _solveCollisions(){
-    this.hash.clear();
-    for (const b of this.dynamicBodies) if (b.alive && !b.sleeping) this.hash.insert(b);
-    
-    for (const a of this.dynamicBodies) {
-      if (!a.alive || a.isStatic || a.sleeping) continue;
-      const neighbors = this.hash.queryCircle(a.position.x, a.position.z, a.radius * 2);
-      for (const b of neighbors) {
-        if (a === b || b.isStatic || !b.alive) continue;
-        if (!this._canCollide(a, b)) continue;
-        this._resolveCircleCircle(a, b);
-      }
-    }
-    for (const a of this.dynamicBodies) {
-      if (!a.alive || a.isStatic || a.sleeping) continue;
-      for (const s of this.staticBodies) {
-        if (!s.alive) continue;
-        if (!this._canCollide(a, s)) continue;
-        if (s.shape === 'aabb') this._resolveCircleAABB(a, s);
-        else this._resolveCircleCircle(a, s);
-      }
-    }
-    
-    for (const a of this.dynamicBodies) {
-      if (!a.alive || a.isStatic) continue;
-      const floor = a.radius;
-      if (a.position.y < floor) {
-        a.position.y = floor;
-        if (a.velocity.y < 0) {
-          a.velocity.y = -a.velocity.y * a.restitution;
-          if (Math.abs(a.velocity.y) < 0.5) a.velocity.y = 0;
-        }
-      }
+  this.hash.clear();
+  for (const b of this.dynamicBodies) if (b.alive && !b.sleeping) this.hash.insert(b);
+  
+  for (const a of this.dynamicBodies) {
+    if (!a.alive || a.isStatic || a.sleeping) continue;
+    const neighbors = this.hash.queryCircle(a.position.x, a.position.z, a.radius * 2);
+    for (const b of neighbors) {
+      if (a === b || b.isStatic || !b.alive) continue;
+      if (!this._canCollide(a, b)) continue;
+      this._resolveCircleCircle(a, b);
     }
   }
+  for (const a of this.dynamicBodies) {
+    if (!a.alive || a.isStatic || a.sleeping) continue;
+    for (const s of this.staticBodies) {
+      if (!s.alive) continue;
+      if (!this._canCollide(a, s)) continue;
+      if (s.shape === 'aabb') this._resolveCircleAABB(a, s);
+      else this._resolveCircleCircle(a, s);
+    }
+  }
+
+  for (const a of this.dynamicBodies) {
+    if (!a.alive || a.isStatic) continue;
+    this._solveGround(a);
+  }
+}
+
+_solveGround(b){
+  const footY = b.position.y - b.halfH;
+  const vY = b.velocity.y;
+
+  let bestGroundY = 0;
+  let bestWall = null;
+  for (const s of this.staticBodies) {
+    if (!s.alive || s.shape !== 'aabb') continue;
+    const sBot = s.yMin !== null ? s.yMin : 0;
+    const sTop = s.yMax !== null ? s.yMax : (s.height || Infinity);
+    const reachX = s.halfW + b.radius * 0.85;
+    const reachZ = s.halfD + b.radius * 0.85;
+    if (Math.abs(b.position.x - s.position.x) > reachX) continue;
+    if (Math.abs(b.position.z - s.position.z) > reachZ) continue;
+    if (footY >= sTop - 0.25 && sTop > bestGroundY) {
+      bestGroundY = sTop;
+      bestWall = s;
+    }
+  }
+
+  const stoodOn = footY <= bestGroundY + 0.05 && vY <= 0.5;
+
+  if (stoodOn) {
+    b.position.y = bestGroundY + b.halfH;
+    if (vY < 0) {
+      b.velocity.y = -vY * b.restitution;
+      if (Math.abs(b.velocity.y) < 0.5) b.velocity.y = 0;
+    }
+    b.grounded = true;
+  } else {
+    b.grounded = false;
+  }
+}
   _resolveCircleCircle(a, b){
-    const dx = b.position.x - a.position.x;
-    const dz = b.position.z - a.position.z;
-    const r  = a.radius + b.radius;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= r * r || d2 < 1e-9) return false;
-    const d = Math.sqrt(d2);
-    const nx = dx / d, nz = dz / d;
-    const overlap = r - d;
-    const invA = a.invMass, invB = b.invMass;
-    const totalInv = invA + invB;
-    if (totalInv <= 0) return true;
-    const corr = overlap / totalInv;
-    a.position.x -= nx * corr * invA;
-    a.position.z -= nz * corr * invA;
-    b.position.x += nx * corr * invB;
-    b.position.z += nz * corr * invB;
-    const vx = b.velocity.x - a.velocity.x;
-    const vz = b.velocity.z - a.velocity.z;
-    const vn = vx * nx + vz * nz;
-    if (vn > 0) return true;
-    const e = Math.min(a.restitution, b.restitution);
-    const j = -(1 + e) * vn / totalInv;
-    a.velocity.x -= j * nx * invA;
-    a.velocity.z -= j * nz * invA;
-    b.velocity.x += j * nx * invB;
-    b.velocity.z += j * nz * invB;
-    return true;
-  }
+  const aBot = a.position.y - a.halfH;
+  const aTop = a.position.y + a.halfH;
+  const bBot = b.position.y - b.halfH;
+  const bTop = b.position.y + b.halfH;
+  if (aTop <= bBot + 0.05 || aBot >= bTop - 0.05) return false;
+
+  const dx = b.position.x - a.position.x;
+  const dz = b.position.z - a.position.z;
+  const r  = a.radius + b.radius;
+  const d2 = dx * dx + dz * dz;
+  if (d2 >= r * r || d2 < 1e-9) return false;
+  const d = Math.sqrt(d2);
+  const nx = dx / d, nz = dz / d;
+  const overlap = r - d;
+  const invA = a.invMass, invB = b.invMass;
+  const totalInv = invA + invB;
+  if (totalInv <= 0) return true;
+  const corr = overlap / totalInv;
+  a.position.x -= nx * corr * invA;
+  a.position.z -= nz * corr * invA;
+  b.position.x += nx * corr * invB;
+  b.position.z += nz * corr * invB;
+  const vx = b.velocity.x - a.velocity.x;
+  const vz = b.velocity.z - a.velocity.z;
+  const vn = vx * nx + vz * nz;
+  if (vn > 0) return true;
+  const e = Math.min(a.restitution, b.restitution);
+  const j = -(1 + e) * vn / totalInv;
+  a.velocity.x -= j * nx * invA;
+  a.velocity.z -= j * nz * invA;
+  b.velocity.x += j * nx * invB;
+  b.velocity.z += j * nz * invB;
+  return true;
+}
   _resolveCircleAABB(c, box){
-    const bx = box.position.x, bz = box.position.z;
-    const minX = bx - box.halfW, maxX = bx + box.halfW;
-    const minZ = bz - box.halfD, maxZ = bz + box.halfD;
-    const cx = clamp(c.position.x, minX, maxX);
-    const cz = clamp(c.position.z, minZ, maxZ);
-    const dx = c.position.x - cx;
-    const dz = c.position.z - cz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 >= c.radius * c.radius) return false;
-    if (d2 < 1e-9) {
-      const dl = c.position.x - minX;
-      const dr = maxX - c.position.x;
-      const dt = c.position.z - minZ;
-      const db = maxZ - c.position.z;
-      const m = Math.min(dl, dr, dt, db);
-      if      (m === dl) { c.position.x = minX - c.radius; c.velocity.x = Math.min(0, c.velocity.x); }
-      else if (m === dr) { c.position.x = maxX + c.radius; c.velocity.x = Math.max(0, c.velocity.x); }
-      else if (m === dt) { c.position.z = minZ - c.radius; c.velocity.z = Math.min(0, c.velocity.z); }
-      else               { c.position.z = maxZ + c.radius; c.velocity.z = Math.max(0, c.velocity.z); }
-      return true;
-    }
-    const d = Math.sqrt(d2);
-    const nx = dx / d, nz = dz / d;
-    const overlap = c.radius - d;
-    c.position.x += nx * overlap;
-    c.position.z += nz * overlap;
-    const vn = c.velocity.x * nx + c.velocity.z * nz;
-    if (vn < 0) {
-      const e = c.restitution;
-      c.velocity.x -= (1 + e) * vn * nx;
-      c.velocity.z -= (1 + e) * vn * nz;
-    }
+  const boxBot = box.yMin !== null ? box.yMin : 0;
+  const boxTop = box.yMax !== null ? box.yMax : (box.height || Infinity);
+  const cBot = c.position.y - c.halfH;
+  const cTop = c.position.y + c.halfH;
+
+  if (cTop <= boxBot + 0.05) return false;
+  if (cBot >= boxTop - 0.05) return false;
+
+  // 正在下落且脚底靠近墙顶 → 不推，让 _solveGround 落地
+  if (c.velocity.y < 0.5 && cBot > boxTop - 0.6 && cBot < boxTop) return false;
+
+  const bx = box.position.x, bz = box.position.z;
+  const minX = bx - box.halfW, maxX = bx + box.halfW;
+  const minZ = bz - box.halfD, maxZ = bz + box.halfD;
+  const cx = clamp(c.position.x, minX, maxX);
+  const cz = clamp(c.position.z, minZ, maxZ);
+  const dx = c.position.x - cx;
+  const dz = c.position.z - cz;
+  const d2 = dx * dx + dz * dz;
+  if (d2 >= c.radius * c.radius) return false;
+  if (d2 < 1e-9) {
+    const dl = c.position.x - minX;
+    const dr = maxX - c.position.x;
+    const dt = c.position.z - minZ;
+    const db = maxZ - c.position.z;
+    const m = Math.min(dl, dr, dt, db);
+    if      (m === dl) { c.position.x = minX - c.radius; c.velocity.x = Math.min(0, c.velocity.x); }
+    else if (m === dr) { c.position.x = maxX + c.radius; c.velocity.x = Math.max(0, c.velocity.x); }
+    else if (m === dt) { c.position.z = minZ - c.radius; c.velocity.z = Math.min(0, c.velocity.z); }
+    else               { c.position.z = maxZ + c.radius; c.velocity.z = Math.max(0, c.velocity.z); }
     return true;
   }
+  const d = Math.sqrt(d2);
+  const nx = dx / d, nz = dz / d;
+  const overlap = c.radius - d;
+  c.position.x += nx * overlap;
+  c.position.z += nz * overlap;
+  const vn = c.velocity.x * nx + c.velocity.z * nz;
+  if (vn < 0) {
+    const e = c.restitution;
+    c.velocity.x -= (1 + e) * vn * nx;
+    c.velocity.z -= (1 + e) * vn * nz;
+  }
+  return true;
+}
   _postStep(){
     for (let i = this.dynamicBodies.length - 1; i >= 0; i--) {
       if (!this.dynamicBodies[i].alive) {
@@ -1519,67 +1563,83 @@ class PhysicsWorld {
       }
     }
   }
-  raycast(ox, oy, oz, dx, dy, dz, maxDist, filter){
-    const len = Math.hypot(dx, dz) || 1;
-    const nx = dx / len, nz = dz / len;
-    let closestT = maxDist;
-    let closest  = null;
-    for (const b of this.bodies) {
-      if (!b.alive) continue;
-      if (filter && !filter(b)) continue;
-      let t;
-      if (b.shape === 'aabb') t = this._rayAABB(ox, oz, nx, nz, b, closestT);
-      else                    t = this._rayCircle(ox, oz, nx, nz, b, closestT);
-      if (t >= 0 && t < closestT) {
-        closestT = t;
-        closest = { body: b, t, point: { x: ox + nx * t, z: oz + nz * t } };
-      }
+   raycast(ox, oy, oz, dx, dy, dz, maxDist, filter){
+  const len = Math.hypot(dx, dy, dz) || 1;
+  const nx = dx / len, ny = dy / len, nz = dz / len;
+  let closestT = maxDist;
+  let closest  = null;
+  for (const b of this.bodies) {
+    if (!b.alive) continue;
+    if (filter && !filter(b)) continue;
+    let t;
+    if (b.shape === 'aabb') t = this._rayAABB(ox, oy, oz, nx, ny, nz, b, closestT);
+    else                    t = this._rayCylinder(ox, oy, oz, nx, ny, nz, b, closestT);
+    if (t >= 0 && t < closestT) {
+      closestT = t;
+      closest = {
+        body: b,
+        t,
+        point: { x: ox + nx * t, y: oy + ny * t, z: oz + nz * t },
+      };
     }
-    return closest;
   }
-  _rayCircle(ox, oz, dx, dz, c, maxT){
-    const cx = c.position.x - ox;
-    const cz = c.position.z - oz;
-    const t = cx * dx + cz * dz;
-    if (t < 0 || t > maxT) return -1;
-    const px = cx - t * dx;
-    const pz = cz - t * dz;
-    const d2 = px * px + pz * pz;
-    const r2 = c.radius * c.radius;
-    if (d2 > r2) return -1;
-    const thc = Math.sqrt(r2 - d2);
-    const t0 = t - thc;
-    if (t0 >= 0 && t0 <= maxT) return t0;
-    const t1 = t + thc;
-    if (t1 >= 0 && t1 <= maxT) return t1;
-    return -1;
+  return closest;
+}
+
+_rayCylinder(ox, oy, oz, dx, dy, dz, c, maxT){
+  const fakeBox = {
+    position: c.position,
+    halfW: c.radius,
+    halfD: c.radius,
+    yMin: c.position.y - c.halfH,
+    yMax: c.position.y + c.halfH,
+  };
+  return this._rayAABB(ox, oy, oz, dx, dy, dz, fakeBox, maxT);
+}
+
+_rayAABB(ox, oy, oz, dx, dy, dz, box, maxT){
+  const minX = box.position.x - box.halfW, maxX = box.position.x + box.halfW;
+  const minZ = box.position.z - box.halfD, maxZ = box.position.z + box.halfD;
+  const minY = box.yMin !== null && box.yMin !== undefined ? box.yMin : -Infinity;
+  const maxY = box.yMax !== null && box.yMax !== undefined ? box.yMax : Infinity;
+
+  let tmin = 0, tmax = maxT;
+
+  if (Math.abs(dx) < 1e-6) {
+    if (ox < minX || ox > maxX) return -1;
+  } else {
+    let t1 = (minX - ox) / dx;
+    let t2 = (maxX - ox) / dx;
+    if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return -1;
   }
-  _rayAABB(ox, oz, dx, dz, box, maxT){
-    const minX = box.position.x - box.halfW, maxX = box.position.x + box.halfW;
-    const minZ = box.position.z - box.halfD, maxZ = box.position.z + box.halfD;
-    let tmin = 0, tmax = maxT;
-    if (Math.abs(dx) < 1e-6) {
-      if (ox < minX || ox > maxX) return -1;
-    } else {
-      let t1 = (minX - ox) / dx;
-      let t2 = (maxX - ox) / dx;
-      if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) return -1;
-    }
-    if (Math.abs(dz) < 1e-6) {
-      if (oz < minZ || oz > maxZ) return -1;
-    } else {
-      let t1 = (minZ - oz) / dz;
-      let t2 = (maxZ - oz) / dz;
-      if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
-      tmin = Math.max(tmin, t1);
-      tmax = Math.min(tmax, t2);
-      if (tmin > tmax) return -1;
-    }
-    return tmin;
+
+  if (Math.abs(dy) < 1e-6) {
+    if (oy < minY || oy > maxY) return -1;
+  } else {
+    let t1 = (minY - oy) / dy;
+    let t2 = (maxY - oy) / dy;
+    if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return -1;
   }
+
+  if (Math.abs(dz) < 1e-6) {
+    if (oz < minZ || oz > maxZ) return -1;
+  } else {
+    let t1 = (minZ - oz) / dz;
+    let t2 = (maxZ - oz) / dz;
+    if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return -1;
+  }
+
+  return tmin;
+}
   isGrounded(x, y, z, radius) {
     const hit = this.raycast(x, y, z, 0, -1, 0, radius + 0.3, b => b.isStatic || b.userData?.type === 'obstacle');
     return !!hit || y <= radius + 0.1;
@@ -2466,13 +2526,13 @@ class Engine {
 
   /* --- 物理工厂 --- */
   physicsFactory(opts){
-    return new PhysicsWorld(Object.assign({
-      gravity: { x: 0, y: -20, z: 0 },
-      cellSize: 8,
-      substeps: 1,
-      enableSleep: true,
-    }, opts || {}));
-  }
+  return new PhysicsWorld(Object.assign({
+    gravity: { x: 0, y: -20, z: 0 },
+    cellSize: 8,
+    substeps: 1,
+    enableSleep: false,
+  }, opts || {}));
+}
 
   /* --- 主循环控制 --- */
   start(){
