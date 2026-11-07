@@ -328,10 +328,11 @@ _renderCharPreview() {
   let mesh = null;
   try {
     mesh = this.engine.meshes.build('player', {
-      color: spec.color !== undefined ? spec.color : 0x5a6b7c,
-      radius: spec.radius || 1.2,
-      prazer: spec.prazer || false,
-    });
+  color: spec.color !== undefined ? spec.color : 0x5a6b7c,
+  radius: spec.radius || 1.2,
+  prazer: spec.prazer || false,
+  forceGlow: true,
+});
     scene.add(mesh);
   } catch (e) {
     console.warn('[BagUI] 建模失败', e);
