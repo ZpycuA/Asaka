@@ -958,9 +958,11 @@ const groundMat = new THREE.MeshStandardMaterial({
     this.engine.renderer.scene.add(this.engine.renderer.camera);
   }
 
-  this._carriedValueBaseline = this._computeCarriedValue();
+    this._carriedValueBaseline = this._computeCarriedValue();
   this._carriedValueTimer = 0;
-  }
+  this._bob = { phase: 0, yBase: 0 };
+  this._fov = { base: 60, target: 60 };
+}
 
   _buildWeapon(id){
     const def = this.engine.content.get('weapons', id);
@@ -1386,10 +1388,57 @@ if (!this._searching) {
   if (e.input.isActive('search')) this._trySearchContainer();
 }
 
+    // ★ 8. Headbob + 武器摆动 + 冲刺 FOV
+  this._updateSpeedFeedback(dt, isMoving, isSprinting, speed);
+
   // 边界限制，防止跑出地图
   const half = this.mapSpec.size / 2 - 1;
   p.body.position.x = Math.max(-half, Math.min(half, p.body.position.x));
   p.body.position.z = Math.max(-half, Math.min(half, p.body.position.z));
+}
+
+_updateSpeedFeedback(dt, isMoving, isSprinting, speed) {
+  const p = this.player;
+  const camCtl = this.engine.cameraCtl;
+  const cam = this.engine.renderer.camera;
+
+  // --- headbob ---
+  if (!this._bob) this._bob = { phase: 0, yBase: 0 };
+  const bobAmp = isSprinting ? 0.055 : (isMoving ? 0.028 : 0);
+  const bobFreq = speed * (isSprinting ? 1.6 : 1.3);
+  if (isMoving) this._bob.phase += dt * bobFreq;
+
+  const bobY = Math.sin(this._bob.phase * 2) * bobAmp;
+  const bobX = Math.cos(this._bob.phase) * bobAmp * 0.4;
+
+  // 应用到 cameraCtl 的 target 高度（follow 里 y 是 body.y + 1.5）
+  // 直接对 camera 位置做偏移，不改 follow target，避免与身体同步冲突
+  if (cam) {
+    cam.position.y += bobY;
+    // 轻微左右倾斜
+    cam.rotation.z = bobX * 0.15;
+  }
+
+  // --- 武器摆动 ---
+  if (p.weaponGroup) {
+    const swayAmp = isSprinting ? 0.025 : (isMoving ? 0.012 : 0.004);
+    const swayX = Math.cos(this._bob.phase) * swayAmp;
+    const swayY = Math.sin(this._bob.phase * 2) * swayAmp * 0.6;
+    const baseX = 0.25, baseY = -0.2, baseZ = -0.4;
+    p.weaponGroup.position.x += (baseX + swayX - p.weaponGroup.position.x) * 0.35;
+    p.weaponGroup.position.y += (baseY + swayY - p.weaponGroup.position.y) * 0.35;
+    p.weaponGroup.position.z += (baseZ - p.weaponGroup.position.z) * 0.35;
+  }
+
+  // --- 冲刺 FOV ---
+  if (!this._fov) this._fov = { base: cam.fov || 60, target: cam.fov || 60 };
+  this._fov.target = isSprinting ? 68 : this._fov.base;
+  const curFov = cam.fov;
+  const nextFov = curFov + (this._fov.target - curFov) * 0.12;
+  if (Math.abs(nextFov - curFov) > 0.05) {
+    cam.fov = nextFov;
+    cam.updateProjectionMatrix();
+  }
 }
 
   
