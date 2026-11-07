@@ -1666,7 +1666,7 @@ _updateProtection(dt){
   p.reloading = 0;
 }
 
- _fireWeapon(owner, weapon, isPlayer){
+ _fireWeapon(owner, weapon, isPlayer, target){
   if (!weapon || !weapon.def) return;
   const def = weapon.def;
   const ammo = weapon.ammoDef;
@@ -1734,11 +1734,30 @@ for (let i = 0; i < pellets; i++) {
   this._raycastBullet(owner, muzzlePos.x, muzzlePos.y, muzzlePos.z, dX / len, dY / len, dZ / len, baseEnergy, range, def, ammo, true);
 }
 } else {
-    // 敌人射击：从胸口高度出发
-    const sy = owner.body.position.y + 1.2;
+    // 敌人射击：从眼睛高度出发，3D 瞄准目标身体中心
+    const eyeY = owner.body.position.y + (owner.body.halfH || 0.9) * 0.75;
+    const tgtBody = target && target.body ? target.body : null;
+    let baseYaw = owner.angle;
+    let basePitchTan = 0;
+    let horizLen = 1;
+    if (tgtBody) {
+      const dx = tgtBody.position.x - owner.body.position.x;
+      const dz = tgtBody.position.z - owner.body.position.z;
+      const dy = tgtBody.position.y - eyeY;
+      horizLen = Math.hypot(dx, dz) || 1;
+      baseYaw = Math.atan2(dz, dx);
+      basePitchTan = dy / horizLen;
+    }
+
     for (let i = 0; i < pellets; i++) {
-      const a = owner.angle + (Math.random() * 2 - 1) * spread;
-      this._raycastBullet(owner, owner.body.position.x, sy, owner.body.position.z, Math.cos(a), 0, Math.sin(a), baseEnergy, range, def, ammo, false);
+      const yawErr = (Math.random() * 2 - 1) * spread;
+      const pitchErr = (Math.random() * 2 - 1) * spread * 0.5;
+      const yaw = baseYaw + yawErr;
+      const pitchTan = basePitchTan + pitchErr;
+      const dirX = Math.cos(yaw);
+      const dirY = pitchTan;
+      const dirZ = Math.sin(yaw);
+      this._raycastBullet(owner, owner.body.position.x, eyeY, owner.body.position.z, dirX, dirY, dirZ, baseEnergy, range, def, ammo, false);
     }
   }
   this._playSFX('shot_' + def.cls, { volume: 0.6 });
@@ -1790,10 +1809,10 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
 }
 
   enemyFire(enemy, target){
-    if (!enemy.alive || !enemy.weapon) return;
-    if (enemy.trainingDummy) return;
-    this._fireWeapon(enemy, enemy.weapon, false);
-  }
+  if (!enemy.alive || !enemy.weapon) return;
+  if (enemy.trainingDummy) return;
+  this._fireWeapon(enemy, enemy.weapon, false, target);
+}
 
 _damageEnemy(enemy, energy, pen, isHead = false){
   if (!enemy.alive) return;
