@@ -47,6 +47,7 @@ const CSS = `
 .bagui-detail{position:fixed;z-index:600;display:none;width:280px;max-height:70vh;overflow-y:auto;padding:10px;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:8px;font-size:11px;line-height:1.7;box-shadow:0 6px 24px rgba(0,0,0,.7);box-sizing:border-box}
 .bagui-detail.on{display:block}
 .bagui-detail-title{font-size:13px;color:#a8d8ff;margin-bottom:6px;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.bagui-desc{font-size:10.5px;color:#9ab8d0;line-height:1.7;margin-bottom:6px;padding:4px 0 6px;border-bottom:1px dashed rgba(80,125,175,.25)}
 .bagui-rarity-tag{font-size:9px;padding:1px 6px;border-radius:3px;font-weight:800;letter-spacing:1px}
 .bagui-rarity-tag.r-L0{background:rgba(255,255,255,.15);color:#ddd}
 .bagui-rarity-tag.r-L1{background:rgba(95,212,122,.2);color:#7fe89a}
@@ -513,11 +514,15 @@ _splitStack(uid, count) {
     return;
   }
   const rawName = def.name || def.n || '?';
-  const displayName = this.engine.i18n.t(rawName);
-  const rarity = item.rarity || 'L0';
-  let html = `<div class="bagui-detail-title"><span>${this._esc(displayName)}</span><span class="bagui-rarity-tag r-${rarity}">${rarity}</span></div>`;
+const displayName = this.engine.i18n.t(rawName);
+const rarity = item.rarity || 'L0';
+let html = `<div class="bagui-detail-title"><span>${this._esc(displayName)}</span><span class="bagui-rarity-tag r-${rarity}">${rarity}</span></div>`;
 
-  const unitVal = this.inv.getItemValue(uid);
+if (def.desc) {
+  html += `<div class="bagui-desc">${this._esc(this.engine.i18n.t(def.desc))}</div>`;
+}
+
+const unitVal = this.inv.getItemValue(uid);
   if (item.qty > 1) {
     const unit = Math.round(unitVal / item.qty);
     html += `<div>数量：${item.qty} / ${item.stackLimit}（单价 ${unit} cp · 总价 ${unitVal} cp）</div>`;
@@ -566,16 +571,14 @@ _splitStack(uid, count) {
     html += '</div>';
   }
 
-  html += '<div class="bagui-effects-title">效果</div><div class="bagui-effects">';
   if (item.effects && item.effects.length > 0) {
-    for (const e of item.effects) {
-      const name = typeof e === 'string' ? e : (e.name || e.id || '?');
-      html += `<div class="bagui-effect-item">${this._esc(name)}</div>`;
-    }
-  } else {
-    html += '<div class="bagui-effects-empty">（无）</div>';
+  html += '<div class="bagui-effects-title">效果</div><div class="bagui-effects">';
+  for (const e of item.effects) {
+    const name = typeof e === 'string' ? e : (e.name || e.id || '?');
+    html += `<div class="bagui-effect-item">${this._esc(name)}</div>`;
   }
   html += '</div>';
+}
 
   if (item.stackLimit > 1 && item.qty > 1) {
     const halfQty = Math.max(1, Math.floor(item.qty / 2));
