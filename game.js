@@ -8,9 +8,8 @@
 import * as THREE from 'three';
 import { Body } from './engine.js';
 import { CombatLog, showCombatReport, hideCombatReport } from './combatlog.js';
-import { Inventory } from './inventory.js';
+import { Inventory, GridContainer } from './inventory.js';
 import { BagUI } from './bagUI.js';
-GridContainer：import { Inventory, GridContainer } from './inventory.js';
 
 /* ============================================================
    [0] 战斗公式常数
@@ -2030,20 +2029,29 @@ for (let i = 0; i < pellets; i++) {
   this._raycastBullet(owner, muzzlePos.x, muzzlePos.y, muzzlePos.z, dX / len, dY / len, dZ / len, baseEnergy, range, def, ammo, true);
 }
 } else {
-    // 敌人射击：从眼睛高度出发，3D 瞄准目标身体中心
+    // ★ 敌人射击：瞄准随机部位（头 10% / 胸 45% / 腹 20% / 腿 25%）
     const eyeY = owner.body.position.y + (owner.body.halfH || 0.9) * 0.75;
     const tgtBody = target && target.body ? target.body : null;
-    let baseYaw = owner.angle;
-    let basePitchTan = 0;
-    let horizLen = 1;
-    if (tgtBody) {
-      const dx = tgtBody.position.x - owner.body.position.x;
-      const dz = tgtBody.position.z - owner.body.position.z;
-      const dy = tgtBody.position.y - eyeY;
-      horizLen = Math.hypot(dx, dz) || 1;
-      baseYaw = Math.atan2(dz, dx);
-      basePitchTan = dy / horizLen;
-    }
+    const hh = tgtBody ? (tgtBody.halfH || 1.2) : 1.2;
+
+    // 随机部位瞄准点
+    const roll = Math.random();
+    let aimYOffset = 0;
+    if (roll < 0.10) aimYOffset = hh * 0.75;
+    else if (roll < 0.55) aimYOffset = hh * 0.25;
+    else if (roll < 0.75) aimYOffset = -hh * 0.05;
+    else aimYOffset = -hh * 0.70;
+
+    const aimX = tgtBody ? tgtBody.position.x : owner.body.position.x;
+    const aimY = tgtBody ? (tgtBody.position.y + aimYOffset) : eyeY;
+    const aimZ = tgtBody ? tgtBody.position.z : owner.body.position.z;
+
+    const dx = aimX - owner.body.position.x;
+    const dz = aimZ - owner.body.position.z;
+    const dy = aimY - eyeY;
+    const horizLen = Math.hypot(dx, dz) || 1;
+    const baseYaw = Math.atan2(dz, dx);
+    const basePitchTan = dy / horizLen;
 
     for (let i = 0; i < pellets; i++) {
       const yawErr = (Math.random() * 2 - 1) * spread;
