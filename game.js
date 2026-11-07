@@ -71,7 +71,11 @@ const ACTION_MAP = {
     label: '背包',
     mobile: { right: '20px', bottom: '260px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
   },
-  switchWeapon: { keys: ['f'], label: '切枪' },
+  switchWeapon: {
+  keys: ['f'],
+  label: '切枪',
+  mobile: { right: '90px', bottom: '260px', size: 55, color: 'rgba(160,120,255,.35)', border: 'rgba(180,140,255,.7)', mode: 'click' },
+},
   skill1:       { keys: ['q'], label: '技能1' },
   skill2:       { keys: ['e'], label: '技能2' },
   protectL1:    { keys: ['1'], label: '防护 L1' },
@@ -2407,8 +2411,11 @@ _updateSearchHint(){
 }
 
 _updateMobileButtons(){
-  if (!this._mobileButtons) return;
-  const searchBtn = this._mobileButtons.search;
+  const app = this.engine.app;
+  if (!app || !app._mobileButtons) return;
+  const buttons = app._mobileButtons;
+
+  const searchBtn = buttons.search;
   if (searchBtn) {
     if (this._searching) {
       searchBtn.style.display = 'none';
@@ -2416,19 +2423,29 @@ _updateMobileButtons(){
       searchBtn.style.display = 'flex';
       const c = this._searchTarget;
       const hasTarget = c && !(c.searched && c.revealed && c.revealed.length === 0);
-      searchBtn.style.opacity = hasTarget ? '1' : '0.45';
+      searchBtn.style.opacity = hasTarget ? '1' : '0.75';
     }
   }
 
-  const reloadBtn = this._mobileButtons.reload;
+  const reloadBtn = buttons.reload;
   if (reloadBtn) {
     const reloading = this.actionProcess.isRunning('reload');
     if (reloading) {
-      reloadBtn.style.background = 'rgba(255,210,80,.6)';
-      reloadBtn.style.borderColor = 'rgba(255,220,100,.9)';
+      reloadBtn.style.background = 'rgba(255,210,80,.65)';
+      reloadBtn.style.borderColor = 'rgba(255,220,100,.95)';
     } else {
       reloadBtn.style.background = 'rgba(200,200,200,.3)';
       reloadBtn.style.borderColor = 'rgba(255,255,255,.6)';
+    }
+  }
+
+  const switchBtn = buttons.switchWeapon;
+  if (switchBtn) {
+    const p = this.player;
+    if (p && !p.sidearm) {
+      switchBtn.style.opacity = '0.4';
+    } else {
+      switchBtn.style.opacity = '1';
     }
   }
 }
@@ -3839,24 +3856,23 @@ _bindCameraControls() {
       transition:opacity .2s, transform .1s;
     `;
     el.textContent = cfg.label;
-
-    // 搜索按钮初始就显示（半透明），由 _updateMobileButtons 控制亮度
-    if (name === 'search') el.style.opacity = '0.5';
-
+     
     const actionKey = cfg.actionId || name;
 
     if (m.mode === 'click') {
-      el.addEventListener('pointerdown', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        el.style.transform = 'scale(0.9)';
-        setTimeout(() => { el.style.transform = 'scale(1)'; }, 100);
-        if (name === 'bag') {
-          if (this.bagUI) this.bagUI.toggle();
-        } else if (name === 'search') {
-          this._trySearchContainer();
-        }
-      });
-    } else {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    el.style.transform = 'scale(0.9)';
+    setTimeout(() => { el.style.transform = 'scale(1)'; }, 100);
+    if (name === 'bag') {
+      if (this.bagUI) this.bagUI.toggle();
+    } else if (name === 'search') {
+      if (this.world) this.world._trySearchContainer();
+    } else if (name === 'switchWeapon') {
+      if (this.world) this.world._switchWeapon();
+    }
+  });
+} else {
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault(); e.stopPropagation();
         this.engine.input.setActionState(actionKey, true);
