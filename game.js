@@ -879,9 +879,10 @@ this._enemySpawnPositions = null;
   this.enemies    = [];
   this.extracts   = [];
   this.containers = [];
+  this.groundLoots = [];
   this.obstacles  = [];
   this.tracers    = [];
-  this.pois       = []; // ★ 新增：兴趣点数组（用于小地图）
+  this.pois       = [];
 
   this.time       = 0;
   this.running    = false;
@@ -1087,7 +1088,72 @@ _spawnContainerAt(cx, cz){
     x: cx, z: cz, mesh, body: cBody,
     opened: false, loot: null, revealed: [], searched: false,
   });
-  this.pois.push({ x: cx, z: cz, type: 'container', color: '#ffcc33' });
+    this.pois.push({ x: cx, z: cz, type: 'container', color: '#ffcc33' });
+}
+
+_spawnGroundLoot(x, z, lootArray, label) {
+  const mesh = new THREE.Group();
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0xaa7744, roughness: 0.7, metalness: 0.2 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 1.0), boxMat);
+  box.position.y = 0.25;
+  mesh.add(box);
+  const markerMat = new THREE.MeshBasicMaterial({ color: 0xffcc33, transparent: true, opacity: 0.65, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.35, 24), markerMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.03;
+  mesh.add(ring);
+  mesh.position.x = x;
+  mesh.position.z = z;
+  this.engine.renderer.scene.add(mesh);
+
+  const loot = {
+    x, z, mesh,
+    opened: false,
+    loot: lootArray || [],
+    revealed: [],
+    searched: false,
+    isGround: true,
+    label: label || '地面物品',
+  };
+  this.groundLoots.push(loot);
+  this.pois.push({ x, z, type: 'container', color: '#ffcc33' });
+  return loot;
+}
+
+_dropItemToGround(uid) {
+  const inv = this.engine.app ? this.engine.app.inventory : null;
+  if (!inv) return false;
+  const item = inv.items.get(uid);
+  if (!item) return false;
+  const parent = inv.parentOf.get(uid);
+  if (!parent || !parent.startsWith('c:')) return false;
+  const cName = parent.slice(2);
+  if (cName === 'stash' || cName === 'safe') {
+    this._log('仓库/安全箱物品无法直接丢弃', 'y');
+    return false;
+  }
+
+  const p = this.player;
+  if (!p) return false;
+  const dropDist = 1.8;
+  const angle = p.angle || 0;
+  const dropX = p.body.position.x + Math.cos(angle) * dropDist;
+  const dropZ = p.body.position.z + Math.sin(angle) * dropDist;
+
+  const spec = {
+    table: item.table,
+    defId: item.defId,
+    qty: item.qty,
+    dur: item.dur,
+    loaded: item.loaded ? { ammoType: item.loaded.ammoType, qty: item.loaded.qty } : null,
+  };
+
+  inv.removeFromContainer(cName, uid);
+  inv.destroyItem(uid);
+
+  this._spawnGroundLoot(dropX, dropZ, [spec], '丢弃物');
+  this._log('已丢弃 ' + this.engine.i18n.t((inv.content.get(item.table, item.defId) || {}).name || item.defId), 'y');
+  return true;
 }
 
 _spawnExtractAt(ex, ez){
@@ -2180,12 +2246,36 @@ if (player.hp <= 0 && player.alive) this._playerDown();
   distance: dist,
   damageContributed: dmg,
 });
-  this._spawnSpark(enemy.body.position.x, enemy.body.position.z);
+    this._spawnSpark(enemy.body.position.x, enemy.body.position.z);
   this.tasks.progress('kill', 1, { faction: enemy.spec.faction });
   this._processModeHook('onEnemyKilled', enemy);
 
-  // ★ 小播报
   this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
+
+  // ★ 生成尸体 loot（武器 + 剩余弹药）
+  const corpseLoot = [];
+  if (enemy.weapon && enemy.weapon.def) {
+    const wDef = enemy.weapon.def;
+    const loadedQty = enemy.weapon.loaded ? enemy.weapon.loaded.qty : 0;
+    const reserve = enemy.weapon.reserve || 0;
+    corpseLoot.push({
+      table: 'weapons',
+      defId: wDef.id,
+      loadedQty,
+    });
+    if (reserve > 0) {
+      corpseLoot.push({
+        table: 'ammo',
+        defId: wDef.ammoType,
+        qty: reserve,
+      });
+    }
+  }
+  if (corpseLoot.length > 0) {
+    const lx = enemy.body.position.x + (Math.random() * 1.2 - 0.6);
+    const lz = enemy.body.position.z + (Math.random() * 1.2 - 0.6);
+    this._spawnGroundLoot(lx, lz, corpseLoot, this.engine.i18n.t(enemy.spec.name) + ' 的尸体');
+  }
 }
 
 _addKillFeed(name, dmg, dist) {
@@ -2260,11 +2350,13 @@ _addKillFeed(name, dmg, dist) {
     const p = this.player;
     if (!p || !p.alive) { this._searchTarget = null; return; }
     let best = null, bestDist = COMBAT.SEARCH_RADIUS;
-    for (const c of this.containers) {
-      if (c.searched && c.revealed && c.revealed.length === 0) continue;
+    const consider = (c) => {
+      if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0)) return;
       const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
       if (d < bestDist) { best = c; bestDist = d; }
-    }
+    };
+    for (const c of this.containers) consider(c);
+    for (const c of this.groundLoots) consider(c);
     this._searchTarget = best;
   } else {
     const c = this._searchTarget;
@@ -2276,7 +2368,6 @@ _addKillFeed(name, dmg, dist) {
     }
   }
 }
-
   _esc(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -2381,6 +2472,11 @@ _renderSearchPanel(){
   if (!body || !c) return;
   const i18n = this.engine.i18n;
 
+  const headerEl = document.querySelector('#search-panel .search-header span');
+  if (headerEl) {
+    headerEl.textContent = c.isGround ? (c.label || '地面物品') : '物资容器';
+  }
+
   let html = '';
   if (c.revealed.length === 0 && c.loot && c.loot.length > 0) {
     html = '<div class="search-empty">搜索中…</div>';
@@ -2423,6 +2519,8 @@ _takeLoot(index){
   const spec = c.revealed[index];
 const extras = { qty: spec.qty || 1 };
 if (spec.extras) Object.assign(extras, spec.extras);
+if (spec.dur !== undefined) extras.dur = spec.dur;
+if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
 const uid = inv.createItem(spec.table, spec.defId, extras);
   if (!uid) return;
   const r = inv.addToContainer('bag', uid);
@@ -2441,10 +2539,12 @@ _takeAllLoot(){
   const inv = this.engine.app ? this.engine.app.inventory : null;
   if (!inv) return;
   for (let i = c.revealed.length - 1; i >= 0; i--) {
-    const spec = c.revealed[i];
+  const spec = c.revealed[i];
 const extras = { qty: spec.qty || 1 };
 if (spec.extras) Object.assign(extras, spec.extras);
-const uid = inv.createItem(spec.table, spec.defId, extras); 
+if (spec.dur !== undefined) extras.dur = spec.dur;
+if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+const uid = inv.createItem(spec.table, spec.defId, extras);
      if (!uid) continue;
     const r = inv.addToContainer('bag', uid);
     if (!r.ok) { inv.destroyItem(uid); this._log('背包已满', 'y'); break; }
@@ -3277,13 +3377,19 @@ if (gyroSens) {
   if (!charSpec) return;
 
   if (!inv.equipped.main && charSpec.weapon) {
-    const uid = inv.createItem('weapons', charSpec.weapon);
-    if (uid) inv.equip('main', uid);
-  }
-  if (!inv.equipped.side && charSpec.sidearm) {
-    const uid = inv.createItem('weapons', charSpec.sidearm);
-    if (uid) inv.equip('side', uid);
-  }
+  const wDef = this.engine.content.get('weapons', charSpec.weapon);
+  const uid = inv.createItem('weapons', charSpec.weapon, {
+    loadedQty: wDef ? (wDef.mag || 0) : 0,
+  });
+  if (uid) inv.equip('main', uid);
+}
+if (!inv.equipped.side && charSpec.sidearm) {
+  const sDef = this.engine.content.get('weapons', charSpec.sidearm);
+  const uid = inv.createItem('weapons', charSpec.sidearm, {
+    loadedQty: sDef ? (sDef.mag || 0) : 0,
+  });
+  if (uid) inv.equip('side', uid);
+}
 
   const armorSlots = [
     ['helmetShell', 'helmetShell', 'lv3'],
