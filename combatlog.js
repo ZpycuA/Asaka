@@ -15,6 +15,7 @@
 const PART_NAMES = {
   face: '面部', head: '头部', thorax: '胸部', abdomen: '腹部',
   larm: '左臂', rarm: '右臂', lleg: '左腿', rleg: '右腿',
+  legs: '腿部',
 };
 
 export const FILTER_GROUPS = {
@@ -276,11 +277,12 @@ export class CombatLog {
       const hp = `${fmtNum(e.targetHpAfter)}/${fmtNum(e.targetMaxHp)}`;
       let armor = '';
       if (e.armor && e.armor.absorbed > 0) {
-        armor = ` · 甲 Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
-        if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[完全损坏]</span>';
-      } else if (e.pierced) {
-        armor = ' · <span style="color:#ff44aa">穿透护甲</span>';
-      }
+  const layer = e.armor.layer ? e.armor.layer + ' ' : '';
+  armor = ` · ${layer}Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
+  if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[完全损坏]</span>';
+} else if (e.pierced) {
+  armor = ' · <span style="color:#ff44aa">穿透护甲</span>';
+}
       const hsTag = e.headshot ? ' · <span style="color:#ffdd44">击中头部</span>' : '';
       return {
         cls: 'out',
