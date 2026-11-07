@@ -24,8 +24,7 @@ const CSS = `
 .bagui-grid{position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto}
 .bagui-cell{position:absolute;border:1px solid rgba(255,255,255,.03);box-sizing:border-box;pointer-events:none}
 
-.bagui-item{position:absolute;background:rgba(60,100,150,.4);border:1px solid rgba(110,180,255,.5);border-radius:4px;box-sizing:border-box;cursor:pointer;overflow:hidden;transition:transform 0.1s}
-.bagui-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
+.bagui-item{position:absolute;background:rgba(60,100,150,.4);border:1px solid rgba(110,180,255,.5);border-radius:4px;box-sizing:border-box;cursor:pointer;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}.bagui-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
 .bagui-item[data-rarity="L1"]{border-color:#5fd47a;background:linear-gradient(180deg,rgba(95,212,122,.22),rgba(30,60,45,.85))}
 .bagui-item[data-rarity="L2"]{border-color:#4a9eff;background:linear-gradient(180deg,rgba(74,158,255,.22),rgba(25,50,80,.85))}
 .bagui-item[data-rarity="L3"]{border-color:#ffd93d;background:linear-gradient(180deg,rgba(255,217,61,.2),rgba(70,60,25,.85))}
@@ -406,10 +405,12 @@ _renderRight() {
   _cname(n) { return { chest: '胸挂', pocket: '口袋', bag: '背包', safe: '安全箱', stash: '仓库' }[n] || n; }
   _esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
-  _bindItemEvents(root) {
+ _bindItemEvents(root) {
   root.querySelectorAll('.bagui-item.has-item').forEach(el => {
     const uid = el.dataset.uid;
     
+    el.addEventListener('dragstart', e => e.preventDefault()); // ★ 禁用原生拖拽
+
     el.addEventListener('pointerdown', (e) => {
       const item = this.inv.items.get(uid);
       if (item && item.searched === false) return; // 未搜索不能拖拽
@@ -732,130 +733,162 @@ if (sellBtn) {
     this.refresh();
   }
 
-  /* ===== 拖拽 ===== */
-  _onDown(e, uid, el) {
-    if (e.button !== undefined && e.button > 0) return;
-    const rect = el.getBoundingClientRect();
-    this._drag = { 
-      uid, 
-      startX: e.clientX, 
-      startY: e.clientY, 
-      offsetX: e.clientX - rect.left,
-      offsetY: e.clientY - rect.top,
-      moved: false, 
-      ghost: null, 
-      srcEl: el 
-    };
+/* ===== 拖拽 ===== */
+_onDown(e, uid, el) {
+  if (e.button !== undefined && e.button > 0) return;
+  e.preventDefault(); 
+  const rect = el.getBoundingClientRect();
+  this._drag = { 
+    uid, 
+    startX: e.clientX, 
+    startY: e.clientY, 
+    offsetX: e.clientX - rect.left,
+    offsetY: e.clientY - rect.top,
+    moved: false, 
+    ghost: null, 
+    srcEl: el,
+    pointerId: e.pointerId
+  };
+  // ★ 锁死指针，防止移出元素后丢失事件
+  if (el.setPointerCapture && e.pointerId !== undefined) {
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+  }
+}
+
+_onMove(e) {
+  if (!this._drag) return;
+  if (this._drag.pointerId !== undefined && e.pointerId !== this._drag.pointerId) return;
+
+  if (!this._drag.moved) {
+    const dx = e.clientX - this._drag.startX, dy = e.clientY - this._drag.startY;
+    if (dx * dx + dy * dy < 25) return; // 5px 触发
+    this._drag.moved = true;
+    
+    const ghost = this._drag.srcEl.cloneNode(true);
+    ghost.classList.add('ghost');
+    ghost.classList.remove('has-item');
+    ghost.style.width = this._drag.srcEl.offsetWidth + 'px';
+    ghost.style.height = this._drag.srcEl.offsetHeight + 'px';
+    ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
+    ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
+    document.body.appendChild(ghost);
+    
+    this._drag.ghost = ghost;
+    if (this._drag.srcEl) this._drag.srcEl.style.opacity = 0.3;
+  }
+  
+  if (this._drag.ghost) {
+    this._drag.ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
+    this._drag.ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
   }
 
-  _onMove(e) {
-    if (!this._drag) return;
-    if (!this._drag.moved) {
-      const dx = e.clientX - this._drag.startX, dy = e.clientY - this._drag.startY;
-      if (dx * dx + dy * dy < 25) return; // 5px 触发，更灵敏
-      this._drag.moved = true;
-      
-      const ghost = this._drag.srcEl.cloneNode(true);
-      ghost.classList.add('ghost');
-      ghost.classList.remove('has-item');
-      ghost.style.width = this._drag.srcEl.offsetWidth + 'px';
-      ghost.style.height = this._drag.srcEl.offsetHeight + 'px';
-      ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
-      ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
-      document.body.appendChild(ghost);
-      
-      this._drag.ghost = ghost;
-      if (this._drag.srcEl) this._drag.srcEl.style.opacity = 0.3;
-    }
-    
-    if (this._drag.ghost) {
-      this._drag.ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
-      this._drag.ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
-    }
-
-    // 高亮目标网格
-    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
-    const tgt = document.elementFromPoint(e.clientX, e.clientY);
-    if (tgt) {
-      const wrap = tgt.closest('.bagui-grid-wrap');
-      if (wrap) wrap.style.boxShadow = '0 0 10px #7bf5a8 inset';
-    }
-  }
-
-  _onUp(e) {
-    if (!this._drag) return;
-    const moved = this._drag.moved;
-    const uid = this._drag.uid;
-    const srcEl = this._drag.srcEl;
-    
-    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
-    
-    if (!moved) { 
-      this._cancelDrag(); 
-      return; 
-    }
-
-    this._didDrag = true; // 防止 click 触发
-    
-    const px = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : this._drag.startX;
-    const py = (e.clientY !== undefined && e.clientY !== 0) ? e.clientY : this._drag.startY;
-    const tgt = document.elementFromPoint(px, py);
-    const offsetX = this._drag.offsetX;
-    const offsetY = this._drag.offsetY;
-    
-    this._cancelDrag();
-    
-    if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
-    
+  document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
+  const tgt = document.elementFromPoint(e.clientX, e.clientY);
+  if (tgt) {
     const wrap = tgt.closest('.bagui-grid-wrap');
-    if (wrap) {
-      const containerName = wrap.dataset.container;
-      const rect = wrap.getBoundingClientRect();
-      
-      // 计算 ghost 左上角相对于网格的位置
-      const ghostLeft = px - offsetX;
-      const ghostTop = py - offsetY;
-      
-      // 吸附到格子
-      let gx = Math.round((ghostLeft - rect.left) / CELL);
-      let gy = Math.round((ghostTop - rect.top) / CELL);
+    if (wrap) wrap.style.boxShadow = '0 0 10px #7bf5a8 inset';
+  }
+}
 
-      const item = this.inv.items.get(uid);
-      let targetGrid = null;
-      if (containerName.startsWith('inner:')) {
-        const host = this.inv.items.get(containerName.slice(6));
-        if (host) targetGrid = host.innerGrid;
-      } else {
-        targetGrid = this.inv.containers[containerName];
+_onUp(e) {
+  if (!this._drag) return;
+  if (this._drag.pointerId !== undefined && e.pointerId !== this._drag.pointerId) return;
+
+  const moved = this._drag.moved;
+  const uid = this._drag.uid;
+  const srcEl = this._drag.srcEl;
+  const offsetX = this._drag.offsetX;
+  const offsetY = this._drag.offsetY;
+  
+  document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
+  
+  if (!moved) { 
+    this._cancelDrag(); 
+    return; 
+  }
+
+  this._didDrag = true;
+  
+  const px = e.clientX;
+  const py = e.clientY;
+  this._cancelDrag();
+  
+  // ★ 防止 pointercancel 触发的 undefined 坐标
+  if (px === undefined || py === undefined) {
+    if (srcEl) srcEl.style.opacity = 1;
+    return;
+  }
+  
+  const tgt = document.elementFromPoint(px, py);
+  if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
+  
+  const wrap = tgt.closest('.bagui-grid-wrap');
+  if (wrap) {
+    const containerName = wrap.dataset.container;
+    const rect = wrap.getBoundingClientRect();
+    
+    const ghostLeft = px - offsetX;
+    const ghostTop = py - offsetY;
+    
+    let gx = Math.round((ghostLeft - rect.left) / CELL);
+    let gy = Math.round((ghostTop - rect.top) / CELL);
+
+    const item = this.inv.items.get(uid);
+    let targetGrid = null;
+    if (containerName.startsWith('inner:')) {
+      const host = this.inv.items.get(containerName.slice(6));
+      if (host) targetGrid = host.innerGrid;
+    } else {
+      targetGrid = this.inv.containers[containerName];
+    }
+    
+    if (targetGrid) {
+      // ★ 关键修复：如果是放回原容器且坐标没变，直接静默取消，不刷新 UI
+      const currentParent = this.inv.parentOf.get(uid);
+      const isSameContainer = (currentParent === containerName || (currentParent === 'c:' + containerName));
+      const oldPos = targetGrid.items.get(uid);
+      
+      if (isSameContainer && oldPos && oldPos.x === gx && oldPos.y === gy) {
+        return; // 静默退出，srcEl 已经在 _cancelDrag 中恢复不透明
+      }
+
+      let ok = this._placeAt(containerName, targetGrid, uid, gx, gy, item.rotated).ok;
+      if (!ok) {
+        // 尝试翻转
+        ok = this._placeAt(containerName, targetGrid, uid, gx, gy, !item.rotated).ok;
+      }
+      if (!ok) {
+        // 尝试自动寻找空位
+        ok = this.inv.addToContainer(containerName, uid).ok;
       }
       
-      if (targetGrid) {
-        // 尝试放置原状态
-        const moveRes = this._placeAt(containerName, targetGrid, uid, gx, gy, item.rotated);
-        if (!moveRes.ok) {
-          // 尝试翻转
-          const rotated = !item.rotated;
-          const rgx = Math.round((ghostLeft - rect.left) / CELL);
-          const rgy = Math.round((ghostTop - rect.top) / CELL);
-          const moveRes2 = this._placeAt(containerName, targetGrid, uid, rgx, rgy, rotated);
-          if (!moveRes2.ok) {
-            // 尝试自动寻找空位
-            this.inv.addToContainer(containerName, uid);
-          }
-        }
+      if (ok) {
+        this.refresh();
+      } else {
+        // 放不下，直接恢复原状
+        if (srcEl) srcEl.style.opacity = 1;
       }
     } else {
-      const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
-      if (equip) {
-        const slot = equip.dataset.srcSlot;
+      if (srcEl) srcEl.style.opacity = 1;
+    }
+  } else {
+    const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
+    if (equip) {
+      const slot = equip.dataset.srcSlot;
+      const currentParent = this.inv.parentOf.get(uid);
+      if (currentParent !== 'eq:' + slot) {
         this.inv._detach(uid);
         const r = this.inv.equip(slot, uid);
-        if (!r.ok) console.warn('[BagUI] 装备失败', r.reason);
+        if (r.ok) this.refresh();
+        else if (srcEl) srcEl.style.opacity = 1;
+      } else {
+        if (srcEl) srcEl.style.opacity = 1;
       }
+    } else {
+      if (srcEl) srcEl.style.opacity = 1;
     }
-    
-    this.refresh();
   }
+}
 
   _placeAt(containerName, grid, uid, gx, gy, rotated) {
     const item = this.inv.items.get(uid);
