@@ -209,22 +209,25 @@ c.registerAll('chestRig', CHEST_RIG);
      enemyCount:     敌人数量
      ========================================================== */
   const MAPS = {
-    factory: {
-      name: 'content.map.factory.name',
-      desc: 'content.map.factory.desc',
-      size: 120, obstacleCount: 50, enemyCount: 6,
-    },
-    desert: {
-      name: 'content.map.desert.name',
-      desc: 'content.map.desert.desc',
-      size: 160, obstacleCount: 35, enemyCount: 8,
-    },
-    lab: {
-      name: 'content.map.lab.name',
-      desc: 'content.map.lab.desc',
-      size: 100, obstacleCount: 70, enemyCount: 10,
-    },
-  };
+  factory: {
+    name: 'content.map.factory.name',
+    desc: 'content.map.factory.desc',
+    size: 120, obstacleCount: 50, enemyCount: 6,
+    layoutUrl: 'maps/factory.json',
+  },
+  desert: {
+    name: 'content.map.desert.name',
+    desc: 'content.map.desert.desc',
+    size: 160, obstacleCount: 35, enemyCount: 8,
+    layoutUrl: 'maps/desert.json',
+  },
+  lab: {
+    name: 'content.map.lab.name',
+    desc: 'content.map.lab.desc',
+    size: 100, obstacleCount: 70, enemyCount: 10,
+    layoutUrl: 'maps/lab.json',
+  },
+};
   c.registerAll('maps', MAPS);
 
   /* ==========================================================
