@@ -369,7 +369,6 @@ _renderRight() {
     </div>`;
   }
 
-  const def = this.inv.getDef(item);
     const def = this.inv.getDef(item);
     const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
     const rarity = item.rarity || 'L0';
