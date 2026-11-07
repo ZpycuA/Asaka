@@ -1777,6 +1777,16 @@ _updateProgressUI() {
   if (labelEl) labelEl.textContent = prog.label;
   if (fillEl) fillEl.style.width = (prog.pct * 100).toFixed(1) + '%';
   if (timeEl) timeEl.textContent = prog.remain.toFixed(1) + 's';
+
+  const cancelBtn = document.getElementById('action-progress-cancel');
+  if (cancelBtn && !cancelBtn._bound) {
+    cancelBtn._bound = true;
+    cancelBtn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.actionProcess.cancel('手动取消');
+    });
+  }
 }
 
 _updateProtection(dt){
