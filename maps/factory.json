@@ -1,0 +1,44 @@
+{
+  "id": "factory",
+  "size": 120,
+  "playerSpawn": { "x": 0, "z": 0 },
+  "obstacles": [
+    { "x": 15, "z": 0, "w": 8, "d": 1, "yMin": 0, "yMax": 1.2, "type": "lowWall" },
+    { "x": -15, "z": 0, "w": 8, "d": 1, "yMin": 0, "yMax": 3.0, "type": "highWall" },
+    { "x": 0, "z": 20, "w": 20, "d": 1, "yMin": 0, "yMax": 3.0, "type": "highWall" },
+
+    { "x": 25, "z": 20, "w": 1, "d": 1, "yMin": 0, "yMax": 4.0, "type": "pillar" },
+    { "x": 30, "z": 20, "w": 1, "d": 1, "yMin": 0, "yMax": 4.0, "type": "pillar" },
+    { "x": 25, "z": 25, "w": 1, "d": 1, "yMin": 0, "yMax": 4.0, "type": "pillar" },
+    { "x": 30, "z": 25, "w": 1, "d": 1, "yMin": 0, "yMax": 4.0, "type": "pillar" },
+    { "x": 27.5, "z": 22.5, "w": 8, "d": 8, "yMin": 4.0, "yMax": 4.3, "type": "platform" },
+
+    { "x": 19, "z": 22.5, "w": 1.2, "d": 1.2, "yMin": 0, "yMax": 1.0, "type": "step" },
+    { "x": 20.5, "z": 22.5, "w": 1.2, "d": 1.2, "yMin": 0, "yMax": 2.0, "type": "step" },
+    { "x": 22, "z": 22.5, "w": 1.2, "d": 1.2, "yMin": 0, "yMax": 3.0, "type": "step" },
+    { "x": 23.5, "z": 22.5, "w": 1.2, "d": 1.2, "yMin": 0, "yMax": 4.0, "type": "step" },
+
+    { "x": -35, "z": -25, "w": 4, "d": 4, "yMin": 0, "yMax": 1.5, "type": "crate" },
+    { "x": -40, "z": -25, "w": 4, "d": 4, "yMin": 0, "yMax": 1.5, "type": "crate" },
+    { "x": -37.5, "z": -28, "w": 4, "d": 4, "yMin": 1.5, "yMax": 3.0, "type": "crate" },
+
+    { "x": 40, "z": -40, "w": 6, "d": 6, "yMin": 0, "yMax": 3.5, "type": "building" },
+    { "x": 40, "z": -40, "w": 4, "d": 4, "yMin": 3.5, "yMax": 3.8, "type": "roof" }
+  ],
+  "containers": [
+    { "x": 10, "z": 10 },
+    { "x": -25, "z": 30 },
+    { "x": 40, "z": 40 },
+    { "x": -40, "z": -40 }
+  ],
+  "extracts": [
+    { "x": -50, "z": -50 },
+    { "x": 50, "z": 50 }
+  ],
+  "enemySpawns": [
+    { "x": 30, "z": 30 },
+    { "x": -30, "z": -30 },
+    { "x": 40, "z": -20 },
+    { "x": -20, "z": 40 }
+  ]
+}
