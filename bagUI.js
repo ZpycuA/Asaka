@@ -372,16 +372,19 @@ export class BagUI {
       const uid = el.dataset.uid;
       el.addEventListener('pointerdown', (e) => this._onDown(e, uid, el));
       el.addEventListener('click', (e) => {
-        if (!this._drag) {
-          this.selectedUid = uid;
-          const mx = e.clientX !== undefined ? e.clientX : 100;
-          const my = e.clientY !== undefined ? e.clientY : 100;
-          this._renderDetail(mx, my);
+        if (this._didDrag) {
+          this._didDrag = false;
+          return;
         }
+        this.selectedUid = uid;
+        const mx = e.clientX !== undefined ? e.clientX : 100;
+        const my = e.clientY !== undefined ? e.clientY : 100;
+        this._renderDetail(mx, my);
       });
       el.addEventListener('dblclick', (e) => { e.preventDefault(); this._quickEquip(uid); });
     });
   }
+
 
   _quickEquip(uid) {
     const item = this.inv.items.get(uid);
@@ -473,6 +476,24 @@ export class BagUI {
       if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
       if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
       html += `</span></div>`;
+    }
+
+    if (item.attachments) {
+  html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
+  for (const slot of ['muzzle', 'sight', 'mag', 'grip']) {
+    const aUid = item.attachments[slot];
+    html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
+    html += `<span class="bagui-attach-label">${slot}</span>`;
+    if (aUid) {
+      const aDef = this.inv.getDef(this.inv.items.get(aUid));
+      const aRaw = aDef ? (aDef.name || aDef.n || '?') : '?';
+      html += `<span class="bagui-attach-val">${this._esc(this.engine.i18n.t(aRaw))}</span>`;
+    } else {
+      html += '<span class="bagui-attach-empty">空</span>';
+    }
+    html += `</div>`;
+  }
+  html += '</div>';
     }
 
     // 内部网格打开按钮
@@ -599,28 +620,33 @@ export class BagUI {
   /* ===== 拖拽 ===== */
   _onDown(e, uid, el) {
     if (e.button !== undefined && e.button > 0) return;
-    e.preventDefault();
-    this._drag = { uid, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, srcEl: el };
+    const rect = el.getBoundingClientRect();
+    this._drag = { 
+      uid, 
+      startX: e.clientX, 
+      startY: e.clientY, 
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      moved: false, 
+      ghost: null, 
+      srcEl: el 
+    };
   }
 
   _onMove(e) {
     if (!this._drag) return;
     if (!this._drag.moved) {
       const dx = e.clientX - this._drag.startX, dy = e.clientY - this._drag.startY;
-      if (dx * dx + dy * dy < 100) return;
+      if (dx * dx + dy * dy < 25) return; // 5px 触发，更灵敏
       this._drag.moved = true;
-      
-      const item = this.inv.items.get(this._drag.uid);
-      const def = item ? this.inv.getDef(item) : null;
-      const rawName = def ? (def.name || def.n || '?') : '?';
       
       const ghost = this._drag.srcEl.cloneNode(true);
       ghost.classList.add('ghost');
       ghost.classList.remove('has-item');
       ghost.style.width = this._drag.srcEl.offsetWidth + 'px';
       ghost.style.height = this._drag.srcEl.offsetHeight + 'px';
-      ghost.style.left = e.clientX + 'px';
-      ghost.style.top = e.clientY + 'px';
+      ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
+      ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
       document.body.appendChild(ghost);
       
       this._drag.ghost = ghost;
@@ -628,8 +654,8 @@ export class BagUI {
     }
     
     if (this._drag.ghost) {
-      this._drag.ghost.style.left = e.clientX + 'px';
-      this._drag.ghost.style.top = e.clientY + 'px';
+      this._drag.ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
+      this._drag.ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
     }
 
     // 高亮目标网格
@@ -649,11 +675,19 @@ export class BagUI {
     
     document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
     
-    if (!moved) { this._cancelDrag(); return; }
+    if (!moved) { 
+      this._cancelDrag(); 
+      return; 
+    }
+
+    this._didDrag = true; // 防止 click 触发
     
     const px = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : this._drag.startX;
     const py = (e.clientY !== undefined && e.clientY !== 0) ? e.clientY : this._drag.startY;
     const tgt = document.elementFromPoint(px, py);
+    const offsetX = this._drag.offsetX;
+    const offsetY = this._drag.offsetY;
+    
     this._cancelDrag();
     
     if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
@@ -662,17 +696,16 @@ export class BagUI {
     if (wrap) {
       const containerName = wrap.dataset.container;
       const rect = wrap.getBoundingClientRect();
-      const clickX = px - rect.left;
-      const clickY = py - rect.top;
       
-      const item = this.inv.items.get(uid);
-      let w = item.w, h = item.h;
-      if (item.rotated) { const tmp = w; w = h; h = tmp; }
+      // 计算 ghost 左上角相对于网格的位置
+      const ghostLeft = px - offsetX;
+      const ghostTop = py - offsetY;
       
-      // 计算目标格（鼠标对齐中心）
-      let gx = Math.round((clickX - (w * CELL) / 2) / CELL);
-      let gy = Math.round((clickY - (h * CELL) / 2) / CELL);
+      // 吸附到格子
+      let gx = Math.round((ghostLeft - rect.left) / CELL);
+      let gy = Math.round((ghostTop - rect.top) / CELL);
 
+      const item = this.inv.items.get(uid);
       let targetGrid = null;
       if (containerName.startsWith('inner:')) {
         const host = this.inv.items.get(containerName.slice(6));
@@ -682,24 +715,22 @@ export class BagUI {
       }
       
       if (targetGrid) {
-        // 尝试放到点击位置（保持旋转状态）
+        // 尝试放置原状态
         const moveRes = this._placeAt(containerName, targetGrid, uid, gx, gy, item.rotated);
         if (!moveRes.ok) {
-          // 如果不行，尝试反转
-          const rw = item.rotated ? item.w : item.h;
-          const rh = item.rotated ? item.h : item.w;
-          let rgx = Math.round((clickX - (rw * CELL) / 2) / CELL);
-          let rgy = Math.round((clickY - (rh * CELL) / 2) / CELL);
-          const moveRes2 = this._placeAt(containerName, targetGrid, uid, rgx, rgy, !item.rotated);
+          // 尝试翻转
+          const rotated = !item.rotated;
+          const rgx = Math.round((ghostLeft - rect.left) / CELL);
+          const rgy = Math.round((ghostTop - rect.top) / CELL);
+          const moveRes2 = this._placeAt(containerName, targetGrid, uid, rgx, rgy, rotated);
           if (!moveRes2.ok) {
-            // 再不行，就自动找位置
+            // 尝试自动寻找空位
             this.inv.addToContainer(containerName, uid);
           }
         }
       }
     } else {
-      // 丢在外面或者装备槽
-      const equip = tgt.closest('.bagui-slot[data-src-type="equip"]');
+      const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
       if (equip) {
         const slot = equip.dataset.srcSlot;
         this.inv._detach(uid);
@@ -717,7 +748,12 @@ export class BagUI {
     const w = rotated ? item.h : item.w;
     const h = rotated ? item.w : item.h;
     
-    if (gx < 0 || gy < 0 || gx + w > grid.w || gy + h > grid.h) return { ok: false };
+    // 边缘自动贴边
+    if (gx < 0) gx = 0;
+    if (gy < 0) gy = 0;
+    if (gx + w > grid.w) gx = grid.w - w;
+    if (gy + h > grid.h) gy = grid.h - h;
+    if (gx < 0 || gy < 0) return { ok: false };
     
     // 检查区域是否为空（忽略自己）
     for (let dy = 0; dy < h; dy++) {
@@ -727,9 +763,7 @@ export class BagUI {
       }
     }
 
-    // 先移除
     this.inv._detach(uid);
-    // 占用
     this.inv._occupy(grid, uid, gx, gy, w, h, rotated);
     item.rotated = rotated;
     this.inv.parentOf.set(uid, containerName.startsWith('inner:') ? containerName : 'c:' + containerName);
