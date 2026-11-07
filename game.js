@@ -1916,9 +1916,10 @@ for (const sk of p.skills) {
     }
   }
 
-   // ★ 6. 换弹与开火逻辑
+// ★ 6. 换弹与开火逻辑（击倒状态全面禁用）
+const isDowned = p.status && p.status.isDowned();
 const reloading = this.actionProcess.isRunning('reload');
-if (!this._searching) {
+if (!this._searching && !isDowned) {
   if (p.fireCd > 0) p.fireCd -= dt;
   const cw = this.currentWeapon;
   if (!reloading && e.input.isActive('fire') && p.fireCd <= 0 && cw) {
