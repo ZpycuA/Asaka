@@ -997,76 +997,115 @@ class MeshFactory {
     }
   }
   _installDefaults(){
-    /* -------- player -------- */
-    this.register('player', (spec) => {
-      const g = new THREE.Group();
-      const color = spec.color !== undefined ? spec.color : 0x5a6b7c;
-      const radius = spec.radius || 1.2;
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(radius * 0.65, radius * 0.8, 6, 12),
-        new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.2 })
-      );
-      body.position.y = radius * 1.1;
-      g.add(body);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(radius * 0.5, 14, 14),
-        new THREE.MeshStandardMaterial({ color: 0xf0d0a0, roughness: 0.7 })
-      );
-      head.position.y = radius * 2.2;
-      g.add(head);
-      const muzzle = new THREE.Mesh(
-        new THREE.BoxGeometry(radius * 1.1, radius * 0.18, radius * 0.18),
-        new THREE.MeshStandardMaterial({ color: 0x2b3542, roughness: 0.5, metalness: 0.4 })
-      );
-      muzzle.position.set(radius * 0.9, radius * 1.1, 0);
-      g.add(muzzle);
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(radius * 1.0, radius * 1.3, 32),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
-      g.add(ring);
-      // Prazer 光环
-      if (spec.prazer) {
-        const aura = new THREE.Mesh(
-          new THREE.RingGeometry(radius * 1.4, radius * 1.55, 32),
-          new THREE.MeshBasicMaterial({ color: 0xb98cff, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
-        );
-        aura.rotation.x = -Math.PI / 2;
-        aura.position.y = 0.03;
-        aura.name = '__prazer_aura__';
-        g.add(aura);
-      }
-      return g;
-    });
+   /* -------- humanoid 统一人形模型（头/胸/腹/左右臂/左右腿） -------- */
+const buildHumanoid = (spec, opts) => {
+  const g = new THREE.Group();
+  const color = spec.color !== undefined ? spec.color : (opts.defaultColor || 0x5a6b7c);
+  const skinColor = spec.skinColor !== undefined ? spec.skinColor : (opts.defaultSkin || 0xf0d0a0);
+  const ringColor = opts.ringColor !== undefined ? opts.ringColor : color;
+  const ringOpacity = opts.ringOpacity !== undefined ? opts.ringOpacity : 0.4;
 
-    /* -------- enemy -------- */
-    this.register('enemy', (spec) => {
-      const g = new THREE.Group();
-      const color = spec.color !== undefined ? spec.color : 0x9a6a4a;
-      const radius = spec.radius || 1.2;
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(radius * 0.55, radius * 0.7, 6, 12),
-        new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 })
-      );
-      body.position.y = radius * 1.0;
-      g.add(body);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(radius * 0.45, 14, 14),
-        new THREE.MeshStandardMaterial({ color: 0xe0a070, roughness: 0.7 })
-      );
-      head.position.y = radius * 2.0;
-      g.add(head);
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(radius * 0.9, radius * 1.1, 24),
-        new THREE.MeshBasicMaterial({ color: 0xff5a5a, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
-      );
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
-      g.add(ring);
-      return g;
-    });
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.15 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.7 });
+  const gunMat = new THREE.MeshStandardMaterial({ color: 0x2b3542, roughness: 0.5, metalness: 0.5 });
+
+  // 头部（球）· 视觉中心 2.10，覆盖 1.875~2.325
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.225, 16, 16), skinMat);
+  head.position.y = 2.10;
+  head.userData.part = 'head';
+  g.add(head);
+
+  // 胸（盒）· 1.30~1.90
+  const thorax = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.60, 0.28), bodyMat);
+  thorax.position.y = 1.60;
+  thorax.userData.part = 'thorax';
+  g.add(thorax);
+
+  // 腹（盒）· 1.00~1.30
+  const abdomen = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.30, 0.24), bodyMat);
+  abdomen.position.y = 1.15;
+  abdomen.userData.part = 'abdomen';
+  g.add(abdomen);
+
+  // 左臂
+  const armGeo = new THREE.CapsuleGeometry(0.075, 0.55, 4, 8);
+  const larm = new THREE.Mesh(armGeo, bodyMat);
+  larm.position.set(-0.33, 1.55, 0);
+  larm.userData.part = 'larm';
+  g.add(larm);
+
+  // 右臂
+  const rarm = new THREE.Mesh(armGeo, bodyMat);
+  rarm.position.set(0.33, 1.55, 0);
+  rarm.userData.part = 'rarm';
+  g.add(rarm);
+
+  // 左腿
+  const legGeo = new THREE.CapsuleGeometry(0.095, 0.60, 4, 8);
+  const lleg = new THREE.Mesh(legGeo, bodyMat);
+  lleg.position.set(-0.14, 0.50, 0);
+  lleg.userData.part = 'lleg';
+  g.add(lleg);
+
+  // 右腿
+  const rleg = new THREE.Mesh(legGeo, bodyMat);
+  rleg.position.set(0.14, 0.50, 0);
+  rleg.userData.part = 'rleg';
+  g.add(rleg);
+
+  // 手持武器
+  const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.12), gunMat);
+  muzzle.position.set(0.32, 1.55, 0.30);
+  g.add(muzzle);
+
+  // 地面光环
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.9, 1.1, 32),
+    new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: ringOpacity, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.02;
+  g.add(ring);
+
+  // Prazer 光环
+  if (spec.prazer) {
+    const aura = new THREE.Mesh(
+      new THREE.RingGeometry(1.2, 1.35, 32),
+      new THREE.MeshBasicMaterial({ color: 0xb98cff, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+    );
+    aura.rotation.x = -Math.PI / 2;
+    aura.position.y = 0.03;
+    aura.name = '__prazer_aura__';
+    g.add(aura);
+  }
+
+  return g;
+};
+
+/* -------- player -------- */
+this.register('player', (spec) => {
+  return buildHumanoid(spec, {
+    defaultColor: 0x5a6b7c,
+    defaultSkin: 0xf0d0a0,
+    ringColor: spec.color,
+    ringOpacity: 0.4,
+  });
+});
+
+/* -------- enemy -------- */
+this.register('enemy', (spec) => {
+  return buildHumanoid(spec, {
+    defaultColor: 0x9a6a4a,
+    defaultSkin: 0xe0a070,
+    ringColor: 0xff5a5a,
+    ringOpacity: 0.45,
+  });
+});
+
+/* -------- humanoid 通用别名 -------- */
+this.register('humanoid', (spec) => {
+  return buildHumanoid(spec, { defaultColor: 0x5a6b7c, defaultSkin: 0xf0d0a0 });
+});
 
     /* -------- obstacle -------- */
     this.register('obstacle', (spec) => {
