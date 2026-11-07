@@ -1181,12 +1181,26 @@ class CameraController {
     this.shakeTimer = 0;
     this.shakeOffset = { x: 0, y: 0, z: 0 };
     this.sensitivity = 1.0; 
+    this.bobOffsetY = 0;
+    this.bobRoll = 0;
+    this.hurtOffsetX = 0;
+    this.hurtOffsetY = 0;
   }
   
   follow(x, y, z){ 
     this.target.x = x; 
     this.target.y = y; 
     this.target.z = z; 
+  }
+  
+  setBob(yOffset, roll) {
+    this.bobOffsetY = yOffset || 0;
+    this.bobRoll = roll || 0;
+  }
+
+  setHurtOffset(x, y) {
+    this.hurtOffsetX = x || 0;
+    this.hurtOffsetY = y || 0;
   }
   
   rotate(dx, dy) {
@@ -1209,8 +1223,8 @@ class CameraController {
       if (this.shakeTimer <= 0) { this.shakeOffset.x = 0; this.shakeOffset.y = 0; this.shakeOffset.z = 0; }
     }
 
-    const ox = this.target.x + this.shakeOffset.x;
-    const oy = this.target.y + this.shakeOffset.y;
+    const ox = this.target.x + this.shakeOffset.x + this.hurtOffsetX;
+    const oy = this.target.y + this.shakeOffset.y + this.hurtOffsetY + this.bobOffsetY;
     const oz = this.target.z + this.shakeOffset.z;
 
     this.camera.position.set(ox, oy, oz);
@@ -1219,9 +1233,12 @@ class CameraController {
     const lookY = oy + Math.sin(this.pitch);
     const lookZ = oz - Math.cos(this.yaw) * Math.cos(this.pitch);
     this.camera.lookAt(lookX, lookY, lookZ);
+
+    if (this.bobRoll !== 0) {
+      this.camera.rotateZ(this.bobRoll);
+    }
   }
 }
-
 /* ============================================================
    [15] Body
    ============================================================ */
