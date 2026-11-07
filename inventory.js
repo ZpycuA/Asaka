@@ -61,7 +61,7 @@ const CONTAINER_DEFAULTS = {
 const WEAPON_ATTACH_SLOTS = ['muzzle', 'sight', 'mag', 'grip'];
 
 /* ====================== GridContainer ====================== */
-class GridContainer {
+export class GridContainer {
   constructor(w = 0, h = 0) {
     this.w = w;
     this.h = h;
