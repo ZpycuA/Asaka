@@ -10,7 +10,7 @@ import { Body } from './engine.js';
 import { CombatLog, showCombatReport, hideCombatReport } from './combatlog.js';
 import { Inventory } from './inventory.js';
 import { BagUI } from './bagUI.js';
-import { Inventory, GridContainer } from './inventory.js';
+GridContainer：import { Inventory, GridContainer } from './inventory.js';
 
 /* ============================================================
    [0] 战斗公式常数
