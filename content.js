@@ -190,14 +190,13 @@ c.registerAll('chestRig', CHEST_RIG);
   },
   buwen: {
     name: 'content.char.buwen.name', tag: 'content.char.buwen.tag',
-    hp: 115, speed: 6.3, radius: 1.2,
+    hp: 115, speed: 4.6, radius: 1.2,
     weapon: 'sg12', sidearm: 'p9',
     prazer: false, A: 0,
     color: 0xc8e05a,
-    heavyArmor: true,
     skills: ['shield', 'taunt'],
-    staminaRegen: { move: 4, idle: 12 },
-    sprintCost: 15,
+    staminaRegen: { move: 8, idle: 25 },
+    sprintCost: 10,
   },
 };
   c.registerAll('characters', CHARACTERS);
