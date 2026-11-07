@@ -126,24 +126,27 @@ const item = {
   }
 
   destroyItem(uid) {
-    const item = this.items.get(uid);
-    if (!item) return false;
+  const item = this.items.get(uid);
+  if (!item) return false;
 
-    if (item.attachments) {
-      for (const k in item.attachments) {
-        if (item.attachments[k]) this.destroyItem(item.attachments[k]);
-      }
+  if (item.attachments) {
+    for (const k in item.attachments) {
+      if (item.attachments[k]) this.destroyItem(item.attachments[k]);
     }
-    if (item.subSlots) {
-      for (const k in item.subSlots) {
-        if (item.subSlots[k]) this.destroyItem(item.subSlots[k]);
-      }
-    }
-
-    this.items.delete(uid);
-    this.parentOf.delete(uid);
-    return true;
   }
+  if (item.subSlots) {
+    for (const k in item.subSlots) {
+      if (item.subSlots[k]) this.destroyItem(item.subSlots[k]);
+    }
+  }
+
+  // ★ 关键修复：从父容器/装备/父物品移除引用，杜绝"幽灵 uid"
+  this._detach(uid);
+
+  this.items.delete(uid);
+  this.parentOf.delete(uid);
+  return true;
+}
 
   /* ====================== 查询 ====================== */
   getItem(uid) {
@@ -210,6 +213,10 @@ splitStack(uid, count, preferredContainer) {
     dur: item.dur,
   });
   if (!newUid) return { ok: false, reason: 'create_failed' };
+
+  // ★ 关键修复：新物品继承原物品的 valueMul，避免反复拆分导致总价值漂移
+  const newItem = this.items.get(newUid);
+  if (newItem) newItem.valueMul = item.valueMul;
 
   const originalParent = this.parentOf.get(uid);
   const targets = [];
