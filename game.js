@@ -2320,216 +2320,157 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
    
 _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
   if (!enemy.alive) return;
-  // ★ 兼容旧代码：如果传入布尔值，自动转换
   if (hitPart === true) hitPart = 'head';
   else if (hitPart === false || hitPart === undefined) hitPart = 'thorax';
 
   const profile = this.engine.profile;
-  const isHead = hitPart === 'head';
-  const hpBefore = enemy.hp;
+  const hpBefore = enemy.status.healthQuality;
 
   let remaining = energy;
   let couplingSnapshot = null;
   let armorSnapshot = null;
 
-  // 1. 耦合防护（Prazer 敌人）
   if (enemy.spec && enemy.spec.prazer && enemy.protectionHold && enemy.coupling > 0) {
     const coup = CombatSystem.applyCoupling(enemy, remaining, 'ballistic');
     if (coup.cost > 0) enemy.coupling = Math.max(0, enemy.coupling - coup.cost);
-    if (coup.absorbed > 0) {
-      couplingSnapshot = { level: enemy.protection || '?', absorbed: coup.absorbed, cost: coup.cost };
-    }
+    if (coup.absorbed > 0) couplingSnapshot = { level: enemy.protection || '?', absorbed: coup.absorbed, cost: coup.cost };
     remaining = coup.remaining;
   }
 
-  // 2. 护甲吸收
   const armorRes = this._applyArmorLayers(enemy, remaining, pen, hitPart);
   remaining = armorRes.remaining;
   armorSnapshot = armorRes.snapshot;
 
-  // 3. 爆头倍率
-  if (isHead) {
+  if (hitPart === 'head') {
     remaining *= COMBAT.HEAD_MULT;
     if (profile.get('combat.headshotInstantKill', false)) {
-      const lethalEnergy = enemy.hp * COMBAT.BODY_COEFF_HUMAN;
+      const lethalEnergy = enemy.status.parts.head.maxHp * COMBAT.BODY_COEFF_HUMAN + 500; // 模拟一枪穿头
       if (remaining >= lethalEnergy) remaining = lethalEnergy;
     }
   }
 
-  // 4. 折算 HP
-  const isPrazer = !!(enemy.spec && enemy.spec.prazer);
-  const dmg = CombatSystem.energyToHP(remaining, isPrazer);
-  enemy.hp -= dmg;
+  const res = enemy.status.takeDamage(hitPart, remaining, pen);
   enemy.hitFlash = 0.15;
-  this.player.dealt += dmg;
+  this.player.dealt += remaining;
   this.stats.hits++;
 
-  this._hitMarker(isHead);
+  this._hitMarker(hitPart === 'head');
 
-  // 5. 战斗日志（含护甲快照 + 耦合快照）
   this.combatLog.push({
     type: 'damage_dealt',
     t: this.time,
-    target: {
-      name: this.engine.i18n.t(enemy.spec.name),
-      isBoss: false,
-      isElite: false,
-    },
-    amount: dmg,
+    target: { name: this.engine.i18n.t(enemy.spec.name), isBoss: false, isElite: false },
+    amount: Math.round(remaining),
     part: hitPart,
     weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
-    headshot: isHead,
+    headshot: hitPart === 'head',
     pierced: pen >= 3,
     armor: armorSnapshot,
     coupling: couplingSnapshot,
     targetHpBefore: hpBefore,
-    targetHpAfter: Math.max(0, enemy.hp),
-    targetMaxHp: enemy.maxHp,
+    targetHpAfter: Math.round(enemy.status.healthQuality),
+    targetMaxHp: 100,
   });
 
-  if (enemy.hp <= 0 && enemy.alive) {
-    const dist = Math.round(Math.hypot(
-      this.player.body.position.x - enemy.body.position.x,
-      this.player.body.position.z - enemy.body.position.z
-    ));
-    this._killEnemy(enemy, dmg, dist);
+  if (enemy.status.isDead() && enemy.alive) {
+    const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
+    this._killEnemy(enemy, remaining, dist);
+  } else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
+    enemy.isDownedState = true;
+    enemy.mesh.rotation.z = Math.PI / 2; // 倒地
+    enemy.body.height = 0.5; // 变矮
+    enemy.body.position.y = 0.25;
   }
 }
 
 _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null){
   if (!player.alive) return;
 
-  // ★ 兼容旧代码：如果传入布尔值，自动转换
   if (part === true) part = 'head';
   else if (part === false || part === undefined) part = 'thorax';
 
   const profile = this.engine.profile;
-  const hpBefore = player.hp;
-  const isHead = part === 'head';
-  const isTorso = part === 'thorax' || part === 'abdomen';
+  const hpBefore = player.status.healthQuality;
 
-  /* ===== 1. 耦合防护（Prazer 专属） ===== */
   const coup = CombatSystem.applyCoupling(player, energy, 'ballistic');
   if (coup.cost > 0) player.coupling = Math.max(0, player.coupling - coup.cost);
-  const couplingSnapshot = (coup.absorbed > 0) ? {
-    level: player.protection || '?',
-    absorbed: coup.absorbed,
-    cost: coup.cost,
-  } : null;
+  const couplingSnapshot = (coup.absorbed > 0) ? { level: player.protection || '?', absorbed: coup.absorbed, cost: coup.cost } : null;
   let remaining = coup.remaining;
 
-  /* ===== 2. 记录受击方向 ===== */
   if (srcX !== undefined && srcZ !== undefined) {
     const ang = Math.atan2(srcZ - player.body.position.z, srcX - player.body.position.x);
     this.lastHitDir = ang - this.engine.cameraCtl.yaw;
     this.lastHitTime = this.time;
   }
 
-  /* ===== 3. 护甲层吸收（按命中部位分层） ===== */
   let armorSnapshot = null;
-
   const applyOne = (piece, layerName) => {
     if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
     const beforeDur = piece.dur;
     const res = CombatSystem.applyArmor(piece, remaining, pen);
     remaining = res.remaining;
     if (res.absorbed > 0) {
-      return {
-        layer: layerName,
-        lv: piece.lv,
-        absorbed: res.absorbed,
-        wear: beforeDur - piece.dur,
-        broke: piece.dur <= 0,
-      };
+      return { layer: layerName, lv: piece.lv, absorbed: res.absorbed, wear: beforeDur - piece.dur, broke: piece.dur <= 0 };
     }
     return null;
   };
 
-  if (isHead) {
-    /* ---- 头部：shell（头盔壳）→ visor（面罩） ---- */
+  if (part === 'head') {
     const s1 = applyOne(player.armor.shell, '头盔壳');
     const s2 = applyOne(player.armor.visor, '面罩');
-    if (s1) armorSnapshot = s1;
-    else if (s2) armorSnapshot = s2;
-  } else if (isTorso) {
-    /* ---- 躯干：plate（插板）→ fiber（纤维） ---- */
+    if (s1) armorSnapshot = s1; else if (s2) armorSnapshot = s2;
+  } else if (part === 'thorax' || part === 'abdomen') {
     const s1 = applyOne(player.armor.plate, '插板');
     const s2 = applyOne(player.armor.fiber, '纤维');
-    if (s1) armorSnapshot = s1;
-    else if (s2) armorSnapshot = s2;
+    if (s1) armorSnapshot = s1; else if (s2) armorSnapshot = s2;
   } else {
-    /* ---- 四肢：仅 fiber 覆盖 ---- */
     const s1 = applyOne(player.armor.fiber, '纤维');
     if (s1) armorSnapshot = s1;
   }
 
-  /* ===== 4. 爆头处理（HEAD_MULT + 即死/半死判定） ===== */
-  if (isHead) {
+  if (part === 'head') {
     remaining *= COMBAT.HEAD_MULT;
-
-    const bodyCoeff = player.charSpec.prazer ? COMBAT.BODY_COEFF_PRAZER : COMBAT.BODY_COEFF_HUMAN;
-    const lethalEnergy = player.hp * bodyCoeff;
-
     if (profile.get('combat.headshotInstantKill', false)) {
-      if (remaining >= lethalEnergy) {
-        remaining = lethalEnergy;
-      }
-    } else {
-      if (remaining >= lethalEnergy) {
-        remaining = lethalEnergy * 0.99;
-      }
+      const lethalEnergy = player.status.parts.head.maxHp * COMBAT.BODY_COEFF_PRAZER + 500;
+      if (remaining >= lethalEnergy) remaining = lethalEnergy;
     }
   }
 
-  /* ===== 5. 折算 HP 伤害 ===== */
-  const dmg = CombatSystem.energyToHP(remaining, player.charSpec.prazer);
-  player.hp -= dmg;
-  player.taken += dmg;
+  player.status.takeDamage(part, remaining, pen);
+  player.taken += remaining;
 
-  /* ===== 6. 四肢伤害（profile 开关） ===== */
-  if (profile.get('combat.limbDamage', false)) {
-    player.limbDamage = (player.limbDamage || 0) + 1;
-    if (player.limbDamage >= 4) {
-      player.speedMul = Math.max(0.4, 1 - (player.limbDamage - 3) * 0.15);
-    }
-  }
+  const sourceWeapon = sourceEnt && sourceEnt.weapon && sourceEnt.weapon.def ? { name: this.engine.i18n.t(sourceEnt.weapon.def.name) } : null;
+  this.combatLog.push({
+    type: 'damage_taken',
+    t: this.time,
+    source: sourceEnt ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon } : { name: '未知' },
+    amount: Math.round(remaining),
+    part: part,
+    pierced: pen >= 3,
+    armor: armorSnapshot,
+    coupling: couplingSnapshot,
+    hpBefore: hpBefore,
+    hpAfter: Math.round(player.status.healthQuality),
+    maxHp: 100,
+    bleeding: player.status.hasEffect('bleeding'),
+  });
 
-  /* ===== 7. 战斗日志 ===== */
-  const sourceWeapon = sourceEnt && sourceEnt.weapon && sourceEnt.weapon.def
-  ? { name: this.engine.i18n.t(sourceEnt.weapon.def.name) }
-  : null;
-this.combatLog.push({
-  type: 'damage_taken',
-  t: this.time,
-  source: sourceEnt
-    ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon }
-    : { name: '未知' },
-  amount: dmg,
-  part: part,
-  pierced: pen >= 3,
-  armor: armorSnapshot,
-  coupling: couplingSnapshot,
-  hpBefore: hpBefore,
-  hpAfter: Math.max(0, player.hp),
-  maxHp: player.maxHp,
-  bleeding: false,
-});
-
-  this._spawnDamageNumber(player.body.position.x, player.body.position.z, Math.round(dmg), 'player');
+  this._spawnDamageNumber(player.body.position.x, player.body.position.z, Math.round(remaining), 'player');
   this._hurtFX();
   this.engine.cameraCtl.shake(0.4, 0.15);
   this._playSFX('hurt', { volume: 0.5 });
 
-  if (this._searching) {
-  this._closeSearch();
-  this._log('搜索被打断', 'r');
-}
+  if (this._searching) { this._closeSearch(); this._log('搜索被打断', 'r'); }
+  if (this.actionProcess.isRunning()) this.actionProcess.cancel('受伤');
 
-if (this.actionProcess.isRunning()) {
-  this.actionProcess.cancel('受伤');
-}
-
-if (player.hp <= 0 && player.alive) this._playerDown();
+  if (player.status.isDead() && player.alive) {
+    this._playerDown();
+  } else if (player.status.isDowned() && player.alive && !player.isDownedState) {
+    player.isDownedState = true;
+    this._log('严重受损，进入击倒状态', 'r');
+    this.engine.cameraCtl.setDeathPose(Math.PI / 2 * 0.8, 0.8, 0); // 临时用死亡视觉模拟倒地
+    // 后续需要真正倒地爬行的动作逻辑
+  }
 }
 
   _killEnemy(enemy, dmg, dist){
