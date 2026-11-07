@@ -483,24 +483,51 @@ if (this._protectBtns) {
   this._renderExtractProgress();
 }
 
-// 受伤视觉引擎
+// 受伤视觉引擎 · 中央视野保持清晰，只处理边缘 + 轻微相机抖动
 _updateHurtFX(hpPct) {
   const filterEl = document.getElementById('fx-filter');
   const vignetteEl = document.getElementById('fx-vignette');
-  
+  const cam = this.engine.renderer.camera;
+
+  // 边缘暗角：按 HP 分档，只在边缘加深
+  let vignetteOpacity = 0;
+  let filterOpacity = 0;
+  let shakeAmp = 0;
+
   if (hpPct > 70) {
-    filterEl.style.backdropFilter = 'none';
-    vignetteEl.style.opacity = 0;
+    vignetteOpacity = 0;
+    filterOpacity = 0;
+    shakeAmp = 0;
   } else if (hpPct > 40) {
-    filterEl.style.backdropFilter = 'blur(1px) grayscale(0.3)';
-    vignetteEl.style.opacity = 0.1;
+    vignetteOpacity = 0.15;
+    filterOpacity = 0.06;
+    shakeAmp = 0;
   } else if (hpPct > 20) {
-    filterEl.style.backdropFilter = 'blur(2px) grayscale(0.6) contrast(1.2)';
-    vignetteEl.style.opacity = 0.3;
+    vignetteOpacity = 0.4;
+    filterOpacity = 0.14;
+    shakeAmp = 0.005;
   } else {
-    // 濒死：稍微红一点，但不完全遮住视野
-    filterEl.style.backdropFilter = 'blur(3px) grayscale(0.9) contrast(1.5) hue-rotate(-10deg)';
-    vignetteEl.style.opacity = 0.4 + Math.sin(this.world.time * 8) * 0.15; 
+    // 濒死：边缘黑红 + 缓慢脉冲 + 呼吸起伏
+    const pulse = Math.sin(this.world.time * 4.5) * 0.15;
+    vignetteOpacity = 0.55 + pulse;
+    filterOpacity = 0.22;
+    shakeAmp = 0.008;
+  }
+
+  if (vignetteEl) vignetteEl.style.opacity = String(vignetteOpacity);
+  // fx-filter 不做 blur，只做一层极淡的红色滤镜（模拟视野充血）
+  if (filterEl) {
+    filterEl.style.background = `radial-gradient(ellipse at center, transparent 55%, rgba(140,20,20,${filterOpacity}) 100%)`;
+    filterEl.style.backdropFilter = 'none';
+  }
+
+  // 濒死轻微相机抖动（不影响瞄准，只传递"手不稳"）
+  if (shakeAmp > 0 && cam) {
+    this._vitalShakePhase = (this._vitalShakePhase || 0) + 0.016;
+    const sx = Math.sin(this._vitalShakePhase * 11) * shakeAmp;
+    const sy = Math.cos(this._vitalShakePhase * 13) * shakeAmp;
+    cam.position.x += sx;
+    cam.position.y += sy;
   }
 }
 
@@ -830,10 +857,11 @@ const groundMat = new THREE.MeshStandardMaterial({
   ground.rotation.x = -Math.PI / 2;
   r.scene.add(ground);
 
-  const grid = new THREE.GridHelper(mapSize, Math.floor(mapSize / 6), 0x3a5470, 0x243448);
-  grid.material.opacity = 0.35;
-  grid.material.transparent = true;
-  r.scene.add(grid);
+  const grid = new THREE.GridHelper(mapSize, Math.floor(mapSize / 3), 0x6a8aa8, 0x4a6a88);
+grid.material.opacity = 0.55;
+grid.material.transparent = true;
+grid.position.y = 0.02;
+r.scene.add(grid);
 
   const obstacleCount = this.mapSpec.obstacleCount || 30;
   for (let i = 0; i < obstacleCount; i++) {
