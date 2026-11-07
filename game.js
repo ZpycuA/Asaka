@@ -236,18 +236,19 @@ const AISystem = {
   },
 
   _checkLOS(world, a, b){
-    const dx = b.body.position.x - a.body.position.x;
-    const dz = b.body.position.z - a.body.position.z;
-    const len = Math.hypot(dx, dz) || 1;
-    if (len < 0.1) return true;
-    const hit = world.physics.raycast(
-      a.body.position.x, 1.2, a.body.position.z,
-      dx / len, 0, dz / len,
-      len,
-      body => body.userData && body.userData.type === 'obstacle'
-    );
-    return !hit;
-  },
+  const ax = a.body.position.x, ay = a.body.position.y, az = a.body.position.z;
+  const bx = b.body.position.x, by = b.body.position.y, bz = b.body.position.z;
+  const dx = bx - ax, dy = by - ay, dz = bz - az;
+  const len = Math.hypot(dx, dy, dz) || 1;
+  if (len < 0.1) return true;
+  const hit = world.physics.raycast(
+    ax, ay, az,
+    dx, dy, dz,
+    len,
+    body => body.userData && body.userData.type === 'obstacle'
+  );
+  return !hit;
+},
 };
 
 /* ============================================================
@@ -752,18 +753,22 @@ _updateCouplingFX(p) {
    ============================================================ */
 class GameWorld {
   constructor(engine, config){
-  this.engine = engine;
-  this.config = config;
+this.engine = engine;
+this.config = config;
 
-  this.mapId   = config.mapId;
-  this.charId  = config.charId;
-  this.diffId  = config.diffId;
-  this.modeId  = config.modeId;
-  this.kind    = config.kind;
+this.mapId   = config.mapId;
+this.charId  = config.charId;
+this.diffId  = config.diffId;
+this.modeId  = config.modeId;
+this.kind    = config.kind;
+this.layout  = config.layout || null;
 
-  this.mapSpec  = engine.content.get('maps', this.mapId);
-  this.charSpec = engine.content.get('characters', this.charId);
-  this.modeConfig = engine.modeRegistry.get(this.modeId);
+this.mapSpec  = engine.content.get('maps', this.mapId);
+this.charSpec = engine.content.get('characters', this.charId);
+this.modeConfig = engine.modeRegistry.get(this.modeId);
+
+this._playerSpawnPos = null;
+this._enemySpawnPositions = null;
 
   if (!this.mapSpec)   throw new Error('[World] 地图不存在: ' + this.mapId);
   if (!this.charSpec)  throw new Error('[World] 角色不存在: ' + this.charId);
@@ -815,9 +820,14 @@ class GameWorld {
       catch (e) { console.error('[Mode] setup err:', e); }
     }
 
-    this.engine.cameraCtl.follow(this.player.body.position.x, this.player.body.position.z);
-    this.engine.cameraCtl.camera.position.x = this.player.body.position.x;
-    this.engine.cameraCtl.camera.position.z = this.player.body.position.z;
+    const footY = this.player.body.position.y - this.player.body.halfH;
+this.engine.cameraCtl.follow(
+  this.player.body.position.x,
+  footY + 1.55,
+  this.player.body.position.z
+);
+this.engine.cameraCtl.camera.position.x = this.player.body.position.x;
+this.engine.cameraCtl.camera.position.z = this.player.body.position.z;
 
     this.hud.update();
     this.running = true;
@@ -849,19 +859,76 @@ class GameWorld {
   const half = mapSize / 2;
 
   const groundGeo = new THREE.PlaneGeometry(mapSize, mapSize);
-const groundMat = new THREE.MeshStandardMaterial({
-  color: 0xa8b4c0, roughness: 0.85, metalness: 0.05,
-});
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0xa8b4c0, roughness: 0.85, metalness: 0.05,
+  });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
   r.scene.add(ground);
 
   const grid = new THREE.GridHelper(mapSize, Math.floor(mapSize / 3), 0x6a8aa8, 0x4a6a88);
-grid.material.opacity = 0.55;
-grid.material.transparent = true;
-grid.position.y = 0.02;
-r.scene.add(grid);
+  grid.material.opacity = 0.55;
+  grid.material.transparent = true;
+  grid.position.y = 0.02;
+  r.scene.add(grid);
 
+  if (this.layout && Array.isArray(this.layout.obstacles)) {
+    this._buildFromLayout(this.layout);
+  } else {
+    this._buildRandomObstacles(half);
+  }
+}
+
+_buildFromLayout(layout){
+  const r = this.engine.renderer;
+  for (const o of layout.obstacles) {
+    const yMin = o.yMin !== undefined ? o.yMin : 0;
+    const yMax = o.yMax !== undefined ? o.yMax : (o.h || 3);
+    const h = Math.max(0.2, yMax - yMin);
+    const w = o.w || 3;
+    const d = o.d || 3;
+
+    let color = 0xb4bcc8;
+    if (o.type === 'crate')       color = 0xd4b878;
+    else if (o.type === 'step')   color = 0x9aa8b8;
+    else if (o.type === 'platform') color = 0x8aa2ba;
+    else if (o.type === 'pillar') color = 0x7a8696;
+    else if (o.type === 'lowWall') color = 0xaab4c4;
+    else if (o.type === 'building' || o.type === 'roof') color = 0x8a96a8;
+
+    const mesh = this.engine.meshes.build('obstacle', { w, h, d, color });
+    mesh.position.x = o.x;
+    mesh.position.y = yMin + h / 2;
+    mesh.position.z = o.z;
+    r.scene.add(mesh);
+
+    const body = this.physics.add(new Body({
+      x: o.x, z: o.z,
+      isStatic: true,
+      shape: 'aabb',
+      halfW: w / 2,
+      halfD: d / 2,
+      yMin, yMax,
+      height: h,
+      radius: 0,
+      userData: { type: 'obstacle' },
+    }));
+    this.obstacles.push({ mesh, body });
+    this.pois.push({ x: o.x, z: o.z, type: 'obstacle', w, h: d, color: 'rgba(120,140,160,0.65)' });
+  }
+
+  if (Array.isArray(layout.containers)) {
+    for (const c of layout.containers) this._spawnContainerAt(c.x, c.z);
+  }
+  if (Array.isArray(layout.extracts)) {
+    for (const e of layout.extracts) this._spawnExtractAt(e.x, e.z);
+  }
+  if (layout.playerSpawn) this._playerSpawnPos = layout.playerSpawn;
+  if (Array.isArray(layout.enemySpawns)) this._enemySpawnPositions = layout.enemySpawns;
+}
+
+_buildRandomObstacles(half){
+  const r = this.engine.renderer;
   const obstacleCount = this.mapSpec.obstacleCount || 30;
   for (let i = 0; i < obstacleCount; i++) {
     const w = 3 + Math.random() * 6;
@@ -872,10 +939,11 @@ r.scene.add(grid);
     if (Math.hypot(x, z) < 6) continue;
 
     const mesh = this.engine.meshes.build('obstacle', {
-  w, h, d,
-  color: Math.random() < 0.5 ? 0xc8d0d8 : 0xb4bcc8,
-});
+      w, h, d,
+      color: Math.random() < 0.5 ? 0xc8d0d8 : 0xb4bcc8,
+    });
     mesh.position.x = x;
+    mesh.position.y = h / 2;
     mesh.position.z = z;
     r.scene.add(mesh);
 
@@ -885,14 +953,47 @@ r.scene.add(grid);
       shape: 'aabb',
       halfW: w / 2,
       halfD: d / 2,
+      yMin: 0,
+      yMax: h,
+      height: h,
       radius: 0,
       userData: { type: 'obstacle' },
     }));
     this.obstacles.push({ mesh, body });
-    
-    // ★ 将障碍物加入小地图兴趣点
     this.pois.push({ x, z, type: 'obstacle', w, h: d, color: 'rgba(120,140,160,0.65)' });
   }
+}
+
+_spawnContainerAt(cx, cz){
+  const mesh = this.engine.meshes.build('container', {});
+  mesh.position.x = cx;
+  mesh.position.z = cz;
+  this.engine.renderer.scene.add(mesh);
+
+  const cBody = this.physics.add(new Body({
+    x: cx, z: cz,
+    y: 0.65,
+    height: 1.3,
+    isStatic: true,
+    shape: 'circle',
+    radius: 0.9,
+    userData: { type: 'container' },
+  }));
+
+  this.containers.push({
+    x: cx, z: cz, mesh, body: cBody,
+    opened: false, loot: null, revealed: [], searched: false,
+  });
+  this.pois.push({ x: cx, z: cz, type: 'container', color: '#ffcc33' });
+}
+
+_spawnExtractAt(ex, ez){
+  const mesh = this.engine.meshes.build('extract', { radius: 3.5 });
+  mesh.position.x = ex;
+  mesh.position.z = ez;
+  this.engine.renderer.scene.add(mesh);
+  this.extracts.push({ x: ex, z: ez, mesh, timer: 0, active: false });
+  this.pois.push({ x: ex, z: ez, type: 'extract', color: '#5fd4ff' });
 }
 
   _spawnPlayer(){
@@ -903,14 +1004,18 @@ r.scene.add(grid);
   // FPS模式隐藏玩家身体
   mesh.visible = false;
 
-  const body = this.physics.add(new Body({
-    x: 0, z: 0,
-    radius: spec.radius || 1.2,
-    mass: 70,
-    restitution: 0.1,
-    friction: 6,
-    userData: { type: 'player' },
-  }));
+  const spawnX = this._playerSpawnPos ? this._playerSpawnPos.x : 0;
+const spawnZ = this._playerSpawnPos ? this._playerSpawnPos.z : 0;
+const body = this.physics.add(new Body({
+  x: spawnX, z: spawnZ,
+  y: 0.9,
+  height: 1.8,
+  radius: spec.radius || 1.2,
+  mass: 70,
+  restitution: 0.1,
+  friction: 6,
+  userData: { type: 'player' },
+}));
 
   // ★ 生成 FPS 视图武器（挂载在相机上）
   const weaponGroup = new THREE.Group();
@@ -1128,23 +1233,33 @@ _buildArmorFromInventory(inv) {
   }
 
   _spawnEnemies(){
-    const specs = this.engine.content.all('enemies');
-    if (!specs.length) return;
-    const count = this.mapSpec.enemyCount || 6;
-    const half = this.mapSpec.size / 2 - 6;
-    const diffMul = { easy: 0.75, normal: 1, hard: 1.25, nightmare: 1.5 }[this.diffId] || 1;
+  const specs = this.engine.content.all('enemies');
+  if (!specs.length) return;
+  const count = this.mapSpec.enemyCount || 6;
+  const half = this.mapSpec.size / 2 - 6;
+  const diffMul = { easy: 0.75, normal: 1, hard: 1.25, nightmare: 1.5 }[this.diffId] || 1;
 
+  if (this._enemySpawnPositions && this._enemySpawnPositions.length) {
+    const spawnList = this._enemySpawnPositions;
     for (let i = 0; i < count; i++) {
       const spec = specs[i % specs.length];
-      let ex, ez, tries = 0;
-      do {
-        ex = (Math.random() * 2 - 1) * half;
-        ez = (Math.random() * 2 - 1) * half;
-        tries++;
-      } while (Math.hypot(ex, ez) < 25 && tries < 60);
-      this._spawnEnemy(spec, ex, ez, diffMul);
+      const pos = spawnList[i % spawnList.length];
+      this._spawnEnemy(spec, pos.x, pos.z, diffMul);
     }
+    return;
   }
+
+  for (let i = 0; i < count; i++) {
+    const spec = specs[i % specs.length];
+    let ex, ez, tries = 0;
+    do {
+      ex = (Math.random() * 2 - 1) * half;
+      ez = (Math.random() * 2 - 1) * half;
+      tries++;
+    } while (Math.hypot(ex, ez) < 25 && tries < 60);
+    this._spawnEnemy(spec, ex, ez, diffMul);
+  }
+}
 
  _spawnEnemy(spec, x, z, diffMul){
   const assessment = this.engine.profile.assess();
@@ -1162,13 +1277,15 @@ _buildArmorFromInventory(inv) {
   this.engine.renderer.scene.add(mesh);
 
   const body = this.physics.add(new Body({
-    x, z,
-    radius: spec.radius || 1.2,
-    mass: 60,
-    restitution: 0.1,
-    friction: 5,
-    userData: { type: 'enemy' },
-  }));
+  x, z,
+  y: 0.9,
+  height: 1.8,
+  radius: spec.radius || 1.2,
+  mass: 60,
+  restitution: 0.1,
+  friction: 5,
+  userData: { type: 'enemy' },
+}));
 
   const enemy = {
     mesh, body, spec,
@@ -1193,24 +1310,17 @@ _buildArmorFromInventory(inv) {
 }
 
   _spawnExtracts(){
+  if (this.extracts.length > 0) return;
   const half = this.mapSpec.size / 2 - 4;
   const positions = [
     { x: -half, z: -half }, { x: half, z: -half },
     { x: -half, z: half },  { x: half, z: half },
   ];
-  for (const pos of positions) {
-    const mesh = this.engine.meshes.build('extract', { radius: 3.5 });
-    mesh.position.x = pos.x;
-    mesh.position.z = pos.z;
-    this.engine.renderer.scene.add(mesh);
-    this.extracts.push({ x: pos.x, z: pos.z, mesh, timer: 0, active: false });
-    
-    // ★ 将撤离点加入小地图兴趣点
-    this.pois.push({ x: pos.x, z: pos.z, type: 'extract', color: '#5fd4ff' });
-  }
+  for (const pos of positions) this._spawnExtractAt(pos.x, pos.z);
 }
 
   _spawnContainers(){
+  if (this.containers.length > 0) return;
   const half = this.mapSpec.size / 2 - 6;
   const count = 8;
   for (let i = 0; i < count; i++) {
@@ -1220,25 +1330,7 @@ _buildArmorFromInventory(inv) {
       cz = (Math.random() * 2 - 1) * half;
       tries++;
     } while (Math.hypot(cx, cz) < 8 && tries < 40);
-
-    const mesh = this.engine.meshes.build('container', {});
-mesh.position.x = cx;
-mesh.position.z = cz;
-this.engine.renderer.scene.add(mesh);
-
-// 加静态物理体，防止玩家穿模
-const cBody = this.physics.add(new Body({
-  x: cx, z: cz,
-  isStatic: true,
-  shape: 'circle',
-  radius: 0.9,
-  userData: { type: 'container' },
-}));
-
-this.containers.push({ x: cx, z: cz, mesh, body: cBody, opened: false, loot: null, revealed: [], searched: false });
-    
-    // ★ 将容器加入小地图兴趣点
-    this.pois.push({ x: cx, z: cz, type: 'container', color: '#ffcc33' });
+    this._spawnContainerAt(cx, cz);
   }
 }
 
@@ -1381,12 +1473,12 @@ p.body.velocity.x = moveX * finalSpeed;
 p.body.velocity.z = moveZ * finalSpeed;
 if (isMoving && !this._searching) p.body.wake();
 
-  // ★ 4. 跳跃检测
-  const jumpPressed = e.input.keys.has(' ') || e.input.isActive('jump');
-  if (jumpPressed && p.body.position.y <= p.body.radius + 0.2 && p.body.velocity.y <= 0.1) {
-    p.body.velocity.y = 8.5; 
-    p.body.wake();
-  }
+ // ★ 4. 跳跃检测（grounded 标志）
+const jumpPressed = e.input.keys.has(' ') || e.input.isActive('jump');
+if (jumpPressed && p.body.grounded && p.body.velocity.y <= 0.1) {
+  p.body.velocity.y = 9.5;
+  p.body.wake();
+}
 
   // ★ 5. 角色朝向始终跟随相机前方
   p.angle = e.cameraCtl.yaw;
