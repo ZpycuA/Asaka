@@ -3438,6 +3438,27 @@ _applySkillEffect(p, def){
     this._logTimer = setTimeout(() => el.classList.remove('on'), 1800);
   }
 
+  _showEffectPopup(name, icon, isPositive) {
+  const container = document.getElementById('effect-popups');
+  if (!container) return;
+  const el = document.createElement('div');
+  const bg = isPositive ? 'rgba(80,200,120,.9)' : 'rgba(200,50,50,.9)';
+  const border = isPositive ? 'rgba(120,255,160,.8)' : 'rgba(255,100,100,.8)';
+  el.style.cssText = `padding:6px 16px; background:${bg}; border:1px solid ${border}; border-radius:6px; color:#fff; font-size:13px; font-weight:700; letter-spacing:1px; box-shadow:0 4px 12px rgba(0,0,0,.5); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform:translateY(20px) scale(0.9); display:flex; align-items:center; gap:6px;`;
+  el.innerHTML = `<span>${icon}</span><span>${name}</span>`;
+  container.appendChild(el);
+  
+  requestAnimationFrame(() => {
+    el.style.opacity = '1';
+    el.style.transform = 'translateY(0) scale(1)';
+  });
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-20px) scale(0.9)';
+    setTimeout(() => el.remove(), 300);
+  }, 2000);
+  }
+
   _processModeHook(hookName, ...args){
     const hooks = this.modeConfig && this.modeConfig.hooks;
     if (!hooks) return;
