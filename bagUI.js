@@ -405,14 +405,15 @@ _consumeAmmoFromBag(ammoType, count) {
 }
 
 _splitStack(uid, count) {
-  const newUid = this.inv.splitStack(uid, count);
-  if (!newUid) {
-    console.warn('[BagUI] 拆分失败', uid, count);
-    return;
-  }
-  const r = this.inv.addToContainer('stash', newUid);
-  if (!r.ok) {
-    this.inv.destroyItem(newUid);
+  const origParent = this.inv.parentOf.get(uid);
+  const preferred = origParent && origParent.startsWith('c:') ? origParent.slice(2) : null;
+  const res = this.inv.splitStack(uid, count, preferred);
+  if (!res.ok) {
+    if (res.reason === 'no_space') {
+      console.warn('[BagUI] 背包已满，拆分取消');
+    } else {
+      console.warn('[BagUI] 拆分失败', uid, count, res.reason);
+    }
     return;
   }
   this.selectedUid = uid;
