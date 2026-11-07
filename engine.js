@@ -1256,6 +1256,8 @@ class Body {
     this.velocity = { x: 0, y: 0, z: 0 };
     this.force    = { x: 0, y: 0, z: 0 };
     this.radius   = opts.radius || 1;
+    this.height   = opts.height !== undefined ? opts.height : this.radius * 2;
+    this.halfH    = this.height / 2;
     this.mass     = opts.mass !== undefined ? opts.mass : 1;
     this.invMass  = this.mass > 0 ? 1 / this.mass : 0;
     this.restitution = opts.restitution !== undefined ? opts.restitution : 0.2;
@@ -1264,18 +1266,22 @@ class Body {
     this.shape    = opts.shape || 'circle';
     this.halfW    = opts.halfW || 0;
     this.halfD    = opts.halfD || 0;
+    this.yMin     = opts.yMin !== undefined ? opts.yMin : null;
+    this.yMax     = opts.yMax !== undefined ? opts.yMax : null;
     this.userData = opts.userData || null;
     this.layer    = opts.layer !== undefined ? opts.layer : 1;
     this.mask     = opts.mask !== undefined ? opts.mask : -1;
     this.ignoreGravity = !!opts.ignoreGravity;
     this.alive = true;
-    // 睡眠
+    this.grounded = false;
     this.allowSleep = opts.allowSleep !== false;
     this.sleeping = false;
     this.sleepTimer = 0;
     this.sleepThreshold = opts.sleepThreshold !== undefined ? opts.sleepThreshold : 0.1;
     this.sleepTime = opts.sleepTime !== undefined ? opts.sleepTime : 0.5;
   }
+  get footY(){ return this.position.y - this.halfH; }
+  get headY(){ return this.position.y + this.halfH; }
   applyImpulse(ix, iy, iz){
     if (this.isStatic) return;
     this.velocity.x += ix * this.invMass;
