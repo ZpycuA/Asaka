@@ -1432,13 +1432,12 @@ _buildArmorFromInventory(inv) {
   }
 }
 
- _spawnEnemy(spec, x, z, diffMul){
+  _spawnEnemy(spec, x, z, diffMul){
   const assessment = this.engine.profile.assess();
   const profileMul = 0.5 + assessment.score;
 
   const mesh = this.engine.meshes.build('enemy', spec);
   
-  // ★ 核心修复：克隆材质，杜绝所有敌人共享一个材质导致一起变白
   mesh.traverse(obj => {
     if (obj.isMesh) {
       obj.material = obj.material.clone();
@@ -1447,16 +1446,37 @@ _buildArmorFromInventory(inv) {
   
   this.engine.renderer.scene.add(mesh);
 
+  // ★ 碰撞高度与视觉模型对齐（视觉 2.325，碰撞 2.4）
   const body = this.physics.add(new Body({
-  x, z,
-  y: 0.9,
-  height: 1.8,
-  radius: spec.radius || 1.2,
-  mass: 60,
-  restitution: 0.1,
-  friction: 5,
-  userData: { type: 'enemy' },
-}));
+    x, z,
+    y: 1.2,
+    height: 2.4,
+    radius: spec.radius || 1.2,
+    mass: 60,
+    restitution: 0.1,
+    friction: 5,
+    userData: { type: 'enemy' },
+  }));
+
+  // ★ 根据 gear.armor 构造敌人护甲（和玩家同结构）
+  const armor = {
+    shell: { lv: 0, dur: 0, max: 0 },
+    visor: { lv: 0, dur: 0, max: 0 },
+    fiber: { lv: 0, dur: 0, max: 0 },
+    plate: { lv: 0, dur: 0, max: 0 },
+  };
+  if (spec.gear && spec.gear.armor) {
+    for (const slot in armor) {
+      const g = spec.gear.armor[slot];
+      if (g && g.lv > 0) {
+        armor[slot] = { lv: g.lv, dur: 100, max: 100, defId: g.defId };
+      }
+    }
+  }
+
+  // ★ Prazer 敌人有耦合系统（暂时默认关闭防护，被击中后可开）
+  const isPrazer = !!spec.prazer;
+  const maxCoup = isPrazer ? 100 : 0;
 
   const enemy = {
     mesh, body, spec,
@@ -1475,6 +1495,15 @@ _buildArmorFromInventory(inv) {
     strafeT: 0.7 + Math.random() * 1.2,
     hitFlash: 0,
     trainingDummy: this.kind === 'training',
+    // ★ 新增：护甲 + 耦合 + charSpec（与玩家一致）
+    armor,
+    coupling: maxCoup,
+    maxCoupling: maxCoup,
+    protection: null,
+    protectionHold: false,
+    limbDamage: 0,
+    speedMul: 1,
+    charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
   };
   body.userData.ref = enemy;
   this.enemies.push(enemy);
@@ -2033,20 +2062,27 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   const pen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
 
   if (hit && hit.body.userData.type !== 'obstacle') {
-    const targetBody = hit.body;
-    const hitY = hit.point.y;
-    const headLow  = targetBody.position.y + targetBody.halfH * 0.55;
-    const headHigh = targetBody.position.y + targetBody.halfH;
-    const isHeadshot = hitY > headLow && hitY < headHigh;
+  const targetBody = hit.body;
+  const hitY = hit.point.y;
+  const relY = hitY - targetBody.position.y;
+  const hh = targetBody.halfH || 0.9;
 
-    if (isPlayer && hit.body.userData.type === 'enemy') {
-      this._damageEnemy(hit.body.userData.ref, energy, pen, isHeadshot);
-    } else if (!isPlayer && hit.body.userData.type === 'player') {
-      this._damagePlayer(hit.body.userData.ref, energy, pen, isHeadshot, ox, oz, owner);
-    }
-    return;
+  // ★ 部位判定：头/胸/腹/腿（与视觉模型比例对齐）
+  let part;
+  if (relY > hh * 0.60) part = 'head';
+  else if (relY > hh * 0.10) part = 'thorax';
+  else if (relY > -hh * 0.20) part = 'abdomen';
+  else part = 'legs';
+
+  const isHeadshot = part === 'head';
+
+  if (isPlayer && hit.body.userData.type === 'enemy') {
+    this._damageEnemy(hit.body.userData.ref, energy, pen, part);
+  } else if (!isPlayer && hit.body.userData.type === 'player') {
+    this._damagePlayer(hit.body.userData.ref, energy, pen, isHeadshot, ox, oz, owner);
   }
-
+  return;
+}
   if (endY <= 0.01) {
     this._spawnSpark(endX, 0.1, endZ);
   } else if (hit && hit.body.userData.type === 'obstacle') {
@@ -2060,26 +2096,93 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   this._fireWeapon(enemy, enemy.weapon, false, target);
 }
 
-_damageEnemy(enemy, energy, pen, isHead = false){
-  if (!enemy.alive) return;
-  const profile = this.engine.profile;
-  
-  let finalEnergy = isHead ? energy * COMBAT.HEAD_MULT : energy;
-  if (isHead && profile.get('combat.headshotInstantKill', false)) {
-    finalEnergy = enemy.maxHp * COMBAT.BODY_COEFF_HUMAN;
+_applyArmorLayers(entity, energy, pen, hitPart) {
+  let remaining = energy;
+  let snapshot = null;
+
+  if (!entity.armor) return { remaining, snapshot };
+
+  const applyOne = (piece, layerName) => {
+    if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
+    const before = piece.dur;
+    const res = CombatSystem.applyArmor(piece, remaining, pen);
+    remaining = res.remaining;
+    if (res.absorbed > 0) {
+      return {
+        layer: layerName,
+        lv: piece.lv,
+        absorbed: res.absorbed,
+        wear: before - piece.dur,
+        broke: piece.dur <= 0,
+      };
+    }
+    return null;
+  };
+
+  if (hitPart === 'head') {
+    const s1 = applyOne(entity.armor.shell, '头盔壳');
+    const s2 = applyOne(entity.armor.visor, '面罩');
+    if (s1) snapshot = s1;
+    else if (s2) snapshot = s2;
+  } else if (hitPart === 'thorax' || hitPart === 'abdomen') {
+    const s1 = applyOne(entity.armor.plate, '插板');
+    const s2 = applyOne(entity.armor.fiber, '纤维');
+    if (s1) snapshot = s1;
+    else if (s2) snapshot = s2;
+  } else {
+    // 四肢：仅 fiber 覆盖
+    const s1 = applyOne(entity.armor.fiber, '纤维');
+    if (s1) snapshot = s1;
   }
 
-  const dmg = CombatSystem.energyToHP(finalEnergy, false);
+  return { remaining, snapshot };
+}
+   
+_damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
+  if (!enemy.alive) return;
+  const profile = this.engine.profile;
+  const isHead = hitPart === 'head';
   const hpBefore = enemy.hp;
+
+  let remaining = energy;
+  let couplingSnapshot = null;
+  let armorSnapshot = null;
+
+  // 1. 耦合防护（Prazer 敌人）
+  if (enemy.spec && enemy.spec.prazer && enemy.protectionHold && enemy.coupling > 0) {
+    const coup = CombatSystem.applyCoupling(enemy, remaining, 'ballistic');
+    if (coup.cost > 0) enemy.coupling = Math.max(0, enemy.coupling - coup.cost);
+    if (coup.absorbed > 0) {
+      couplingSnapshot = { level: enemy.protection || '?', absorbed: coup.absorbed, cost: coup.cost };
+    }
+    remaining = coup.remaining;
+  }
+
+  // 2. 护甲吸收
+  const armorRes = this._applyArmorLayers(enemy, remaining, pen, hitPart);
+  remaining = armorRes.remaining;
+  armorSnapshot = armorRes.snapshot;
+
+  // 3. 爆头倍率
+  if (isHead) {
+    remaining *= COMBAT.HEAD_MULT;
+    if (profile.get('combat.headshotInstantKill', false)) {
+      const lethalEnergy = enemy.hp * COMBAT.BODY_COEFF_HUMAN;
+      if (remaining >= lethalEnergy) remaining = lethalEnergy;
+    }
+  }
+
+  // 4. 折算 HP
+  const isPrazer = !!(enemy.spec && enemy.spec.prazer);
+  const dmg = CombatSystem.energyToHP(remaining, isPrazer);
   enemy.hp -= dmg;
   enemy.hitFlash = 0.15;
   this.player.dealt += dmg;
   this.stats.hits++;
-  
+
   this._hitMarker(isHead);
 
-  /* ---- 战斗日志：造成伤害 ---- */
-  const part = isHead ? 'head' : 'thorax';
+  // 5. 战斗日志（含护甲快照 + 耦合快照）
   this.combatLog.push({
     type: 'damage_dealt',
     t: this.time,
@@ -2089,11 +2192,12 @@ _damageEnemy(enemy, energy, pen, isHead = false){
       isElite: false,
     },
     amount: dmg,
-    part,
+    part: hitPart,
     weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
     headshot: isHead,
     pierced: pen >= 3,
-    armor: null, // 当前敌人没有护甲系统；接入后填 { lv, absorbed, wear, broke }
+    armor: armorSnapshot,
+    coupling: couplingSnapshot,
     targetHpBefore: hpBefore,
     targetHpAfter: Math.max(0, enemy.hp),
     targetMaxHp: enemy.maxHp,
@@ -2226,20 +2330,25 @@ _damagePlayer(player, energy, pen, isHead = false, srcX, srcZ, sourceEnt = null)
   }
 
   /* ===== 7. 战斗日志 ===== */
-  this.combatLog.push({
-    type: 'damage_taken',
-    t: this.time,
-    source: sourceEnt ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人') } : { name: '未知' },
-    amount: dmg,
-    part: isHead ? 'head' : 'thorax',
-    pierced: pen >= 3,
-    armor: armorSnapshot,
-    coupling: couplingSnapshot,
-    hpBefore: hpBefore,
-    hpAfter: Math.max(0, player.hp),
-    maxHp: player.maxHp,
-    bleeding: false,
-  });
+  const sourceWeapon = sourceEnt && sourceEnt.weapon && sourceEnt.weapon.def
+  ? { name: this.engine.i18n.t(sourceEnt.weapon.def.name) }
+  : null;
+this.combatLog.push({
+  type: 'damage_taken',
+  t: this.time,
+  source: sourceEnt
+    ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon }
+    : { name: '未知' },
+  amount: dmg,
+  part: isHead ? 'head' : 'thorax',
+  pierced: pen >= 3,
+  armor: armorSnapshot,
+  coupling: couplingSnapshot,
+  hpBefore: hpBefore,
+  hpAfter: Math.max(0, player.hp),
+  maxHp: player.maxHp,
+  bleeding: false,
+});
 
   this._spawnDamageNumber(player.body.position.x, player.body.position.z, Math.round(dmg), 'player');
   this._hurtFX();
@@ -2285,25 +2394,44 @@ if (player.hp <= 0 && player.alive) this._playerDown();
 
     this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
 
-  // ★ 尸体 loot 立即生成（不等其他逻辑）
-  const corpseLoot = [];
-  if (enemy.weapon && enemy.weapon.def) {
-    const wDef = enemy.weapon.def;
-    const loadedQty = enemy.weapon.loaded ? enemy.weapon.loaded.qty : 0;
-    const reserve = enemy.weapon.reserve || 0;
+  // ★ 尸体 loot：武器 + 弹药 + 护甲
+const corpseLoot = [];
+if (enemy.weapon && enemy.weapon.def) {
+  const wDef = enemy.weapon.def;
+  const loadedQty = enemy.weapon.loaded ? enemy.weapon.loaded.qty : 0;
+  const reserve = enemy.weapon.reserve || 0;
+  corpseLoot.push({
+    table: 'weapons',
+    defId: wDef.id,
+    loadedQty,
+  });
+  if (reserve > 0) {
     corpseLoot.push({
-      table: 'weapons',
-      defId: wDef.id,
-      loadedQty,
+      table: 'ammo',
+      defId: wDef.ammoType,
+      qty: reserve,
     });
-    if (reserve > 0) {
+  }
+}
+// ★ 护甲掉落（有 dur 才掉）
+if (enemy.armor) {
+  const armorTableMap = {
+    shell: 'helmetShell',
+    visor: 'helmetVisor',
+    fiber: 'vestFiber',
+    plate: 'vestPlate',
+  };
+  for (const slot in armorTableMap) {
+    const a = enemy.armor[slot];
+    if (a && a.lv > 0 && a.defId && a.dur > 0) {
       corpseLoot.push({
-        table: 'ammo',
-        defId: wDef.ammoType,
-        qty: reserve,
+        table: armorTableMap[slot],
+        defId: a.defId,
+        dur: Math.round(a.dur),
       });
     }
   }
+}
   if (corpseLoot.length > 0) {
     const lx = enemy.body.position.x + (Math.random() * 1.2 - 0.6);
     const lz = enemy.body.position.z + (Math.random() * 1.2 - 0.6);
