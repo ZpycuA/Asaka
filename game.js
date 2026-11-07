@@ -10,6 +10,7 @@ import { Body } from './engine.js';
 import { CombatLog, showCombatReport, hideCombatReport } from './combatlog.js';
 import { Inventory } from './inventory.js';
 import { BagUI } from './bagUI.js';
+import { Inventory, GridContainer } from './inventory.js';
 
 /* ============================================================
    [0] 战斗公式常数
@@ -1109,14 +1110,15 @@ _spawnGroundLoot(x, z, lootArray, label) {
   this.engine.renderer.scene.add(mesh);
 
   const loot = {
-    x, z, mesh,
-    opened: false,
-    loot: lootArray || [],
-    revealed: [],
-    searched: false,
-    isGround: true,
-    label: label || '地面物品',
-  };
+  x, z, mesh,
+  opened: false,
+  loot: lootArray || [],
+  revealed: [],
+  searched: false,
+  isGround: true,
+  label: label || '地面物品',
+  grid: null // 预留
+};
   this.groundLoots.push(loot);
   this.pois.push({ x, z, type: 'container', color: '#ffcc33' });
   return loot;
@@ -2935,7 +2937,7 @@ _updateMobileButtons(){
   }
 }
    
-  _trySearchContainer(){
+    _trySearchContainer(){
   if (this._searching) return;
   if (this.actionProcess.isRunning()) {
     this._log('动作进行中，无法搜索', 'y');
@@ -2950,8 +2952,31 @@ _updateMobileButtons(){
     this._log('容器已空', 'y');
     return;
   }
-  console.log('[Search] 开始搜索', c.isGround ? 'groundLoot' : 'container', 'loot:', c.loot ? c.loot.length : 'N/A');
-  this._startSearch(c);
+
+  const inv = this.engine.app.inventory;
+  if (!c.grid) {
+    c.grid = new GridContainer(8, 6);
+    inv.containers.loot = c.grid;
+    const items = c.revealed || c.loot || [];
+    for (const spec of items) {
+      const extras = { searched: false, qty: spec.qty || 1 };
+      if (spec.extras) Object.assign(extras, spec.extras);
+      if (spec.dur !== undefined) extras.dur = spec.dur;
+      if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+      const uid = inv.createItem(spec.table, spec.defId, extras);
+      if (uid) inv.addToContainer('loot', uid);
+    }
+    c.loot = [];
+    c.revealed = [];
+    c.searched = true;
+  }
+
+  inv.containers.loot = c.grid;
+  for (const uid of c.grid.items.keys()) {
+    inv.parentOf.set(uid, 'c:loot');
+  }
+
+  this.engine.app.bagUI.openLoot(c);
 }
 
   _generateLoot(){
