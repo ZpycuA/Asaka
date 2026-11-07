@@ -277,11 +277,11 @@ export class CombatLog {
       let armor = '';
       if (e.armor && e.armor.absorbed > 0) {
         armor = ` · 甲 Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
-        if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[破损]</span>';
+        if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[完全损坏]</span>';
       } else if (e.pierced) {
-        armor = ' · <span style="color:#ff44aa">穿甲</span>';
+        armor = ' · <span style="color:#ff44aa">穿透护甲</span>';
       }
-      const hsTag = e.headshot ? ' · <span style="color:#ffdd44">爆头</span>' : '';
+      const hsTag = e.headshot ? ' · <span style="color:#ffdd44">击中头部</span>' : '';
       return {
         cls: 'out',
         head: `→ 命中 ${esc(tgt)}`,
@@ -291,25 +291,27 @@ export class CombatLog {
 
     /* ---- 承受伤害 ---- */
     this.register('damage_taken', e => {
-      const src = e.source ? (e.source.name || '未知') : '未知';
-      const part = PART_NAMES[e.part] || e.part || '?';
-      let armor = '';
-      if (e.armor && e.armor.absorbed > 0) {
-        armor = ` · ${e.armor.layer || '甲'} Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
-        if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[破损]</span>';
-      }
-      let coupling = '';
-      if (e.coupling && e.coupling.absorbed > 0) {
-        coupling = `<br>耦合 ${e.coupling.level || '?'} 吸收 ${fmtNum(e.coupling.absorbed)}J · 消耗 ${fmtNum(e.coupling.cost, 1)} 点`;
-      }
-      const hp = `${fmtNum(e.hpAfter)}/${fmtNum(e.maxHp)}`;
-      const bleed = e.bleeding ? ' · <span style="color:#ff5a5a">流血</span>' : '';
-      return {
-        cls: 'in',
-        head: `← 受到 ${esc(src)} 攻击`,
-        body: `${part} · 伤害 <b>${fmtNum(e.amount)}</b>${armor}${coupling}<br>HP ${hp}${bleed}`,
-      };
-    });
+  const src = e.source ? (e.source.name || '未知') : '未知';
+  const srcWeapon = e.source && e.source.weapon ? (e.source.weapon.name || '') : '';
+  const part = PART_NAMES[e.part] || e.part || '?';
+  let armor = '';
+  if (e.armor && e.armor.absorbed > 0) {
+    armor = ` · ${e.armor.layer || '甲'} Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
+    if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[完全损坏]</span>';
+  }
+  let coupling = '';
+  if (e.coupling && e.coupling.absorbed > 0) {
+    coupling = `<br>耦合 ${e.coupling.level || '?'} 吸收 ${fmtNum(e.coupling.absorbed)}J · 消耗 ${fmtNum(e.coupling.cost, 1)} 点`;
+  }
+  const hp = `${fmtNum(e.hpAfter)}/${fmtNum(e.maxHp)}`;
+  const bleed = e.bleeding ? ' · <span style="color:#ff5a5a">失血</span>' : '';
+  const weaponPrefix = srcWeapon ? esc(srcWeapon) + ' · ' : '';
+  return {
+    cls: 'in',
+    head: `← 受到 ${esc(src)} 攻击`,
+    body: `${weaponPrefix}${part} · 伤害 <b>${fmtNum(e.amount)}</b>${armor}${coupling}<br>HP ${hp}${bleed}`,
+  };
+});
 
     /* ---- 击杀 ---- */
     this.register('kill', e => {
