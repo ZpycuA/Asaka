@@ -287,7 +287,14 @@ _icon(item) {
   root.querySelectorAll('.bagui-slot.has-item').forEach(el => {
     const uid = el.dataset.uid;
     el.addEventListener('pointerdown', (e) => this._onDown(e, uid, el));
-    el.addEventListener('click', () => { if (!this._drag) { this.selectedUid = uid; this._renderDetail(); } });
+    el.addEventListener('click', (e) => {
+      if (!this._drag) {
+        this.selectedUid = uid;
+        const mx = e.clientX !== undefined ? e.clientX : 100;
+        const my = e.clientY !== undefined ? e.clientY : 100;
+        this._renderDetail(mx, my);
+      }
+    });
     el.addEventListener('dblclick', (e) => { e.preventDefault(); this._quickEquip(uid); });
   });
 }
