@@ -155,7 +155,7 @@ c.registerAll('chestRig', CHEST_RIG);
      prazer:    是否为 Prazer（有耦合能系统）
      A:         Aselevel（Prazer 用）
      sidearm:   副武器 id（null 表示无）
-     heavyArmor: 是否重装（布雯）
+     heavyArmor: 是否重装
      ========================================================== */
   const CHARACTERS = {
   captain: {
@@ -165,8 +165,8 @@ c.registerAll('chestRig', CHEST_RIG);
     prazer: false, A: 0,
     color: 0x5a6b7c,
     skills: ['drone', 'rally'],
-    staminaRegen: { move: 8, idle: 25 },
-    sprintCost: 10,
+    staminaRegen: { move: 1.5, idle: 6 },
+    sprintCost: 2.5,
   },
   kate: {
     name: 'content.char.kate.name', tag: 'content.char.kate.tag',
@@ -175,8 +175,8 @@ c.registerAll('chestRig', CHEST_RIG);
     prazer: true, A: 3,
     color: 0xff9ec4,
     skills: ['jump', 'aimbuff'],
-    staminaRegen: { move: 12, idle: 35 },
-    sprintCost: 8,
+    staminaRegen: { move: 2.0, idle: 8 },
+    sprintCost: 2.0,
   },
   lingna: {
     name: 'content.char.lingna.name', tag: 'content.char.lingna.tag',
@@ -185,8 +185,8 @@ c.registerAll('chestRig', CHEST_RIG);
     prazer: true, A: 3,
     color: 0xffb066,
     skills: ['dash', 'suppress'],
-    staminaRegen: { move: 12, idle: 35 },
-    sprintCost: 8,
+    staminaRegen: { move: 2.0, idle: 8 },
+    sprintCost: 2.0,
   },
   buwen: {
     name: 'content.char.buwen.name', tag: 'content.char.buwen.tag',
@@ -195,8 +195,8 @@ c.registerAll('chestRig', CHEST_RIG);
     prazer: false, A: 0,
     color: 0xc8e05a,
     skills: ['shield', 'taunt'],
-    staminaRegen: { move: 8, idle: 25 },
-    sprintCost: 10,
+    staminaRegen: { move: 1.5, idle: 6 },
+    sprintCost: 2.5,
   },
 };
   c.registerAll('characters', CHARACTERS);
