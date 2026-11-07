@@ -204,6 +204,14 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #search-hint b{color:#ffd93d}
 @media(max-width:768px){#search-hint{display:none!important}}
 
+/* 动作进程进度条 */
+#action-progress{position:absolute;left:50%;top:57%;transform:translateX(-50%);width:180px;display:none;text-align:center;pointer-events:none;z-index:22}
+#action-progress.on{display:block}
+#action-progress-label{font-size:11px;color:#ffe8a8;letter-spacing:2px;margin-bottom:4px;text-shadow:0 1px 3px #000}
+#action-progress-bar{height:6px;background:rgba(0,0,0,.6);border-radius:3px;overflow:hidden;border:1px solid rgba(255,200,80,.4)}
+#action-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd93d,#ffe880);transition:width .05s linear}
+#action-progress-time{font-size:10px;color:#cfe8ff;margin-top:3px;font-family:ui-monospace,monospace;letter-spacing:1px}
+
 /* 搜索面板 */
 #search-panel{position:absolute;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(4,8,14,.5);pointer-events:auto}
 #search-panel.on{display:flex}
@@ -525,7 +533,15 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div class="progress-bar"><div id="extract-fill"></div></div>
     </div>
 
-     <div id="search-hint">按 <b>G</b> 搜索物资</div>
+     <!-- 10.5 搜索提示 -->
+<div id="search-hint">按 <b>G</b> 搜索物资</div>
+
+<!-- 10.6 动作进程进度条 -->
+<div id="action-progress">
+  <div id="action-progress-label">换弹</div>
+  <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
+  <div id="action-progress-time">0.0s</div>
+</div>
 
   </div>
 
