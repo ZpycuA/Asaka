@@ -2,10 +2,7 @@
    LaiAsaka Engine · Game Layer
    v3.1.0 · © 2026 ZpycuA · CC BY-NC 4.0
    ------------------------------------------------------------
-   v3.1.0 更新：
-     · 顶部 import THREE（修复 "three is not defined"）
-     · 全系统读取 engine.profile，实现"仿真 ↔ 游戏性"平衡
-     · HUD / 战斗 / 技能 / 敌人强度 / 结算全部随 profile 变化
+   更新日志：暂无
    ============================================================ */
 
 import * as THREE from 'three';
@@ -1318,11 +1315,11 @@ _updatePlayer(dt){
     }
   }
 
-    // ★ 2. 硬核体力值系统与自动疾跑
+ // ★ 2. 硬核体力值系统（非线性）
 const mv = e.input.getMoveVector();
 const isMoving = (mv.x !== 0 || mv.z !== 0);
 
-// ★ 移动打断搜索：玩家按方向键/推摇杆即退出搜索面板，不再"卡住"
+// 移动打断搜索
 if (this._searching && (Math.abs(mv.x) > 0.15 || Math.abs(mv.z) > 0.15)) {
   this._closeSearch();
   this._log('搜索已取消', 'y');
@@ -1332,25 +1329,39 @@ const wantsToSprint = e.input.keys.has('shift') ||
                       e.input.isActive('sprint') ||
                       (e.input.joystickLeft && e.input.joystickLeft.vector.magnitude > 0.9);
 
-// 体力参数从角色 spec 读，缺省 10 消耗 / 8 走 / 25 站
 const spec = p.charSpec || {};
-const sprintCost = spec.sprintCost !== undefined ? spec.sprintCost : 10;
-const regenMove  = spec.staminaRegen && spec.staminaRegen.move !== undefined ? spec.staminaRegen.move : 8;
-const regenIdle  = spec.staminaRegen && spec.staminaRegen.idle !== undefined ? spec.staminaRegen.idle : 25;
+const baseCost        = spec.sprintCost !== undefined ? spec.sprintCost : 2.5;
+const baseIdleRegen   = spec.staminaRegen && spec.staminaRegen.idle !== undefined ? spec.staminaRegen.idle : 6;
+const baseMoveRegen   = spec.staminaRegen && spec.staminaRegen.move !== undefined ? spec.staminaRegen.move : 1.5;
+
+const staminaRatio = p.stamina / p.maxStamina;
+const fatigueMul   = 1 + (1 - staminaRatio) * 1.5;   // 越累消耗越快：1~2.5
+const recoveryMul  = 1 + (1 - staminaRatio) * 2.0;   // 越累恢复越快：1~3
+
+const canSprint = isMoving && wantsToSprint && p.stamina > 2 && staminaRatio > 0.15;
 
 let isSprinting = false;
-if (isMoving && wantsToSprint && p.stamina > 2) {
+if (canSprint) {
   isSprinting = true;
-  p.stamina = Math.max(0, p.stamina - dt * sprintCost);
+  p.stamina = Math.max(0, p.stamina - dt * baseCost * fatigueMul);
 } else {
-  const regen = isMoving ? regenMove : regenIdle;
-  p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen);
+  const regen = isMoving ? baseMoveRegen : baseIdleRegen;
+  p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen * recoveryMul);
 }
 
+// 平滑冲刺进度：让 speed/FOV 连续变化，避免布尔跳变导致抽动
+if (this._sprintProgress === undefined) this._sprintProgress = 0;
+const targetProgress = isSprinting ? 1 : 0;
+this._sprintProgress += (targetProgress - this._sprintProgress) * Math.min(1, dt * 6);
+const sp = this._sprintProgress;
+
 const baseSpeed = p.charSpec.speed * (p.speedMul !== undefined ? p.speedMul : 1);
-// 冲刺系数：Prazer 1.6，人类 1.55，重装 1.2
-const sprintMul = spec.heavyArmor ? 1.2 : (spec.prazer ? 1.6 : 1.55);
-const speed = isSprinting ? baseSpeed * sprintMul : baseSpeed;
+const sprintMul = spec.prazer ? 1.6 : 1.55;
+const speedMul = 1 + sp * (sprintMul - 1);
+const speed = baseSpeed * speedMul;
+
+// 力竭惩罚：< 20% 体力时移动减速
+const exhaustionMul = staminaRatio < 0.2 ? 0.75 : 1;
 
   // ★ 3. 移动计算（搜索时锁定移动）
 let moveX = 0, moveZ = 0;
@@ -1363,8 +1374,9 @@ if (!this._searching) {
   moveZ = rightZ * mv.x + forwardZ * -mv.z;
 }
 
-p.body.velocity.x = moveX * speed;
-p.body.velocity.z = moveZ * speed;
+const finalSpeed = speed * exhaustionMul;
+p.body.velocity.x = moveX * finalSpeed;
+p.body.velocity.z = moveZ * finalSpeed;
 if (isMoving && !this._searching) p.body.wake();
 
   // ★ 4. 跳跃检测
@@ -1416,8 +1428,8 @@ if (!this._searching) {
   if (e.input.isActive('search')) this._trySearchContainer();
 }
 
-    // ★ 8. Headbob + 武器摆动 + 冲刺 FOV
-  this._updateSpeedFeedback(dt, isMoving, isSprinting, speed);
+  // ★ 8. Headbob + 武器摆动 + 冲刺 FOV
+this._updateSpeedFeedback(dt, isMoving);
 
   // 边界限制，防止跑出地图
   const half = this.mapSpec.size / 2 - 1;
@@ -1425,46 +1437,44 @@ if (!this._searching) {
   p.body.position.z = Math.max(-half, Math.min(half, p.body.position.z));
 }
 
-_updateSpeedFeedback(dt, isMoving, isSprinting, speed) {
+_updateSpeedFeedback(dt, isMoving) {
   const p = this.player;
   const camCtl = this.engine.cameraCtl;
   const cam = this.engine.renderer.camera;
+  const sp = this._sprintProgress || 0;
 
-  // --- headbob ---
-  if (!this._bob) this._bob = { phase: 0, yBase: 0 };
-  const bobAmp = isSprinting ? 0.055 : (isMoving ? 0.028 : 0);
-  const bobFreq = speed * (isSprinting ? 1.6 : 1.3);
+  // --- headbob（连续，基于冲刺进度） ---
+  if (!this._bob) this._bob = { phase: 0 };
+  const bobAmp = 0.02 + sp * 0.03;
+  const bobFreq = 8 + sp * 4;
   if (isMoving) this._bob.phase += dt * bobFreq;
 
   const bobY = Math.sin(this._bob.phase * 2) * bobAmp;
-  const bobX = Math.cos(this._bob.phase) * bobAmp * 0.4;
+  const bobX = Math.cos(this._bob.phase) * bobAmp * 0.3;
 
-  // 应用到 cameraCtl 的 target 高度（follow 里 y 是 body.y + 1.5）
-  // 直接对 camera 位置做偏移，不改 follow target，避免与身体同步冲突
-  if (cam) {
-    cam.position.y += bobY;
-    // 轻微左右倾斜
-    cam.rotation.z = bobX * 0.15;
+  // 通过 cameraCtl 统一应用（避免被 cameraCtl.update 覆盖）
+  if (camCtl && typeof camCtl.setBob === 'function') {
+    camCtl.setBob(bobY, bobX * 0.15);
   }
 
   // --- 武器摆动 ---
   if (p.weaponGroup) {
-    const swayAmp = isSprinting ? 0.025 : (isMoving ? 0.012 : 0.004);
+    const swayAmp = 0.005 + sp * 0.015;
     const swayX = Math.cos(this._bob.phase) * swayAmp;
     const swayY = Math.sin(this._bob.phase * 2) * swayAmp * 0.6;
     const baseX = 0.25, baseY = -0.2, baseZ = -0.4;
-    p.weaponGroup.position.x += (baseX + swayX - p.weaponGroup.position.x) * 0.35;
-    p.weaponGroup.position.y += (baseY + swayY - p.weaponGroup.position.y) * 0.35;
-    p.weaponGroup.position.z += (baseZ - p.weaponGroup.position.z) * 0.35;
+    p.weaponGroup.position.x += (baseX + swayX - p.weaponGroup.position.x) * 0.2;
+    p.weaponGroup.position.y += (baseY + swayY - p.weaponGroup.position.y) * 0.2;
+    p.weaponGroup.position.z += (baseZ - p.weaponGroup.position.z) * 0.2;
   }
 
-  // --- 冲刺 FOV ---
-  if (!this._fov) this._fov = { base: cam.fov || 60, target: cam.fov || 60 };
-  this._fov.target = isSprinting ? 68 : this._fov.base;
-  const curFov = cam.fov;
-  const nextFov = curFov + (this._fov.target - curFov) * 0.12;
-  if (Math.abs(nextFov - curFov) > 0.05) {
-    cam.fov = nextFov;
+  // --- FOV（基于平滑冲刺进度，连续变化） ---
+  const baseFov = 60;
+  const sprintFov = 68;
+  const targetFov = baseFov + sp * (sprintFov - baseFov);
+  const fovDiff = targetFov - cam.fov;
+  if (Math.abs(fovDiff) > 0.05) {
+    cam.fov += fovDiff * Math.min(1, dt * 10);
     cam.updateProjectionMatrix();
   }
 }
