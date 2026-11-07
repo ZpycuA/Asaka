@@ -2083,21 +2083,24 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   const targetBody = hit.body;
   const hitY = hit.point.y;
   const relY = hitY - targetBody.position.y;
-  const hh = targetBody.halfH || 0.9;
+  const hh = targetBody.halfH || 1.2;
 
-  // ★ 部位判定：头/胸/腹/腿（与视觉模型比例对齐）
+  // ★ 部位判定：与视觉模型比例严格对齐
+  // 视觉模型（body 中心 1.2，半高 1.2）：
+  //   头 1.875~2.325 / 胸 1.30~1.875 / 腹 1.00~1.30 / 腿 0~1.00
+  // 相对 body 中心并除以 hh 后的阈值：
+  //   head > 0.5625 / thorax > 0.0833 / abdomen > -0.1667 / else legs
+  const r = relY / hh;
   let part;
-  if (relY > hh * 0.60) part = 'head';
-  else if (relY > hh * 0.10) part = 'thorax';
-  else if (relY > -hh * 0.20) part = 'abdomen';
+  if (r > 0.5625) part = 'head';
+  else if (r > 0.0833) part = 'thorax';
+  else if (r > -0.1667) part = 'abdomen';
   else part = 'legs';
-
-  const isHeadshot = part === 'head';
 
   if (isPlayer && hit.body.userData.type === 'enemy') {
     this._damageEnemy(hit.body.userData.ref, energy, pen, part);
   } else if (!isPlayer && hit.body.userData.type === 'player') {
-    this._damagePlayer(hit.body.userData.ref, energy, pen, isHeadshot, ox, oz, owner);
+    this._damagePlayer(hit.body.userData.ref, energy, pen, part, ox, oz, owner);
   }
   return;
 }
@@ -2158,6 +2161,10 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
    
 _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
   if (!enemy.alive) return;
+  // ★ 兼容旧代码：如果传入布尔值，自动转换
+  if (hitPart === true) hitPart = 'head';
+  else if (hitPart === false || hitPart === undefined) hitPart = 'thorax';
+
   const profile = this.engine.profile;
   const isHead = hitPart === 'head';
   const hpBefore = enemy.hp;
@@ -2232,6 +2239,10 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
 
 _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null){
   if (!player.alive) return;
+
+  // ★ 兼容旧代码：如果传入布尔值，自动转换
+  if (part === true) part = 'head';
+  else if (part === false || part === undefined) part = 'thorax';
 
   const profile = this.engine.profile;
   const hpBefore = player.hp;
