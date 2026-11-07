@@ -211,6 +211,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #action-progress-bar{height:6px;background:rgba(0,0,0,.6);border-radius:3px;overflow:hidden;border:1px solid rgba(255,200,80,.4)}
 #action-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd93d,#ffe880);transition:width .05s linear}
 #action-progress-time{font-size:10px;color:#cfe8ff;margin-top:3px;font-family:ui-monospace,monospace;letter-spacing:1px}
+#action-progress-cancel{margin-top:4px;padding:2px 10px;font-size:10px;border-radius:3px;border:1px solid rgba(255,150,150,.4);background:rgba(80,30,30,.6);color:#ffb0b0;cursor:pointer;font-family:inherit;pointer-events:auto}
+#action-progress-cancel:hover{background:rgba(120,40,40,.75)}
 
 /* 搜索面板 */
 #search-panel{position:absolute;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(4,8,14,.5);pointer-events:auto}
@@ -541,6 +543,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   <div id="action-progress-label">换弹</div>
   <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
   <div id="action-progress-time">0.0s</div>
+  <button id="action-progress-cancel">取消</button>
 </div>
 
   </div>
