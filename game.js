@@ -739,6 +739,14 @@ _updateHurtFX(hpPct) {
   let centerDark = 0;
   let shakeAmp = 0;
 
+  // ★ 失血过多：强制视野收缩、边缘发黑、轻微颤抖
+  if (p && p.status && p.status.hasEffect('hypovolemia')) {
+    vignetteOpacity = 0.8;
+    filterOpacity = 0.35;
+    centerDark = 0.3;
+    shakeAmp = 0.008;
+  }
+
   if (hpPct > 70) {
     vignetteOpacity = 0;
     filterOpacity = 0;
