@@ -654,11 +654,22 @@ class HUDSystem {
   this._setText('player-name', p.charSpec ? this.engine.i18n.t(p.charSpec.name) : '—');
   this._setText('player-tag', p.charSpec ? this.engine.i18n.t(p.charSpec.tag) : '—');
 
-  // 更新血量与体力
-  const hpPct = Math.max(0, Math.min(100, p.hp / p.maxHp * 100));
-  this._setStyle('hp-bar', 'width', hpPct + '%');
-  this._setText('hp-text', Math.round(hpPct) + '%');
+  // 更新定性状态与颜色
+const hq = p.status ? p.status.healthQuality : 100;
+const hText = p.status ? p.status.getHealthText() : '健康';
+this._setStyle('hp-bar', 'width', Math.max(0, hq) + '%');
 
+let hColor = '#5fd47a'; // 绿
+if (hq <= 15) hColor = '#ff3030';
+else if (hq <= 35) hColor = '#ff8b7b';
+else if (hq <= 60) hColor = '#ffd93d';
+else if (hq <= 85) hColor = '#a8e05a';
+
+this._setStyle('hp-bar', 'background', hColor);
+this._setText('hp-text', hText);
+
+// 渲染效果图标
+this._renderEffects(p);
  if (p.stamina !== undefined) {
   const stPct = Math.max(0, Math.min(100, p.stamina / p.maxStamina * 100));
   this._setStyle('stamina-bar', 'width', stPct + '%');
@@ -925,7 +936,27 @@ _updateCouplingFX(p) {
     const el = this._els[key];
     if (el) el.style.display = show ? '' : 'none';
   }
-
+   
+  _renderEffects(p) {
+  const el = document.getElementById('effect-bar');
+  if (!el) return;
+  if (!p.status) { el.innerHTML = ''; return; }
+  
+  // 如果效果没有变化，跳过重绘
+  const sig = Array.from(p.status.effects.keys()).join(',');
+  if (this._lastEffectSig === sig) return;
+  this._lastEffectSig = sig;
+  
+  let html = '';
+  for (const [id, eff] of p.status.effects) {
+    const def = this.engine.content.get('effects', id);
+    if (def) {
+      html += `<div title="${def.name} 强度:${eff.strength}" style="padding:2px 6px;background:rgba(200,50,50,.4);border:1px solid rgba(255,100,100,.5);border-radius:4px;font-size:12px;">${def.icon} ${def.name}</div>`;
+    }
+  }
+  el.innerHTML = html;
+  }
+   
    _renderArmor() {
   const p = this.world.player;
   if (!p || !p.armor) return;
@@ -2124,9 +2155,24 @@ _updateProtection(dt){
     weapon.mag--;
   }
   if (isPlayer) this.stats.shots++;
-  const baseSpread = def.spread || 0.02;
-  const acc = isPlayer ? 1.0 : (owner.spec ? owner.spec.acc : 0.5);
-  const spread = baseSpread * (isPlayer ? 1 : (1.5 - acc));
+  // 基础散布 + 据枪稳定影响
+let baseSpread = def.spread || 0.02;
+const stability = def.stability || 50;
+const handling = def.handling || 50;
+
+// 如果是在跑动或跳跃，散布加大
+const ownerStatus = owner.status;
+let statusSpreadMul = 1;
+if (ownerStatus && ownerStatus.hasEffect('pain')) statusSpreadMul *= 1.2;
+
+const acc = isPlayer ? 1.0 : (owner.spec ? owner.spec.acc : 0.5);
+const spread = (baseSpread * statusSpreadMul) * (isPlayer ? 1 : (1.5 - acc));
+
+// 后坐力表现（视角上抬 + 散布增加）
+if (isPlayer && this.engine.cameraCtl) {
+  const recoilAmt = (def.recoil || 20) * 0.00015;
+  this.engine.cameraCtl.pitch += recoilAmt;
+}
   const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
   const range = (def.range || 50) * 10;
   const pellets = def.pellets || 1;
