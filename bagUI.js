@@ -1,12 +1,11 @@
 /* ============================================================
-   LaiAsaka Engine · Bag UI
-   v1.0.0 · © 2026 ZpycuA · CC BY-NC 4.0
-   ------------------------------------------------------------
-   自注入 CSS + DOM，不依赖 index.html 任何既有元素。
-   纯数据操作走 Inventory 接口，UI 只负责渲染 + 拖拽。
+   LaiAsaka Engine · Bag UI (Grid Edition)
+   v2.0.0 · © 2026 ZpycuA · CC BY-NC 4.0
    ============================================================ */
 
 import * as THREE from 'three'
+
+const CELL = 48;
 
 const CSS = `
 #bagui-overlay{position:fixed;inset:0;z-index:500;background:rgba(4,8,14,.94);display:none;flex-direction:column;font-family:-apple-system,"PingFang SC",sans-serif;color:#d8e2ee;padding:12px;box-sizing:border-box;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
@@ -18,32 +17,35 @@ const CSS = `
 .bagui-main{flex:1;display:flex;gap:12px;margin-top:10px;min-height:0;overflow:hidden}
 .bagui-left,.bagui-right{flex:1;overflow-y:auto;padding:4px;min-width:0;box-sizing:border-box}
 .bagui-right{flex:1.2;background:rgba(10,18,28,.5);border-radius:8px}
-.bagui-sec{margin-bottom:10px;background:rgba(20,32,46,.6);border-radius:6px;padding:8px}
-.bagui-sec h3{font-size:11px;letter-spacing:2px;color:#8fb0c8;margin:0 0 6px 0;display:flex;justify-content:space-between;font-weight:600}
+.bagui-sec{margin-bottom:10px;background:rgba(20,32,46,.6);border-radius:6px;padding:8px;display:flex;flex-direction:column;align-items:center}
+.bagui-sec h3{font-size:11px;letter-spacing:2px;color:#8fb0c8;margin:0 0 6px 0;display:flex;justify-content:space-between;width:100%;font-weight:600}
 .bagui-cap{font-size:9px;color:#5c82a8}
-.bagui-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));grid-auto-rows:56px;gap:4px}
-.bagui-slot{position:relative !important;width:100%;height:56px;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;overflow:hidden;cursor:pointer;user-select:none;touch-action:none;box-sizing:border-box}
-.bagui-slot.has-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
-.bagui-slot.has-item[data-rarity="L1"]{border-color:#5fd47a;background:linear-gradient(180deg,rgba(95,212,122,.22),rgba(30,60,45,.85));box-shadow:0 0 4px rgba(95,212,122,.25) inset}
-.bagui-slot.has-item[data-rarity="L2"]{border-color:#4a9eff;background:linear-gradient(180deg,rgba(74,158,255,.22),rgba(25,50,80,.85));box-shadow:0 0 4px rgba(74,158,255,.25) inset}
-.bagui-slot.has-item[data-rarity="L3"]{border-color:#ffd93d;background:linear-gradient(180deg,rgba(255,217,61,.2),rgba(70,60,25,.85));box-shadow:0 0 5px rgba(255,217,61,.3) inset}
-.bagui-slot.has-item[data-rarity="L4"]{border-color:#ff9a3c;background:linear-gradient(180deg,rgba(255,154,60,.24),rgba(80,50,20,.85));box-shadow:0 0 6px rgba(255,154,60,.35) inset}
-.bagui-slot.has-item[data-rarity="L5"]{border-color:#ff5b5b;background:linear-gradient(180deg,rgba(255,91,91,.26),rgba(85,30,30,.85));box-shadow:0 0 7px rgba(255,91,91,.4) inset}
-.bagui-slot.has-item[data-rarity="FAN"]{border-color:#d4a373;background:linear-gradient(135deg,rgba(200,130,70,.5) 0%,rgba(140,85,40,.4) 35%,rgba(255,180,110,.55) 50%,rgba(140,85,40,.4) 65%,rgba(200,130,70,.5) 100%);box-shadow:0 0 8px rgba(212,163,115,.45) inset,0 0 3px rgba(212,163,115,.5)}
-.bagui-slot.has-item[data-rarity="EXT"]{border-color:#d0d0d0;background:linear-gradient(135deg,rgba(200,200,200,.5) 0%,rgba(120,120,120,.4) 35%,rgba(240,240,240,.55) 50%,rgba(120,120,120,.4) 65%,rgba(200,200,200,.5) 100%);box-shadow:0 0 8px rgba(208,208,208,.45) inset,0 0 3px rgba(208,208,208,.5)}
-.bagui-slot.has-item[data-rarity="PHE"]{border-color:#ffd700;background:linear-gradient(135deg,rgba(255,215,0,.55) 0%,rgba(180,140,0,.42) 35%,rgba(255,240,100,.6) 50%,rgba(180,140,0,.42) 65%,rgba(255,215,0,.55) 100%);box-shadow:0 0 10px rgba(255,215,0,.5) inset,0 0 4px rgba(255,215,0,.55)}
-.bagui-slot.has-item[data-rarity="INC"]{border-color:#c8c8e0;background:linear-gradient(135deg,#0a0a14 0%,#2a1a3a 25%,#1a2a3a 50%,#3a1a2a 75%,#0a0a14 100%);background-size:200% 200%;animation:bagIncShift 3s linear infinite,bagIncPulse 1.5s ease-in-out infinite alternate}
+
+.bagui-grid{position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto}
+.bagui-cell{position:absolute;border:1px solid rgba(255,255,255,.03);box-sizing:border-box;pointer-events:none}
+
+.bagui-item{position:absolute;background:rgba(60,100,150,.4);border:1px solid rgba(110,180,255,.5);border-radius:4px;box-sizing:border-box;cursor:pointer;overflow:hidden;transition:transform 0.1s}
+.bagui-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
+.bagui-item[data-rarity="L1"]{border-color:#5fd47a;background:linear-gradient(180deg,rgba(95,212,122,.22),rgba(30,60,45,.85))}
+.bagui-item[data-rarity="L2"]{border-color:#4a9eff;background:linear-gradient(180deg,rgba(74,158,255,.22),rgba(25,50,80,.85))}
+.bagui-item[data-rarity="L3"]{border-color:#ffd93d;background:linear-gradient(180deg,rgba(255,217,61,.2),rgba(70,60,25,.85))}
+.bagui-item[data-rarity="L4"]{border-color:#ff9a3c;background:linear-gradient(180deg,rgba(255,154,60,.24),rgba(80,50,20,.85))}
+.bagui-item[data-rarity="L5"]{border-color:#ff5b5b;background:linear-gradient(180deg,rgba(255,91,91,.26),rgba(85,30,30,.85))}
+.bagui-item[data-rarity="FAN"]{border-color:#d4a373;background:linear-gradient(135deg,rgba(200,130,70,.5) 0%,rgba(140,85,40,.4) 35%,rgba(255,180,110,.55) 50%,rgba(140,85,40,.4) 65%,rgba(200,130,70,.5) 100%)}
+.bagui-item[data-rarity="EXT"]{border-color:#d0d0d0;background:linear-gradient(135deg,rgba(200,200,200,.5) 0%,rgba(120,120,120,.4) 35%,rgba(240,240,240,.55) 50%,rgba(120,120,120,.4) 65%,rgba(200,200,200,.5) 100%)}
+.bagui-item[data-rarity="PHE"]{border-color:#ffd700;background:linear-gradient(135deg,rgba(255,215,0,.55) 0%,rgba(180,140,0,.42) 35%,rgba(255,240,100,.6) 50%,rgba(180,140,0,.42) 65%,rgba(255,215,0,.55) 100%)}
+.bagui-item[data-rarity="INC"]{border-color:#c8c8e0;background:linear-gradient(135deg,#0a0a14 0%,#2a1a3a 25%,#1a2a3a 50%,#3a1a2a 75%,#0a0a14 100%);background-size:200% 200%;animation:bagIncShift 3s linear infinite,bagIncPulse 1.5s ease-in-out infinite alternate}
 @keyframes bagIncShift{0%{background-position:0% 0%}100%{background-position:200% 200%}}
 @keyframes bagIncPulse{0%{box-shadow:0 0 6px rgba(200,200,230,.5) inset,0 0 4px rgba(180,180,220,.6)}100%{box-shadow:0 0 14px rgba(255,255,255,.9) inset,0 0 10px rgba(220,220,255,.85)}}
-.bagui-slot.drop-hint{box-shadow:0 0 0 2px #7bf5a8 inset}
-.bagui-slot.empty{opacity:.4;cursor:default}
-.bagui-icon{position:absolute;top:3px;left:50%;transform:translateX(-50%);font-size:18px;line-height:1;pointer-events:none;z-index:2}
-.bagui-name{position:absolute;bottom:2px;left:2px;right:2px;font-size:8px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cfe4f8;pointer-events:none;z-index:1}
-.bagui-qty{position:absolute;top:1px;right:3px;font-size:9px;color:#ffd93d;font-weight:700;pointer-events:none;z-index:3}
-.bagui-val{position:absolute;top:1px;left:3px;font-size:8px;color:#a8d8ff;font-weight:600;text-shadow:0 1px 2px #000;pointer-events:none;z-index:3}
-.bagui-dur{position:absolute;bottom:0;left:0;right:0;height:2px;background:rgba(0,0,0,.6);pointer-events:none;z-index:1}
-.bagui-dur i{display:block;height:100%}
-.bagui-ghost{position:fixed;z-index:9999;padding:4px 10px;background:rgba(60,120,190,.9);border:1px solid #7fd0ff;border-radius:4px;font-size:11px;transform:translate(-50%,-50%);pointer-events:none;white-space:nowrap;color:#fff;font-weight:600}
+
+.bagui-item.dragging{opacity:0.4}
+.bagui-item.ghost{position:fixed;z-index:9999;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.6);opacity:0.85}
+.bagui-item-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;pointer-events:none}
+.bagui-item-name{position:absolute;bottom:2px;left:2px;right:2px;font-size:10px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cfe4f8;pointer-events:none;text-shadow:0 1px 2px #000}
+.bagui-item-qty{position:absolute;top:2px;right:4px;font-size:11px;color:#ffd93d;font-weight:700;pointer-events:none;text-shadow:0 1px 2px #000}
+.bagui-item-dur{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(0,0,0,.6);pointer-events:none}
+.bagui-item-dur i{display:block;height:100%}
+
 .bagui-detail{position:fixed;z-index:600;display:none;width:280px;max-height:70vh;overflow-y:auto;padding:10px;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:8px;font-size:11px;line-height:1.7;box-shadow:0 6px 24px rgba(0,0,0,.7);box-sizing:border-box}
 .bagui-detail.on{display:block}
 .bagui-detail-title{font-size:13px;color:#a8d8ff;margin-bottom:6px;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:6px}
@@ -59,21 +61,8 @@ const CSS = `
 .bagui-rarity-tag.r-EXT{background:rgba(192,192,192,.25);color:#e0e0e0}
 .bagui-rarity-tag.r-PHE{background:rgba(255,215,0,.25);color:#ffd700}
 .bagui-rarity-tag.r-INC{background:rgba(0,0,0,.6);color:#e0e0ff;border:1px solid rgba(255,255,255,.4)}
-.bagui-flavor{font-size:10px;color:#6a8ca8;font-style:italic;margin-top:6px;padding-top:6px;border-top:1px dashed rgba(80,125,175,.3)}
-.bagui-attach-title,.bagui-effects-title{font-size:10px;color:#8fb0c8;margin-top:8px;margin-bottom:4px;letter-spacing:2px}
-.bagui-attach-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
-.bagui-attach-slot{padding:5px 8px;background:rgba(10,18,28,.6);border:1px solid rgba(80,125,175,.2);border-radius:4px;display:flex;justify-content:space-between;font-size:10px}
-.bagui-attach-label{color:#6a8ca8}
-.bagui-attach-val{color:#cfe8ff}
-.bagui-attach-empty{color:#4a6d8e}
-.bagui-attach-slot.drop-hint{box-shadow:0 0 0 2px #7bf5a8 inset}
-.bagui-effects{display:flex;flex-direction:column;gap:2px}
-.bagui-effect-item{font-size:10px;color:#a8d8ff;padding:2px 6px;background:rgba(60,120,185,.2);border-radius:3px}
-.bagui-effects-empty{font-size:10px;color:#4a6d8e;font-style:italic}
-.bagui-ammo-row{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:11px}
-.bagui-ammo-btn,.bagui-split-btn{padding:2px 8px;font-size:10px;border-radius:4px;cursor:pointer;font-family:inherit;border:1px solid rgba(110,180,255,.4);background:rgba(60,100,150,.5);color:#cfe8ff}
-.bagui-split-row{display:flex;gap:4px;align-items:center;margin-top:6px;font-size:11px}
-.bagui-split-input{width:56px;padding:2px 4px;background:rgba(10,18,28,.8);border:1px solid rgba(80,125,175,.35);border-radius:3px;color:#cfe8ff;font-family:inherit;font-size:11px}
+.bagui-btn{padding:4px 10px;font-size:11px;border-radius:4px;cursor:pointer;font-family:inherit;border:1px solid rgba(110,180,255,.4);background:rgba(60,100,150,.5);color:#cfe8ff;margin-top:8px;width:100%}
+.bagui-btn:hover{background:rgba(80,150,220,.7)}
 .bagui-empty{color:#5c82a8;text-align:center;padding:20px}
 .bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between;flex-shrink:0}
 .bagui-toolbar button{padding:5px 12px;font-size:11px;cursor:pointer;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:5px;font-family:inherit}
@@ -81,7 +70,8 @@ const CSS = `
 .bagui-preview{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,rgba(40,60,90,.6),rgba(10,18,28,.9));border-radius:8px;overflow:hidden}
 .bagui-preview canvas{max-width:100%;max-height:100%;display:block}
 .bagui-status{margin-top:8px;padding:8px;background:rgba(10,18,28,.5);border-radius:6px;font-size:10px;color:#5c82a8;text-align:center;letter-spacing:1px}
-@media(max-width:768px){.bagui-main{flex-direction:column}.bagui-right{flex:0 0 180px;min-height:180px}}
+
+@media(max-width:768px){.bagui-main{flex-direction:column}.bagui-right{flex:0 0 220px;min-height:220px}}
 `;
 
 export class BagUI {
@@ -90,6 +80,7 @@ export class BagUI {
     this.inv = inventory;
     this.open = false;
     this.selectedUid = null;
+    this.openedBagUid = null; // 当前打开的嵌套背包
     this._drag = null;
     this._injectCSS();
     this._buildDOM();
@@ -120,531 +111,491 @@ export class BagUI {
         <div class="bagui-detail" id="bagui-detail">选择物品查看详情</div>
       </div>`;
     document.body.appendChild(overlay);
+
     document.getElementById('bagui-close').addEventListener('click', () => this.close());
-window.addEventListener('pointermove', (e) => this._onMove(e));
-window.addEventListener('pointerup', (e) => this._onUp(e));
-window.addEventListener('pointercancel', (e) => this._onUp(e));
-document.addEventListener('contextmenu', (e) => {
-  if (this.open && e.target && e.target.closest && e.target.closest('#bagui-overlay')) {
-    e.preventDefault();
-  }
-});
-document.addEventListener('pointerdown', (e) => {
-  if (!this.open) return;
-  const detail = document.getElementById('bagui-detail');
-  if (!detail || !detail.classList.contains('on')) return;
-  const tgt = e.target;
-  if (!tgt || !tgt.closest) return;
-  if (tgt.closest('#bagui-detail')) return;
-  if (tgt.closest('.bagui-slot.has-item')) return;
-  if (tgt.closest('.bagui-attach-slot')) return;
-  this._deselectDetail();
-});
+    window.addEventListener('pointermove', (e) => this._onMove(e));
+    window.addEventListener('pointerup', (e) => this._onUp(e));
+    window.addEventListener('pointercancel', (e) => this._onUp(e));
+    document.addEventListener('contextmenu', (e) => {
+      if (this.open && e.target && e.target.closest && e.target.closest('#bagui-overlay')) {
+        e.preventDefault();
+      }
+    });
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.open) return;
+      const detail = document.getElementById('bagui-detail');
+      if (!detail || !detail.classList.contains('on')) return;
+      const tgt = e.target;
+      if (!tgt || !tgt.closest) return;
+      if (tgt.closest('#bagui-detail')) return;
+      if (tgt.closest('.bagui-item')) return;
+      this._deselectDetail();
+    });
   }
 
-toggle() { this.open ? this.close() : this.show(); }
-show() {
-  if (document.pointerLockElement) document.exitPointerLock();
-  this.open = true;
-  this._clearGhosts();
-  document.getElementById('bagui-overlay').classList.add('on');
-  this.refresh();
-}
-close() {
-  this.open = false;
-  document.getElementById('bagui-overlay').classList.remove('on');
-  this._cancelDrag();
-  this._clearGhosts();
-  this._deselectDetail();
-}
-
-_deselectDetail() {
-  this.selectedUid = null;
-  const el = document.getElementById('bagui-detail');
-  if (el) {
-    el.classList.remove('on');
-    el.innerHTML = '';
+  toggle() { this.open ? this.close() : this.show(); }
+  
+  show() {
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.open = true;
+    this._clearGhosts();
+    document.getElementById('bagui-overlay').classList.add('on');
+    this.openedBagUid = null;
+    this.refresh();
   }
-}
+  
+  close() {
+    this.open = false;
+    document.getElementById('bagui-overlay').classList.remove('on');
+    this._cancelDrag();
+    this._clearGhosts();
+    this._deselectDetail();
+  }
+
+  _deselectDetail() {
+    this.selectedUid = null;
+    const el = document.getElementById('bagui-detail');
+    if (el) {
+      el.classList.remove('on');
+      el.innerHTML = '';
+    }
+  }
 
   refresh() {
-  if (!this.open) return;
-  this._renderLeft();
-  this._renderRight();
-  this._renderToolbar();
-  this._renderDetail();
-}
+    if (!this.open) return;
+    this._renderLeft();
+    this._renderRight();
+    this._renderToolbar();
+    this._renderDetail();
+  }
 
-_renderToolbar() {
-  let bar = document.getElementById('bagui-toolbar');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'bagui-toolbar';
-    bar.className = 'bagui-toolbar';
-    const wrap = document.querySelector('.bagui-wrap');
-    if (!wrap) return;
-    const main = document.getElementById('bagui-left')?.parentNode;
-    if (main && main.parentNode === wrap) {
-      wrap.insertBefore(bar, main.nextSibling);
-    } else {
-      wrap.appendChild(bar);
+  _renderToolbar() {
+    let bar = document.getElementById('bagui-toolbar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'bagui-toolbar';
+      bar.className = 'bagui-toolbar';
+      const wrap = document.querySelector('.bagui-wrap');
+      if (!wrap) return;
+      const main = document.getElementById('bagui-left')?.parentNode;
+      if (main && main.parentNode === wrap) {
+        wrap.insertBefore(bar, main.nextSibling);
+      } else {
+        wrap.appendChild(bar);
+      }
     }
+    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+    const totalVal = this.inv.getTotalValue();
+    const carryVal = this.inv.getContainerValue('chest') + this.inv.getContainerValue('pocket') + this.inv.getContainerValue('bag') + this.inv.getContainerValue('safe');
+    const label = isInMatch
+      ? `携带 ${carryVal} cp`
+      : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
+    let html = `<span class="bagui-total">${label}</span>`;
+    if (!isInMatch) {
+      html += '<button id="bagui-stash-all">整理 · 全部入仓</button>';
+    }
+    bar.innerHTML = html;
+    const btn = document.getElementById('bagui-stash-all');
+    if (btn) btn.onclick = () => this._stashAll();
   }
-  const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
-  const totalVal = this.inv.getTotalValue();
-  const carryVal = this.inv.getContainerValue('chest') + this.inv.getContainerValue('pocket') + this.inv.getContainerValue('bag');
-  const label = isInMatch
-    ? `携带 ${carryVal} cp`
-    : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
-  let html = `<span class="bagui-total">${label}</span>`;
-  if (!isInMatch) {
-    html += '<button id="bagui-stash-all">整理 · 全部入仓</button>';
-  }
-  bar.innerHTML = html;
-  const btn = document.getElementById('bagui-stash-all');
-  if (btn) btn.onclick = () => this._stashAll();
-}
 
-_stashAll() {
-  let moved = 0, failed = 0;
-  // ★ 顺序：先容器后装备（避免 unequip 导致 bag/chest cap 归零，物品变孤儿）
-  for (const cName of ['chest', 'pocket', 'bag']) {
-    const c = this.inv.containers[cName];
-    if (!c) continue;
-    const uids = c.uids.slice();
-    for (const uid of uids) {
+  _stashAll() {
+    let moved = 0, failed = 0;
+    for (const cName of ['chest', 'pocket', 'bag']) {
+      const c = this.inv.containers[cName];
+      if (!c) continue;
+      const uids = Array.from(c.items.keys());
+      for (const uid of uids) {
+        const r = this.inv.addToContainer('stash', uid);
+        if (r.ok) moved++;
+        else failed++;
+      }
+    }
+    const equipSlots = ['main', 'side', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
+    for (const slot of equipSlots) {
+      const uid = this.inv.equipped[slot];
+      if (!uid) continue;
+      this.inv.unequip(slot);
       const r = this.inv.addToContainer('stash', uid);
       if (r.ok) moved++;
-      else failed++;
+      else { failed++; this.inv.equip(slot, uid); }
     }
+    console.log('[BagUI] 整理完成：入仓', moved, '失败', failed);
+    this.refresh();
   }
-  const equipSlots = ['main', 'side', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
-  for (const slot of equipSlots) {
-    const uid = this.inv.equipped[slot];
-    if (!uid) continue;
-    this.inv.unequip(slot);
-    const r = this.inv.addToContainer('stash', uid);
-    if (r.ok) moved++;
-    else { failed++; this.inv.equip(slot, uid); }
-  }
-  console.log('[BagUI] 整理完成：入仓', moved, '失败', failed);
-  this.refresh();
-}
 
   _renderLeft() {
     const el = document.getElementById('bagui-left');
     const inv = this.inv;
     let html = '';
-    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid">';
+    
+    // 装备
+    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
     const equipList = [
       ['main', '主武器'], ['side', '副武器'],
       ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
       ['vestFiber', '护甲'], ['vestPlate', '插板'],
       ['backpack', '背包'], ['chestRig', '胸挂'],
     ];
-    for (const [slot, label] of equipList) html += this._slotHtml(inv.equipped[slot], { type: 'equip', slot }, label);
+    for (const [slot, label] of equipList) {
+      html += this._equipSlotHtml(inv.equipped[slot], slot, label);
+    }
     html += '</div></div>';
 
+    // 容器
     for (const name of ['chest', 'pocket', 'bag', 'safe']) {
       const c = inv.containers[name];
-      if (!c || !c.cap) continue;
-      html += `<div class="bagui-sec"><h3>${this._cname(name)}<span class="bagui-cap">${c.uids.length}/${c.cap}</span></h3><div class="bagui-grid">`;
-      for (const uid of c.uids) html += this._slotHtml(uid, { type: 'container', name });
-      for (let i = c.uids.length; i < c.cap; i++) html += `<div class="bagui-slot empty" data-src-type="container" data-src-name="${name}"></div>`;
-      html += '</div></div>';
+      if (!c || !c.isActive) continue;
+      html += this._gridContainerHtml(name, this._cname(name));
     }
     el.innerHTML = html;
-    this._bindSlotEvents(el);
+    this._bindItemEvents(el);
   }
 
   _renderRight() {
-  const el = document.getElementById('bagui-right');
-  if (!el) return;
-  const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+    const el = document.getElementById('bagui-right');
+    if (!el) return;
+    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
 
-  if (isInMatch) {
-    // 战局内：显示角色建模 + 状态栏（先留空）
-    el.style.display = '';
-    el.innerHTML =
-      '<div class="bagui-preview" id="bagui-preview"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
-      '<div class="bagui-status" id="bagui-status">状态栏（预留）</div>';
-    this._renderCharPreview();
-    return;
-  }
-
-  el.style.display = '';
-  const c = this.inv.containers.stash;
-  let html = `<div class="bagui-sec"><h3>仓库<span class="bagui-cap">${c.uids.length}/${c.cap}</span></h3><div class="bagui-grid">`;
-  for (const uid of c.uids) html += this._slotHtml(uid, { type: 'container', name: 'stash' });
-  for (let i = c.uids.length; i < Math.min(c.cap, c.uids.length + 20); i++) html += `<div class="bagui-slot empty" data-src-type="container" data-src-name="stash"></div>`;
-  html += '</div></div>';
-  el.innerHTML = html;
-  this._bindSlotEvents(el);
-}
-
-_renderCharPreview() {
-  const host = document.getElementById('bagui-preview');
-  if (!host) return;
-  const charId = this.engine.app && this.engine.app.menuState ? this.engine.app.menuState.char : 'captain';
-  const spec = this.engine.content.get('characters', charId);
-  if (!spec) {
-    host.innerHTML = '<div style="color:#5c82a8;font-size:11px">无角色</div>';
-    return;
-  }
-
-  // ★ 清理上一次的 renderer，避免 WebGL context 泄漏
-  if (this._charPreviewRenderer) {
-    try {
-      this._charPreviewRenderer.dispose();
-      if (this._charPreviewRenderer.forceContextLoss) {
-        this._charPreviewRenderer.forceContextLoss();
+    // 如果打开了嵌套背包，优先显示该背包的内部
+    if (this.openedBagUid) {
+      const bag = this.inv.items.get(this.openedBagUid);
+      if (bag && bag.innerGrid) {
+        el.style.display = '';
+        let html = `<div class="bagui-sec"><h3 style="cursor:pointer;color:var(--accent)" id="bagui-back-inner">← 返回</h3>`;
+        html += `<h3>${this._esc(this.engine.i18n.t(this.inv.getDef(bag).name || bag.defId))} 的内部</h3>`;
+        html += `<div class="bagui-grid-wrap" style="width:${bag.innerGrid.w * CELL}px;height:${bag.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="inner:${bag.uid}">`;
+        for (let y = 0; y < bag.innerGrid.h; y++) {
+          for (let x = 0; x < bag.innerGrid.w; x++) {
+            html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+          }
+        }
+        for (const [uid, pos] of bag.innerGrid.items) {
+          html += this._itemHtml(uid, pos, `inner:${bag.uid}`);
+        }
+        html += `</div></div>`;
+        el.innerHTML = html;
+        
+        const backBtn = document.getElementById('bagui-back-inner');
+        if (backBtn) backBtn.onclick = () => { this.openedBagUid = null; this.refresh(); };
+        
+        this._bindItemEvents(el);
+        return;
       }
-    } catch (_) {}
-    this._charPreviewRenderer = null;
-  }
-
-  const w = host.clientWidth || 200;
-  const h = host.clientHeight || 240;
-
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(w, h, false);
-  renderer.setClearColor(0x000000, 0);
-  this._charPreviewRenderer = renderer;
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
-  camera.position.set(0, 1.6, 4.2);
-  camera.lookAt(0, 1.15, 0);
-
-  scene.add(new THREE.AmbientLight(0xffffff, 1.2));
-  const key = new THREE.DirectionalLight(0xfff4e0, 1.4);
-  key.position.set(3, 6, 4);
-  scene.add(key);
-  const rim = new THREE.DirectionalLight(0x88aaff, 0.8);
-  rim.position.set(-4, 3, -3);
-  scene.add(rim);
-
-  let mesh = null;
-  try {
-    mesh = this.engine.meshes.build('player', {
-  color: spec.color !== undefined ? spec.color : 0x5a6b7c,
-  radius: spec.radius || 1.2,
-  prazer: spec.prazer || false,
-  forceGlow: true,
-});
-    scene.add(mesh);
-  } catch (e) {
-    console.warn('[BagUI] 建模失败', e);
-  }
-
-  renderer.render(scene, camera);
-
-  const canvas = renderer.domElement;
-  host.innerHTML = '';
-  host.appendChild(canvas);
-  canvas.style.maxWidth = '100%';
-  canvas.style.maxHeight = '100%';
-
-  const nameEl = document.createElement('div');
-  nameEl.style.cssText = 'position:absolute;bottom:8px;left:8px;right:8px;text-align:center;font-size:11px;color:#a8d8ff;letter-spacing:2px;text-shadow:0 1px 3px #000';
-  nameEl.textContent = this.engine.i18n.t(spec.name);
-  host.appendChild(nameEl);
-}
-
-  _slotHtml(uid, src, hint) {
-    const inv = this.inv;
-    const srcAttrs = src.type === 'equip'
-      ? `data-src-type="equip" data-src-slot="${src.slot}"`
-      : `data-src-type="container" data-src-name="${src.name}"`;
-    if (!uid) return `<div class="bagui-slot empty" ${srcAttrs}>${hint ? `<div class="bagui-name" style="bottom:50%;transform:translateY(50%);color:#5c82a8">${hint}</div>` : ''}</div>`;
-    const item = inv.items.get(uid);
-    if (!item) return `<div class="bagui-slot empty" ${srcAttrs}></div>`;
-    const def = inv.getDef(item);
-const rawName = def ? (def.name || def.n || def.id || '?') : '?';
-const name = this.engine.i18n.t(rawName);
-    const qty = item.qty > 1 ? `<span class="bagui-qty">×${item.qty}</span>` : '';
-    const dur = item.durMax > 0 ? Math.round(item.dur / item.durMax * 100) : -1;
-    const durBar = dur >= 0 ? `<div class="bagui-dur"><i style="width:${dur}%;background:${dur > 60 ? '#6fe07a' : dur > 30 ? '#ffd93d' : '#ff5a5a'}"></i></div>` : '';
-    const val = inv.getItemValue(uid);
-const valBadge = val > 0 ? `<div class="bagui-val">${val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val}</div>` : '';
-const rarity = item.rarity || 'L0';
-return `<div class="bagui-slot has-item" data-uid="${uid}" data-rarity="${rarity}" ${srcAttrs}>
-  <div class="bagui-icon">${this._icon(item)}</div>
-  <div class="bagui-name">${this._esc(name)}</div>
-  ${qty}${durBar}${valBadge}
-</div>`;
-  }
-
-_icon(item) {
-  if (!item) return '?';
-  const def = this.inv.getDef(item);
-  if (def && def.icon) {
-    const icon = String(def.icon);
-    if (icon.startsWith('/') || icon.startsWith('http') || icon.startsWith('data:')) {
-      return `<img src="${this._esc(icon)}" alt="" style="width:100%;height:100%;object-fit:contain">`;
+      this.openedBagUid = null;
     }
-    return icon;
+
+    if (isInMatch) {
+      el.style.display = '';
+      el.innerHTML =
+        '<div class="bagui-preview" id="bagui-preview"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
+        '<div class="bagui-status" id="bagui-status">状态栏（预留）</div>';
+      this._renderCharPreview();
+      return;
+    }
+
+    el.style.display = '';
+    let html = this._gridContainerHtml('stash', '仓库');
+    el.innerHTML = html;
+    this._bindItemEvents(el);
   }
-  return {
-    weapons: '🔫', ammo: '🔸', cons: '💊', nade: '💣', attach: '⚙', valuable: '💎',
-    helmetShell: '⛑', helmetVisor: '🕶', helmetEar: '🎧',
-    vestFiber: '🦺', vestPlate: '🛡', backpack: '🎒', chestRig: '🧥'
-  }[item.table] || '?';
-}
+
+  _gridContainerHtml(name, label) {
+    const c = this.inv.containers[name];
+    if (!c || !c.isActive) return '';
+    let html = `<div class="bagui-sec"><h3>${label}<span class="bagui-cap">${c.w}x${c.h}</span></h3>`;
+    html += `<div class="bagui-grid-wrap" style="width:${c.w * CELL}px;height:${c.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="${name}">`;
+    for (let y = 0; y < c.h; y++) {
+      for (let x = 0; x < c.w; x++) {
+        html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+      }
+    }
+    for (const [uid, pos] of c.items) {
+      html += this._itemHtml(uid, pos, name);
+    }
+    html += `</div></div>`;
+    return html;
+  }
+
+  _equipSlotHtml(uid, slot, hint) {
+    if (!uid) return `<div class="bagui-slot empty" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;display:flex;align-items:center;justify-content:center;position:relative"><div class="bagui-name" style="color:#5c82a8">${hint}</div></div>`;
+    const item = this.inv.items.get(uid);
+    const def = this.inv.getDef(item);
+    const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
+    const rarity = item.rarity || 'L0';
+    return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;position:relative">
+      <div class="bagui-item-icon">${this._icon(item)}</div>
+      <div class="bagui-item-name">${this._esc(name)}</div>
+    </div>`;
+  }
+
+  _itemHtml(uid, pos, containerName) {
+    const item = this.inv.items.get(uid);
+    if (!item) return '';
+    const def = this.inv.getDef(item);
+    const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
+    const rarity = item.rarity || 'L0';
+    const qty = item.qty > 1 ? `<span class="bagui-item-qty">×${item.qty}</span>` : '';
+    const dur = item.durMax > 0 ? Math.round(item.dur / item.durMax * 100) : -1;
+    const durBar = dur >= 0 ? `<div class="bagui-item-dur"><i style="width:${dur}%;background:${dur > 60 ? '#6fe07a' : dur > 30 ? '#ffd93d' : '#ff5a5a'}"></i></div>` : '';
+    
+    return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
+      style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px">
+      <div class="bagui-item-icon">${this._icon(item)}</div>
+      <div class="bagui-item-name">${this._esc(name)}</div>
+      ${qty}${durBar}
+    </div>`;
+  }
+
+  _icon(item) {
+    if (!item) return '?';
+    const def = this.inv.getDef(item);
+    if (def && def.icon) {
+      const icon = String(def.icon);
+      if (icon.startsWith('/') || icon.startsWith('http') || icon.startsWith('data:')) {
+        return `<img src="${this._esc(icon)}" alt="" style="width:100%;height:100%;object-fit:contain">`;
+      }
+      return icon;
+    }
+    return {
+      weapons: '🔫', ammo: '🔸', cons: '💊', nade: '💣', attach: '⚙', valuable: '💎',
+      helmetShell: '⛑', helmetVisor: '🕶', helmetEar: '🎧',
+      vestFiber: '🦺', vestPlate: '🛡', backpack: '🎒', chestRig: '🧥'
+    }[item.table] || '?';
+  }
 
   _cname(n) { return { chest: '胸挂', pocket: '口袋', bag: '背包', safe: '安全箱', stash: '仓库' }[n] || n; }
   _esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
-  _bindSlotEvents(root) {
-  root.querySelectorAll('.bagui-slot.has-item').forEach(el => {
-    const uid = el.dataset.uid;
-    el.addEventListener('pointerdown', (e) => this._onDown(e, uid, el));
-    el.addEventListener('click', (e) => {
-      if (!this._drag) {
-        this.selectedUid = uid;
-        const mx = e.clientX !== undefined ? e.clientX : 100;
-        const my = e.clientY !== undefined ? e.clientY : 100;
-        this._renderDetail(mx, my);
-      }
+  _bindItemEvents(root) {
+    root.querySelectorAll('.bagui-item.has-item').forEach(el => {
+      const uid = el.dataset.uid;
+      el.addEventListener('pointerdown', (e) => this._onDown(e, uid, el));
+      el.addEventListener('click', (e) => {
+        if (!this._drag) {
+          this.selectedUid = uid;
+          const mx = e.clientX !== undefined ? e.clientX : 100;
+          const my = e.clientY !== undefined ? e.clientY : 100;
+          this._renderDetail(mx, my);
+        }
+      });
+      el.addEventListener('dblclick', (e) => { e.preventDefault(); this._quickEquip(uid); });
     });
-    el.addEventListener('dblclick', (e) => { e.preventDefault(); this._quickEquip(uid); });
-  });
-}
-
-_quickEquip(uid) {
-  const item = this.inv.items.get(uid);
-  if (!item) return;
-  let targetSlot = null;
-  if (item.table === 'weapons') targetSlot = 'main';
-  else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
-  else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
-  else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
-  else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
-  else if (item.table === 'vestPlate') targetSlot = 'vestPlate';
-  else if (item.table === 'backpack') targetSlot = 'backpack';
-  else if (item.table === 'chestRig') targetSlot = 'chestRig';
-  if (!targetSlot) return;
-  const r = this.inv.equip(targetSlot, uid);
-  if (!r.ok) {
-    console.warn('[BagUI] 快速装备失败', uid, targetSlot, r.reason);
-    return;
   }
-  this.selectedUid = uid;
-  this.refresh();
-}
 
-  _unloadAmmo(weaponUid) {
-  const item = this.inv.items.get(weaponUid);
-  if (!item || item.table !== 'weapons' || !item.loaded || item.loaded.qty <= 0) return;
-  const ammoType = item.loaded.ammoType;
-  const qty = item.loaded.qty;
-  const uid = this.inv.createItem('ammo', ammoType, { qty });
-  if (!uid) return;
-  // ★ 关键修复：bag → chest → pocket → safe → stash 依次 fallback
-  const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
-  let placed = false;
-  for (const t of targets) {
-    if (this.inv.addToContainer(t, uid).ok) { placed = true; break; }
-  }
-  if (!placed) {
-    this.inv.destroyItem(uid);
-    return;
-  }
-  item.loaded.qty = 0;
-  this.refresh();
-}
+  _quickEquip(uid) {
+    const item = this.inv.items.get(uid);
+    if (!item) return;
 
-_loadAmmo(weaponUid) {
-  const item = this.inv.items.get(weaponUid);
-  if (!item || item.table !== 'weapons' || !item.loaded) return;
-  const def = this.inv.getDef(item);
-  if (!def) return;
-  const space = (def.mag || 0) - item.loaded.qty;
-  if (space <= 0) return;
-  const take = this._consumeAmmoFromAll(def.ammoType, space);
-  if (take > 0) {
-    item.loaded.qty += take;
-    this.refresh();
-  }
-}
+    // 如果是容器，双击打开
+    if (item.innerGrid) {
+      this.openedBagUid = uid;
+      this.refresh();
+      return;
+    }
 
-_consumeAmmoFromAll(ammoType, count) {
-  // ★ 关键修复：遍历所有可及容器（胸挂/口袋/背包/安全箱），不再只搜 bag
-  const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
-  let remaining = count;
-  for (const cName of searchOrder) {
-    if (remaining <= 0) break;
-    const c = this.inv.containers[cName];
-    if (!c) continue;
-    for (let i = c.uids.length - 1; i >= 0 && remaining > 0; i--) {
-      const uid = c.uids[i];
-      const it = this.inv.items.get(uid);
-      if (!it || it.table !== 'ammo' || it.defId !== ammoType) continue;
-      const take = Math.min(it.qty, remaining);
-      it.qty -= take;
-      remaining -= take;
-      // destroyItem 内部会 _detach，自动从 c.uids 移除
-      if (it.qty <= 0) this.inv.destroyItem(uid);
+    let targetSlot = null;
+    if (item.table === 'weapons') targetSlot = 'main';
+    else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
+    else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
+    else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
+    else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
+    else if (item.table === 'vestPlate') targetSlot = 'vestPlate';
+    else if (item.table === 'backpack') targetSlot = 'backpack';
+    else if (item.table === 'chestRig') targetSlot = 'chestRig';
+    
+    if (targetSlot) {
+      const r = this.inv.equip(targetSlot, uid);
+      if (!r.ok) console.warn('[BagUI] 快速装备失败', uid, targetSlot, r.reason);
+      else this.selectedUid = uid;
+      this.refresh();
+      return;
+    }
+
+    // 不穿的话，智能移动到包/胸挂
+    const parent = this.inv.parentOf.get(uid);
+    const targetC = (parent === 'c:stash') ? 'bag' : 'stash';
+    const res = this.inv.addToContainer(targetC, uid);
+    if (res.ok) {
+      this.refresh();
     }
   }
-  return count - remaining;
-}
-
-_splitStack(uid, count) {
-  const origParent = this.inv.parentOf.get(uid);
-  const preferred = origParent && origParent.startsWith('c:') ? origParent.slice(2) : null;
-  const res = this.inv.splitStack(uid, count, preferred);
-  if (!res.ok) {
-    if (res.reason === 'no_space') {
-      console.warn('[BagUI] 背包已满，拆分取消');
-    } else {
-      console.warn('[BagUI] 拆分失败', uid, count, res.reason);
-    }
-    return;
-  }
-  this.selectedUid = uid;
-  this.refresh();
-}
 
   _renderDetail(mx, my) {
-  const el = document.getElementById('bagui-detail');
-  if (!el) return;
-  const uid = this.selectedUid;
-  if (!uid || !this.inv.items.has(uid)) {
-    el.classList.remove('on');
-    el.innerHTML = '';
-    return;
-  }
-  const item = this.inv.items.get(uid);
-  const def = this.inv.getDef(item);
-  if (!def) {
-    el.classList.remove('on');
-    return;
-  }
-  const rawName = def.name || def.n || '?';
-const displayName = this.engine.i18n.t(rawName);
-const rarity = item.rarity || 'L0';
-let html = `<div class="bagui-detail-title"><span>${this._esc(displayName)}</span><span class="bagui-rarity-tag r-${rarity}">${rarity}</span></div>`;
-
-if (def.desc) {
-  html += `<div class="bagui-desc">${this._esc(this.engine.i18n.t(def.desc))}</div>`;
-}
-
-const unitVal = this.inv.getItemValue(uid);
-  if (item.qty > 1) {
-    const unit = Math.round(unitVal / item.qty);
-    html += `<div>数量：${item.qty} / ${item.stackLimit}（单价 ${unit} cp · 总价 ${unitVal} cp）</div>`;
-  } else if (unitVal > 0) {
-    html += `<div>价值：${unitVal} cp</div>`;
-  }
-  if (item.durMax > 0) {
-    html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;
-  }
-  if (def.rpm) {
-    html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
-  }
-
-  if (item.table === 'weapons') {
-  if (!item.loaded) {
-    const ammoType = def.ammoType || '9mm';
-    item.loaded = { ammoType, qty: 0 };
-  }
-  const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
-  const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-  const magCap = def.mag || 0;
-  const isFull = item.loaded.qty >= magCap;
-  html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
-  if (!isFull) html += `<button class="bagui-ammo-btn" data-action="load" data-uid="${uid}">装填</button>`;
-  if (item.loaded.qty > 0) html += `<button class="bagui-ammo-btn" data-action="unload" data-uid="${uid}">扣下</button>`;
-  html += `</span></div>`;
-}
-
-  if (def.flavor) html += `<div class="bagui-flavor">「${this._esc(def.flavor)}」</div>`;
-
-  if (item.attachments) {
-    html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
-    for (const slot of ['muzzle', 'sight', 'mag', 'grip']) {
-      const aUid = item.attachments[slot];
-      html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
-      html += `<span class="bagui-attach-label">${slot}</span>`;
-      if (aUid) {
-        const aDef = this.inv.getDef(this.inv.items.get(aUid));
-        const aRaw = aDef ? (aDef.name || aDef.n || '?') : '?';
-        html += `<span class="bagui-attach-val">${this._esc(this.engine.i18n.t(aRaw))}</span>`;
-      } else {
-        html += '<span class="bagui-attach-empty">空</span>';
-      }
-      html += `</div>`;
+    const el = document.getElementById('bagui-detail');
+    if (!el) return;
+    const uid = this.selectedUid;
+    if (!uid || !this.inv.items.has(uid)) {
+      el.classList.remove('on');
+      el.innerHTML = '';
+      return;
     }
-    html += '</div>';
-  }
+    const item = this.inv.items.get(uid);
+    const def = this.inv.getDef(item);
+    if (!def) {
+      el.classList.remove('on');
+      return;
+    }
+    const rawName = def.name || def.n || '?';
+    const displayName = this.engine.i18n.t(rawName);
+    const rarity = item.rarity || 'L0';
+    let html = `<div class="bagui-detail-title"><span>${this._esc(displayName)}</span><span class="bagui-rarity-tag r-${rarity}">${rarity}</span></div>`;
 
-  if (item.effects && item.effects.length > 0) {
-  html += '<div class="bagui-effects-title">效果</div><div class="bagui-effects">';
-  for (const e of item.effects) {
-    const name = typeof e === 'string' ? e : (e.name || e.id || '?');
-    html += `<div class="bagui-effect-item">${this._esc(name)}</div>`;
-  }
-  html += '</div>';
-}
+    if (def.desc) {
+      html += `<div class="bagui-desc">${this._esc(this.engine.i18n.t(def.desc))}</div>`;
+    }
 
-  if (item.stackLimit > 1 && item.qty > 1) {
-    const halfQty = Math.max(1, Math.floor(item.qty / 2));
-    html += `<div class="bagui-split-row">
-      <span>拆分</span>
-      <input type="number" class="bagui-split-input" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
-      <button class="bagui-split-btn" data-uid="${uid}">执行</button>
-    </div>`;
-  }
+    const unitVal = this.inv.getItemValue(uid);
+    if (item.qty > 1) {
+      const unit = Math.round(unitVal / item.qty);
+      html += `<div>数量：${item.qty} / ${item.stackLimit}（单价 ${unit} cp · 总价 ${unitVal} cp）</div>`;
+    } else if (unitVal > 0) {
+      html += `<div>价值：${unitVal} cp</div>`;
+    }
+    
+    if (item.durMax > 0) {
+      html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;
+    }
+    if (def.rpm) {
+      html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
+    }
 
-  el.innerHTML = html;
-  el.classList.add('on');
-
-  if (mx !== undefined && my !== undefined) {
-    el.style.left = Math.min(window.innerWidth - 300, mx + 18) + 'px';
-    el.style.top = Math.min(window.innerHeight - 100, my + 18) + 'px';
-    requestAnimationFrame(() => {
-      const rect = el.getBoundingClientRect();
-      if (rect.right > window.innerWidth - 8) {
-        el.style.left = Math.max(8, mx - rect.width - 18) + 'px';
+    if (item.table === 'weapons') {
+      if (!item.loaded) {
+        const ammoType = def.ammoType || '9mm';
+        item.loaded = { ammoType, qty: 0 };
       }
-      if (rect.bottom > window.innerHeight - 8) {
-        el.style.top = Math.max(8, my - rect.height - 18) + 'px';
-      }
+      const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
+      const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+      const magCap = def.mag || 0;
+      const isFull = item.loaded.qty >= magCap;
+      html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
+      if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
+      if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
+      html += `</span></div>`;
+    }
+
+    // 内部网格打开按钮
+    if (item.innerGrid) {
+      html += `<button class="bagui-btn" id="bagui-open-inner" data-uid="${uid}">打开内部网格 (${item.innerGrid.w}x${item.innerGrid.h})</button>`;
+    }
+
+    if (item.stackLimit > 1 && item.qty > 1) {
+      const halfQty = Math.max(1, Math.floor(item.qty / 2));
+      html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
+        <span>拆分</span>
+        <input type="number" class="bagui-btn" style="width:60px;margin:0;text-align:center" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
+        <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">执行</button>
+      </div>`;
+    }
+
+    el.innerHTML = html;
+    el.classList.add('on');
+
+    if (mx !== undefined && my !== undefined) {
+      el.style.left = Math.min(window.innerWidth - 300, mx + 18) + 'px';
+      el.style.top = Math.min(window.innerHeight - 100, my + 18) + 'px';
+      requestAnimationFrame(() => {
+        const rect = el.getBoundingClientRect();
+        if (rect.right > window.innerWidth - 8) el.style.left = Math.max(8, mx - rect.width - 18) + 'px';
+        if (rect.bottom > window.innerHeight - 8) el.style.top = Math.max(8, my - rect.height - 18) + 'px';
+      });
+    }
+
+    el.querySelectorAll('.bagui-btn[data-action="load"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._loadAmmo(btn.dataset.uid); };
+    });
+    el.querySelectorAll('.bagui-btn[data-action="unload"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._unloadAmmo(btn.dataset.uid); };
+    });
+    const openInner = document.getElementById('bagui-open-inner');
+    if (openInner) {
+      openInner.onclick = (e) => {
+        e.stopPropagation();
+        this.openedBagUid = openInner.dataset.uid;
+        this.refresh();
+      };
+    }
+    el.querySelectorAll('.bagui-btn[data-split-btn]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const splitUid = btn.dataset.splitBtn;
+        const input = el.querySelector(`input[data-uid="${splitUid}"]`);
+        if (!input) return;
+        const count = parseInt(input.value, 10);
+        if (isFinite(count) && count > 0) this._splitStack(splitUid, count);
+      };
     });
   }
 
-  el.querySelectorAll('.bagui-ammo-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const wUid = btn.dataset.uid;
-      const action = btn.dataset.action;
-      if (action === 'unload') this._unloadAmmo(wUid);
-      else if (action === 'load') this._loadAmmo(wUid);
-    });
-  });
+  _loadAmmo(weaponUid) {
+    const item = this.inv.items.get(weaponUid);
+    if (!item || item.table !== 'weapons' || !item.loaded) return;
+    const def = this.inv.getDef(item);
+    if (!def) return;
+    const space = (def.mag || 0) - item.loaded.qty;
+    if (space <= 0) return;
+    const take = this._consumeAmmoFromAll(def.ammoType, space);
+    if (take > 0) {
+      item.loaded.qty += take;
+      this.refresh();
+    }
+  }
 
-  el.querySelectorAll('.bagui-split-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const splitUid = btn.dataset.uid;
-      const input = el.querySelector(`.bagui-split-input[data-uid="${splitUid}"]`);
-      if (!input) return;
-      const count = parseInt(input.value, 10);
-      if (isFinite(count) && count > 0) this._splitStack(splitUid, count);
-    });
-  });
+  _consumeAmmoFromAll(ammoType, count) {
+    const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
+    let remaining = count;
+    for (const cName of searchOrder) {
+      if (remaining <= 0) break;
+      const c = this.inv.containers[cName];
+      if (!c) continue;
+      for (const uid of Array.from(c.items.keys())) {
+        if (remaining <= 0) break;
+        const it = this.inv.items.get(uid);
+        if (!it || it.table !== 'ammo' || it.defId !== ammoType) continue;
+        const take = Math.min(it.qty, remaining);
+        it.qty -= take;
+        remaining -= take;
+        if (it.qty <= 0) this.inv.destroyItem(uid);
+      }
+    }
+    return count - remaining;
+  }
 
-  el.querySelectorAll('.bagui-attach-slot').forEach(s => {
-    s.addEventListener('pointerup', (e) => {
-      if (!this._drag || !this._drag.moved) return;
-      const srcUid = this._drag.uid;
-      this._cancelDrag();
-      this._handleDrop(srcUid, s);
-    });
-  });
-}
+  _unloadAmmo(weaponUid) {
+    const item = this.inv.items.get(weaponUid);
+    if (!item || item.table !== 'weapons' || !item.loaded || item.loaded.qty <= 0) return;
+    const ammoType = item.loaded.ammoType;
+    const qty = item.loaded.qty;
+    // ★ 修复价值漂移：继承武器的 valueMul
+    const uid = this.inv.createItem('ammo', ammoType, { qty, lockValue: true, valueMul: item.valueMul });
+    if (!uid) return;
+    const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
+    let placed = false;
+    for (const t of targets) {
+      if (this.inv.addToContainer(t, uid).ok) { placed = true; break; }
+    }
+    if (!placed) {
+      this.inv.destroyItem(uid);
+      return;
+    }
+    item.loaded.qty = 0;
+    this.refresh();
+  }
+
+  _splitStack(uid, count) {
+    const origParent = this.inv.parentOf.get(uid);
+    let preferred = null;
+    if (origParent && origParent.startsWith('c:')) preferred = origParent.slice(2);
+    const res = this.inv.splitStack(uid, count, preferred);
+    if (!res.ok) {
+      console.warn('[BagUI] 拆分失败', uid, count, res.reason);
+      return;
+    }
+    this.selectedUid = uid;
+    this.refresh();
+  }
+
   /* ===== 拖拽 ===== */
   _onDown(e, uid, el) {
     if (e.button !== undefined && e.button > 0) return;
@@ -658,108 +609,192 @@ const unitVal = this.inv.getItemValue(uid);
       const dx = e.clientX - this._drag.startX, dy = e.clientY - this._drag.startY;
       if (dx * dx + dy * dy < 100) return;
       this._drag.moved = true;
+      
       const item = this.inv.items.get(this._drag.uid);
-const def = item ? this.inv.getDef(item) : null;
-const rawName = def ? (def.name || def.n || '?') : '?';
-const ghost = document.createElement('div');
-ghost.className = 'bagui-ghost';
-ghost.textContent = this.engine.i18n.t(rawName);
+      const def = item ? this.inv.getDef(item) : null;
+      const rawName = def ? (def.name || def.n || '?') : '?';
+      
+      const ghost = this._drag.srcEl.cloneNode(true);
+      ghost.classList.add('ghost');
+      ghost.classList.remove('has-item');
+      ghost.style.width = this._drag.srcEl.offsetWidth + 'px';
+      ghost.style.height = this._drag.srcEl.offsetHeight + 'px';
       ghost.style.left = e.clientX + 'px';
       ghost.style.top = e.clientY + 'px';
       document.body.appendChild(ghost);
+      
       this._drag.ghost = ghost;
-      if (this._drag.srcEl) this._drag.srcEl.style.opacity = 0.4;
+      if (this._drag.srcEl) this._drag.srcEl.style.opacity = 0.3;
     }
-    if (this._drag.ghost) { this._drag.ghost.style.left = e.clientX + 'px'; this._drag.ghost.style.top = e.clientY + 'px'; }
-    document.querySelectorAll('.bagui-slot.drop-hint,.bagui-attach-slot.drop-hint').forEach(x => x.classList.remove('drop-hint'));
+    
+    if (this._drag.ghost) {
+      this._drag.ghost.style.left = e.clientX + 'px';
+      this._drag.ghost.style.top = e.clientY + 'px';
+    }
+
+    // 高亮目标网格
+    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
     const tgt = document.elementFromPoint(e.clientX, e.clientY);
     if (tgt) {
-      const s = tgt.closest('.bagui-slot,.bagui-attach-slot');
-      if (s && s !== this._drag.srcEl) s.classList.add('drop-hint');
+      const wrap = tgt.closest('.bagui-grid-wrap');
+      if (wrap) wrap.style.boxShadow = '0 0 10px #7bf5a8 inset';
     }
   }
 
   _onUp(e) {
-  if (!this._drag) return;
-  const moved = this._drag.moved;
-  const uid = this._drag.uid;
-  const srcEl = this._drag.srcEl;
-  const px = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : this._drag.lastX;
-  const py = (e.clientY !== undefined && e.clientY !== 0) ? e.clientY : this._drag.lastY;
-  if (!moved) { this._cancelDrag(); return; }
-  const tgt = document.elementFromPoint(px, py);
-  this._cancelDrag();
-  if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
-  const overlayEl = document.getElementById('bagui-overlay');
-  const inOverlay = overlayEl && overlayEl.contains(tgt);
-  if (!inOverlay) {
-    const world = this.engine.app && this.engine.app.world;
-    const inMatch = world && world.running;
-    if (inMatch) {
-      const ok = world._dropItemToGround(uid);
-      if (ok) this.refresh();
-    } else {
-      console.warn('[BagUI] 战局外不能丢弃到地上');
-    }
-    return;
-  }
-  const slotEl = tgt.closest('.bagui-slot,.bagui-attach-slot');
-  if (!slotEl) { if (srcEl) srcEl.style.opacity = 1; return; }
-  if (slotEl === srcEl) { if (srcEl) srcEl.style.opacity = 1; return; }
-  this._handleDrop(uid, slotEl);
-}
+    if (!this._drag) return;
+    const moved = this._drag.moved;
+    const uid = this._drag.uid;
+    const srcEl = this._drag.srcEl;
+    
+    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
+    
+    if (!moved) { this._cancelDrag(); return; }
+    
+    const px = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : this._drag.startX;
+    const py = (e.clientY !== undefined && e.clientY !== 0) ? e.clientY : this._drag.startY;
+    const tgt = document.elementFromPoint(px, py);
+    this._cancelDrag();
+    
+    if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
+    
+    const wrap = tgt.closest('.bagui-grid-wrap');
+    if (wrap) {
+      const containerName = wrap.dataset.container;
+      const rect = wrap.getBoundingClientRect();
+      const clickX = px - rect.left;
+      const clickY = py - rect.top;
+      
+      const item = this.inv.items.get(uid);
+      let w = item.w, h = item.h;
+      if (item.rotated) { const tmp = w; w = h; h = tmp; }
+      
+      // 计算目标格（鼠标对齐中心）
+      let gx = Math.round((clickX - (w * CELL) / 2) / CELL);
+      let gy = Math.round((clickY - (h * CELL) / 2) / CELL);
 
-   _clearGhosts() {
-  document.querySelectorAll('.bagui-ghost').forEach(g => { try { g.remove(); } catch (_) {} });
-   }
+      let targetGrid = null;
+      if (containerName.startsWith('inner:')) {
+        const host = this.inv.items.get(containerName.slice(6));
+        if (host) targetGrid = host.innerGrid;
+      } else {
+        targetGrid = this.inv.containers[containerName];
+      }
+      
+      if (targetGrid) {
+        // 尝试放到点击位置（保持旋转状态）
+        const moveRes = this._placeAt(containerName, targetGrid, uid, gx, gy, item.rotated);
+        if (!moveRes.ok) {
+          // 如果不行，尝试反转
+          const rw = item.rotated ? item.w : item.h;
+          const rh = item.rotated ? item.h : item.w;
+          let rgx = Math.round((clickX - (rw * CELL) / 2) / CELL);
+          let rgy = Math.round((clickY - (rh * CELL) / 2) / CELL);
+          const moveRes2 = this._placeAt(containerName, targetGrid, uid, rgx, rgy, !item.rotated);
+          if (!moveRes2.ok) {
+            // 再不行，就自动找位置
+            this.inv.addToContainer(containerName, uid);
+          }
+        }
+      }
+    } else {
+      // 丢在外面或者装备槽
+      const equip = tgt.closest('.bagui-slot[data-src-type="equip"]');
+      if (equip) {
+        const slot = equip.dataset.srcSlot;
+        this.inv._detach(uid);
+        const r = this.inv.equip(slot, uid);
+        if (!r.ok) console.warn('[BagUI] 装备失败', r.reason);
+      }
+    }
+    
+    this.refresh();
+  }
+
+  _placeAt(containerName, grid, uid, gx, gy, rotated) {
+    const item = this.inv.items.get(uid);
+    if (!item) return { ok: false };
+    const w = rotated ? item.h : item.w;
+    const h = rotated ? item.w : item.h;
+    
+    if (gx < 0 || gy < 0 || gx + w > grid.w || gy + h > grid.h) return { ok: false };
+    
+    // 检查区域是否为空（忽略自己）
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const occ = grid.slots.get((gx + dx) + ',' + (gy + dy));
+        if (occ && occ !== uid) return { ok: false };
+      }
+    }
+
+    // 先移除
+    this.inv._detach(uid);
+    // 占用
+    this.inv._occupy(grid, uid, gx, gy, w, h, rotated);
+    item.rotated = rotated;
+    this.inv.parentOf.set(uid, containerName.startsWith('inner:') ? containerName : 'c:' + containerName);
+    return { ok: true };
+  }
 
   _cancelDrag() {
     if (this._drag && this._drag.ghost) this._drag.ghost.remove();
     if (this._drag && this._drag.srcEl) this._drag.srcEl.style.opacity = 1;
-    document.querySelectorAll('.bagui-slot.drop-hint,.bagui-attach-slot.drop-hint').forEach(x => x.classList.remove('drop-hint'));
+    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
     this._drag = null;
   }
 
-  _handleDrop(uid, slotEl) {
-    const inv = this.inv;
-    let target;
-    if (slotEl.classList.contains('bagui-attach-slot')) {
-      target = { type: 'attach', weaponUid: slotEl.dataset.weaponUid, slot: slotEl.dataset.attachSlot };
-    } else {
-      const st = slotEl.dataset.srcType;
-      if (st === 'equip') target = { type: 'equip', slot: slotEl.dataset.srcSlot };
-      else if (st === 'container') target = { type: 'container', name: slotEl.dataset.srcName };
-      else return;
-    }
-
-    const srcParent = inv.parentOf.get(uid);
-    inv._detach(uid);
-
-    let result;
-    if (target.type === 'equip') result = inv.equip(target.slot, uid);
-    else if (target.type === 'container') result = inv.addToContainer(target.name, uid);
-    else if (target.type === 'attach') result = inv.attachTo(target.weaponUid, target.slot, uid);
-    else result = { ok: false, reason: 'bad_target' };
-
-    if (!result.ok) {
-      this._restoreTo(uid, srcParent);
-    } else if (result.swapped) {
-      this._restoreTo(result.swapped, srcParent);
-    }
-    this.refresh();
+  _clearGhosts() {
+    document.querySelectorAll('.bagui-ghost').forEach(g => { try { g.remove(); } catch (_) {} });
   }
 
-  _restoreTo(uid, parent) {
-    if (!parent) { this.inv.addToContainer('stash', uid); return; }
-    if (parent.startsWith('eq:')) { this.inv.equip(parent.slice(3), uid); return; }
-    if (parent.startsWith('c:')) { this.inv.addToContainer(parent.slice(2), uid); return; }
-    const p = this.inv.items.get(parent);
-    if (p && p.attachments) {
-      for (const k in p.attachments) if (!p.attachments[k]) if (this.inv.attachTo(parent, k, uid).ok) return;
+  _renderCharPreview() {
+    const host = document.getElementById('bagui-preview');
+    if (!host) return;
+    const charId = this.engine.app && this.engine.app.menuState ? this.engine.app.menuState.char : 'captain';
+    const spec = this.engine.content.get('characters', charId);
+    if (!spec) return;
+
+    if (this._charPreviewRenderer) {
+      try { this._charPreviewRenderer.dispose(); } catch (_) {}
+      this._charPreviewRenderer = null;
     }
-    if (p && p.subSlots) {
-      for (const k in p.subSlots) if (!p.subSlots[k]) if (this.inv.attachToSubSlot(parent, k, uid).ok) return;
-    }
-    this.inv.addToContainer('stash', uid);
+
+    const w = host.clientWidth || 200;
+    const h = host.clientHeight || 240;
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h, false);
+    renderer.setClearColor(0x000000, 0);
+    this._charPreviewRenderer = renderer;
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
+    camera.position.set(0, 1.6, 4.2);
+    camera.lookAt(0, 1.15, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const key = new THREE.DirectionalLight(0xfff4e0, 1.4); key.position.set(3, 6, 4); scene.add(key);
+    const rim = new THREE.DirectionalLight(0x88aaff, 0.8); rim.position.set(-4, 3, -3); scene.add(rim);
+
+    try {
+      const mesh = this.engine.meshes.build('player', {
+        color: spec.color !== undefined ? spec.color : 0x5a6b7c,
+        radius: spec.radius || 1.2,
+        prazer: spec.prazer || false,
+        forceGlow: true,
+      });
+      scene.add(mesh);
+    } catch (e) {}
+
+    renderer.render(scene, camera);
+    host.innerHTML = '';
+    host.appendChild(renderer.domElement);
+    renderer.domElement.style.maxWidth = '100%';
+    renderer.domElement.style.maxHeight = '100%';
+
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = 'position:absolute;bottom:8px;left:8px;right:8px;text-align:center;font-size:11px;color:#a8d8ff;letter-spacing:2px;text-shadow:0 1px 3px #000';
+    nameEl.textContent = this.engine.i18n.t(spec.name);
+    host.appendChild(nameEl);
   }
 }
