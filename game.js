@@ -1943,6 +1943,16 @@ this._updateSpeedFeedback(dt, isMoving);
   const half = this.mapSpec.size / 2 - 1;
   p.body.position.x = Math.max(-half, Math.min(half, p.body.position.x));
   p.body.position.z = Math.max(-half, Math.min(half, p.body.position.z));
+
+  // ★ 击倒状态视觉（半侧倒地视角）
+if (isDowned && !p._wasDowned) {
+  p._wasDowned = true;
+  this._log('严重受损，已丧失行动能力', 'r');
+  this.engine.cameraCtl.setDeathPose(Math.PI / 2 * 0.7, 0.6, 0); // 半倾斜
+} else if (!isDowned && p._wasDowned) {
+  p._wasDowned = false;
+  this.engine.cameraCtl.resetDeathPose();
+}
 }
 
 _updateSpeedFeedback(dt, isMoving) {
