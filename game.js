@@ -2385,6 +2385,8 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
   if (hitPart === true) hitPart = 'head';
   else if (hitPart === false || hitPart === undefined) hitPart = 'thorax';
 
+  if (!enemy.status) enemy.status = new EntityStatus(enemy.spec, enemy.charSpec ? enemy.charSpec.prazer : false);
+
   const profile = this.engine.profile;
   const hpBefore = enemy.status.healthQuality;
 
@@ -2450,6 +2452,8 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
 
   if (part === true) part = 'head';
   else if (part === false || part === undefined) part = 'thorax';
+
+  if (!player.status) player.status = new EntityStatus(player.charSpec, player.charSpec ? player.charSpec.prazer : false);
 
   const profile = this.engine.profile;
   const hpBefore = player.status.healthQuality;
