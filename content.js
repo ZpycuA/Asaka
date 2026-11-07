@@ -141,12 +141,77 @@ c.registerAll('chestRig', CHEST_RIG);
      radius:  碰撞半径
      ========================================================== */
   const ENEMIES = {
-    grunt:    { name: 'content.enemy.grunt.name',    hp: 75,  speed: 4.5, acc: 0.55, faction: 'nipsel', weapon: 'p9',    color: 0x8a5a5a, radius: 1.2 },
-    rifleman: { name: 'content.enemy.rifleman.name', hp: 100, speed: 5.0, acc: 0.68, faction: 'nipsel', weapon: 'ar556', color: 0x9a6a4a, radius: 1.2 },
-    smgman:   { name: 'content.enemy.smgman.name',   hp: 85,  speed: 5.5, acc: 0.60, faction: 'nipsel', weapon: 'smg45', color: 0xa05050, radius: 1.2 },
-    sniper:   { name: 'content.enemy.sniper.name',   hp: 68,  speed: 3.8, acc: 0.86, faction: 'nipsel', weapon: 'sr762', color: 0x6a5a8a, radius: 1.1 },
-    elite:    { name: 'content.enemy.elite.name',    hp: 160, speed: 5.2, acc: 0.82, faction: 'nipsel', weapon: 'ak762', color: 0xc04a4a, radius: 1.3 },
-  };
+  grunt: {
+    name: 'content.enemy.grunt.name',
+    hp: 75, speed: 4.5, acc: 0.55, faction: 'nipsel', weapon: 'p9',
+    color: 0x8a5a5a, radius: 1.2,
+    prazer: false, A: 0,
+    gear: {
+      armor: {
+        shell: { defId: 'lv3', lv: 3 },
+        visor: { defId: 'lv3', lv: 3 },
+        fiber: { defId: 'lv3', lv: 3 },
+        plate: { defId: 'lv4', lv: 4 },
+      },
+    },
+  },
+  rifleman: {
+    name: 'content.enemy.rifleman.name',
+    hp: 100, speed: 5.0, acc: 0.68, faction: 'nipsel', weapon: 'ar556',
+    color: 0x9a6a4a, radius: 1.2,
+    prazer: false, A: 0,
+    gear: {
+      armor: {
+        shell: { defId: 'lv4', lv: 4 },
+        visor: { defId: 'lv4', lv: 4 },
+        fiber: { defId: 'lv4', lv: 4 },
+        plate: { defId: 'lv4', lv: 4 },
+      },
+    },
+  },
+  smgman: {
+    name: 'content.enemy.smgman.name',
+    hp: 85, speed: 5.5, acc: 0.60, faction: 'nipsel', weapon: 'smg45',
+    color: 0xa05050, radius: 1.2,
+    prazer: false, A: 0,
+    gear: {
+      armor: {
+        shell: { defId: 'lv3', lv: 3 },
+        visor: { defId: 'lv3', lv: 3 },
+        fiber: { defId: 'lv3', lv: 3 },
+        plate: { defId: 'lv4', lv: 4 },
+      },
+    },
+  },
+  sniper: {
+    name: 'content.enemy.sniper.name',
+    hp: 68, speed: 3.8, acc: 0.86, faction: 'nipsel', weapon: 'sr762',
+    color: 0x6a5a8a, radius: 1.1,
+    prazer: false, A: 0,
+    gear: {
+      armor: {
+        shell: { defId: 'lv4', lv: 4 },
+        visor: { defId: 'lv4', lv: 4 },
+        fiber: { defId: 'lv4', lv: 4 },
+        plate: { defId: 'lv5', lv: 5 },
+      },
+    },
+  },
+  elite: {
+    name: 'content.enemy.elite.name',
+    hp: 160, speed: 5.2, acc: 0.82, faction: 'nipsel', weapon: 'ak762',
+    color: 0xc04a4a, radius: 1.3,
+    prazer: false, A: 0,
+    gear: {
+      armor: {
+        shell: { defId: 'lv4', lv: 4 },
+        visor: { defId: 'lv4', lv: 4 },
+        fiber: { defId: 'lv4', lv: 4 },
+        plate: { defId: 'lv5', lv: 5 },
+      },
+    },
+  },
+};
   c.registerAll('enemies', ENEMIES);
 
   /* ==========================================================
