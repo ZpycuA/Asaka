@@ -1274,7 +1274,7 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   this._sprintProgress = 0;
 }
 
-  _buildWeapon(id){
+ _buildWeapon(id){
   const def = this.engine.content.get('weapons', id);
   if (!def) return null;
   const ammoDef = this.engine.content.get('ammo', def.ammoType);
@@ -1292,7 +1292,7 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
 }
 
   /* ===== Inventory 对接 ===== */
-_buildWeaponFromInventory(inv, equipSlot) {
+  _buildWeaponFromInventory(inv, equipSlot) {
   if (!inv) return null;
   const uid = inv.equipped[equipSlot];
   if (!uid) return null;
@@ -1377,7 +1377,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   return count - remaining;
 }
 
-_buildArmorFromInventory(inv) {
+  _buildArmorFromInventory(inv) {
   if (!inv) return null;
   const result = {};
   const mapping = [
@@ -1963,72 +1963,73 @@ _updateProtection(dt){
   if (!ammo) return;
 
   if (isPlayer) owner.fireCd = 60 / def.rpm;
-else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
-if (weapon.loaded) {
-  weapon.loaded.qty = Math.max(0, weapon.loaded.qty - 1);
-} else if (typeof weapon.mag === 'number') {
-  weapon.mag--;
-}
-if (isPlayer) this.stats.shots++;
-const baseSpread = def.spread || 0.02;
-const acc = isPlayer ? 1.0 : (owner.spec ? owner.spec.acc : 0.5);
-const spread = baseSpread * (isPlayer ? 1 : (1.5 - acc));
-const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
-const range = (def.range || 50) * 10;
-const pellets = def.pellets || 1;
-if (isPlayer) {
-  this.combatLog.push({
-    type: 'shot_fired', t: this.time,
-    weapon: this.engine.i18n.t(def.name),
-    pellets: pellets,
-    energy: baseEnergy,
-  });
-}
+  else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
+  
+  if (weapon.loaded) {
+    weapon.loaded.qty = Math.max(0, weapon.loaded.qty - 1);
+  } else if (typeof weapon.mag === 'number') {
+    weapon.mag--;
+  }
+  if (isPlayer) this.stats.shots++;
+  const baseSpread = def.spread || 0.02;
+  const acc = isPlayer ? 1.0 : (owner.spec ? owner.spec.acc : 0.5);
+  const spread = baseSpread * (isPlayer ? 1 : (1.5 - acc));
+  const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
+  const range = (def.range || 50) * 10;
+  const pellets = def.pellets || 1;
+  if (isPlayer) {
+    this.combatLog.push({
+      type: 'shot_fired', t: this.time,
+      weapon: this.engine.i18n.t(def.name),
+      pellets: pellets,
+      energy: baseEnergy,
+    });
+  }
   
   if (isPlayer) {
-  // ★ 后坐力视觉表现：枪模后缩
-  if (owner.weaponGroup) {
-    owner.weaponGroup.position.z = -0.3; // 向后缩
-    setTimeout(() => {
-      if (owner.weaponGroup) owner.weaponGroup.position.z = -0.4; // 恢复
-    }, 50);
-  }
+    // ★ 后坐力视觉表现：枪模后缩
+    if (owner.weaponGroup) {
+      owner.weaponGroup.position.z = -0.3; // 向后缩
+      setTimeout(() => {
+        if (owner.weaponGroup) owner.weaponGroup.position.z = -0.4; // 恢复
+      }, 50);
+    }
 
-  const cam = this.engine.renderer.camera;
-  const camPos = new THREE.Vector3();
-  cam.getWorldPosition(camPos);
-  const dir = new THREE.Vector3();
-  cam.getWorldDirection(dir);
-  
-  // 计算枪口的绝对世界坐标（基于相机偏移）
-  const muzzleOffset = new THREE.Vector3(0.25, -0.15, -0.8); // 相对相机的偏移
-  muzzleOffset.applyQuaternion(cam.quaternion);
-  const muzzlePos = camPos.clone().add(muzzleOffset);
+    const cam = this.engine.renderer.camera;
+    const camPos = new THREE.Vector3();
+    cam.getWorldPosition(camPos);
+    const dir = new THREE.Vector3();
+    cam.getWorldDirection(dir);
+    
+    // 计算枪口的绝对世界坐标（基于相机偏移）
+    const muzzleOffset = new THREE.Vector3(0.25, -0.15, -0.8); // 相对相机的偏移
+    muzzleOffset.applyQuaternion(cam.quaternion);
+    const muzzlePos = camPos.clone().add(muzzleOffset);
 
-  // 构建相机方向的正交基（right / up），用于圆形散布采样
-const dLen = Math.hypot(dir.x, dir.y, dir.z) || 1;
-const nX = dir.x / dLen, nY = dir.y / dLen, nZ = dir.z / dLen;
-const xzLen = Math.hypot(nX, nZ) || 1e-6;
-const rightX = -nZ / xzLen, rightZ = nX / xzLen;
-const upX = -nX * nY / xzLen;
-const upY = xzLen;
-const upZ = -nZ * nY / xzLen;
+    // 构建相机方向的正交基（right / up），用于圆形散布采样
+    const dLen = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const nX = dir.x / dLen, nY = dir.y / dLen, nZ = dir.z / dLen;
+    const xzLen = Math.hypot(nX, nZ) || 1e-6;
+    const rightX = -nZ / xzLen, rightZ = nX / xzLen;
+    const upX = -nX * nY / xzLen;
+    const upY = xzLen;
+    const upZ = -nZ * nY / xzLen;
 
-for (let i = 0; i < pellets; i++) {
-  // 圆盘均匀采样：角度均匀，半径按 sqrt 分布
-  const ang = Math.random() * Math.PI * 2;
-  const rad = Math.sqrt(Math.random()) * spread;
-  const sx = Math.cos(ang) * rad;
-  const sy = Math.sin(ang) * rad;
+    for (let i = 0; i < pellets; i++) {
+      // 圆盘均匀采样：角度均匀，半径按 sqrt 分布
+      const ang = Math.random() * Math.PI * 2;
+      const rad = Math.sqrt(Math.random()) * spread;
+      const sx = Math.cos(ang) * rad;
+      const sy = Math.sin(ang) * rad;
 
-  const dX = nX + rightX * sx + upX * sy;
-  const dY = nY + upY * sy;
-  const dZ = nZ + rightZ * sx + upZ * sy;
-  const len = Math.hypot(dX, dY, dZ) || 1;
+      const dX = nX + rightX * sx + upX * sy;
+      const dY = nY + upY * sy;
+      const dZ = nZ + rightZ * sx + upZ * sy;
+      const len = Math.hypot(dX, dY, dZ) || 1;
 
-  this._raycastBullet(owner, muzzlePos.x, muzzlePos.y, muzzlePos.z, dX / len, dY / len, dZ / len, baseEnergy, range, def, ammo, true);
-}
-} else {
+      this._raycastBullet(owner, muzzlePos.x, muzzlePos.y, muzzlePos.z, dX / len, dY / len, dZ / len, baseEnergy, range, def, ammo, true);
+    }
+  } else {
     // ★ 敌人射击：瞄准随机部位（头 10% / 胸 45% / 腹 20% / 腿 25%）
     const eyeY = owner.body.position.y + (owner.body.halfH || 0.9) * 0.75;
     const tgtBody = target && target.body ? target.body : null;
