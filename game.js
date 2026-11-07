@@ -280,31 +280,49 @@ const AISystem = {
   },
 
   _combat(world, enemy, dt, dist){
-    const p = world.player;
-    const dx = p.body.position.x - enemy.body.position.x;
-    const dz = p.body.position.z - enemy.body.position.z;
-    const ang = Math.atan2(dz, dx);
-    enemy.angle = ang;
+  const p = world.player;
+  const dx = p.body.position.x - enemy.body.position.x;
+  const dz = p.body.position.z - enemy.body.position.z;
+  const ang = Math.atan2(dz, dx);
+  enemy.angle = ang;
 
-    let moveAng;
-    if (dist > 15) moveAng = ang;
-    else if (dist < 8) moveAng = ang + Math.PI;
-    else moveAng = ang + Math.PI / 2 * enemy.strafeDir;
+  let moveAng;
+  if (dist > 15) moveAng = ang;
+  else if (dist < 8) moveAng = ang + Math.PI;
+  else moveAng = ang + Math.PI / 2 * enemy.strafeDir;
 
-    enemy.body.velocity.x = Math.cos(moveAng) * enemy.spec.speed;
-    enemy.body.velocity.z = Math.sin(moveAng) * enemy.spec.speed;
+  enemy.body.velocity.x = Math.cos(moveAng) * enemy.spec.speed;
+  enemy.body.velocity.z = Math.sin(moveAng) * enemy.spec.speed;
 
-    if (enemy.fireCd > 0) enemy.fireCd -= dt;
-    if (enemy.fireCd <= 0 && enemy.weapon && this._checkLOS(world, enemy, p)) {
-      world.enemyFire(enemy, p);
+  if (enemy.fireCd > 0) enemy.fireCd -= dt;
+
+  // ★ 弹药检查 + 自动换弹（打空后原地换弹 2.5s）
+  const w = enemy.weapon;
+  const hasAmmo = !!(w && w.loaded && w.loaded.qty > 0);
+  if (w && !hasAmmo && w.reserve > 0) {
+    if (enemy._reloadTimer === undefined) enemy._reloadTimer = 2.5;
+    enemy._reloadTimer -= dt;
+    if (enemy._reloadTimer <= 0) {
+      const need = w.magCap - w.loaded.qty;
+      const take = Math.min(need, w.reserve);
+      w.loaded.qty += take;
+      w.reserve -= take;
+      enemy._reloadTimer = 2.5;
     }
+  } else if (w) {
+    enemy._reloadTimer = 2.5;
+  }
 
-    enemy.strafeT -= dt;
-    if (enemy.strafeT <= 0) {
-      enemy.strafeDir *= -1;
-      enemy.strafeT = 0.7 + Math.random() * 1.2;
-    }
-  },
+  if (enemy.fireCd <= 0 && hasAmmo && this._checkLOS(world, enemy, p)) {
+    world.enemyFire(enemy, p);
+  }
+
+  enemy.strafeT -= dt;
+  if (enemy.strafeT <= 0) {
+    enemy.strafeDir *= -1;
+    enemy.strafeT = 0.7 + Math.random() * 1.2;
+  }
+},
 
   _search(world, enemy, dt){
     enemy.stateT += dt;
@@ -1180,18 +1198,21 @@ const body = this.physics.add(new Body({
 }
 
   _buildWeapon(id){
-    const def = this.engine.content.get('weapons', id);
-    if (!def) return null;
-    const ammoDef = this.engine.content.get('ammo', def.ammoType);
-    return {
-      def, ammoDef,
-      mag: def.mag,
-      magCap: def.mag,
-      reserve: def.mag * 3,
-      fireCd: 0,
-      reloading: 0,
-    };
-  }
+  const def = this.engine.content.get('weapons', id);
+  if (!def) return null;
+  const ammoDef = this.engine.content.get('ammo', def.ammoType);
+  const magCap = def.mag || 0;
+  return {
+    def, ammoDef,
+    loaded: { ammoType: def.ammoType, qty: magCap },
+    magCap,
+    reserve: magCap * 3,
+    fireCd: 0,
+    reloading: 0,
+    get mag() { return this.loaded.qty; },
+    set mag(v) { this.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
+  };
+}
 
   /* ===== Inventory 对接 ===== */
 _buildWeaponFromInventory(inv, equipSlot) {
@@ -1797,8 +1818,13 @@ _updateProtection(dt){
   if (!ammo) return;
 
   if (isPlayer) owner.fireCd = 60 / def.rpm;
-  else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
-  if (isPlayer) { weapon.mag--; this.stats.shots++; }
+else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
+if (weapon.loaded) {
+  weapon.loaded.qty = Math.max(0, weapon.loaded.qty - 1);
+} else if (typeof weapon.mag === 'number') {
+  weapon.mag--;
+}
+if (isPlayer) this.stats.shots++;
 const baseSpread = def.spread || 0.02;
 const acc = isPlayer ? 1.0 : (owner.spec ? owner.spec.acc : 0.5);
 const spread = baseSpread * (isPlayer ? 1 : (1.5 - acc));
@@ -2273,9 +2299,12 @@ _generateLootSpecs(){
     }[armorTable];
     specs.push({ table: armorTable, defId: defIds[Math.floor(Math.random() * defIds.length)] });
   } else if (r < 0.42) {
-    const weapons = ['p9', 'smg45', 'ak762'];
-    specs.push({ table: 'weapons', defId: weapons[Math.floor(Math.random() * weapons.length)] });
-  }
+  const weapons = ['p9', 'smg45', 'ak762'];
+  const wId = weapons[Math.floor(Math.random() * weapons.length)];
+  const wDef = this.engine.content.get('weapons', wId);
+  const magCap = (wDef && wDef.mag) || 0;
+  specs.push({ table: 'weapons', defId: wId, extras: { loadedQty: magCap } });
+}
   return specs;
 }
 
@@ -2392,7 +2421,9 @@ _takeLoot(index){
   const inv = this.engine.app ? this.engine.app.inventory : null;
   if (!inv) return;
   const spec = c.revealed[index];
-  const uid = inv.createItem(spec.table, spec.defId, { qty: spec.qty || 1 });
+const extras = { qty: spec.qty || 1 };
+if (spec.extras) Object.assign(extras, spec.extras);
+const uid = inv.createItem(spec.table, spec.defId, extras);
   if (!uid) return;
   const r = inv.addToContainer('bag', uid);
   if (!r.ok) {
@@ -2411,8 +2442,10 @@ _takeAllLoot(){
   if (!inv) return;
   for (let i = c.revealed.length - 1; i >= 0; i--) {
     const spec = c.revealed[i];
-    const uid = inv.createItem(spec.table, spec.defId, { qty: spec.qty || 1 });
-    if (!uid) continue;
+const extras = { qty: spec.qty || 1 };
+if (spec.extras) Object.assign(extras, spec.extras);
+const uid = inv.createItem(spec.table, spec.defId, extras); 
+     if (!uid) continue;
     const r = inv.addToContainer('bag', uid);
     if (!r.ok) { inv.destroyItem(uid); this._log('背包已满', 'y'); break; }
     c.revealed.splice(i, 1);
