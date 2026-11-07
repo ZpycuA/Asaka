@@ -1362,16 +1362,12 @@ _buildArmorFromInventory(inv) {
   this._syncMeshes();
 
   if (this.player) {
+  const footY = this.player.body.position.y - this.player.body.halfH;
   this.engine.cameraCtl.follow(
-    this.player.body.position.x, 
-    this.player.body.position.y + 1.5, 
+    this.player.body.position.x,
+    footY + 1.55,
     this.player.body.position.z
   );
-  this._carriedValueTimer = (this._carriedValueTimer || 0) + dt;
-  if (this._carriedValueTimer > 0.5) {
-    this._carriedValueTimer = 0;
-    this.player.carriedValue = this._computeLootValue();
-  }
 }
 this.hud.update();
 
@@ -1753,14 +1749,15 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
     ? (body) => body !== owner.body && (body.userData?.type === 'enemy' || body.userData?.type === 'obstacle')
     : (body) => body !== owner.body && (body.userData?.type === 'player' || body.userData?.type === 'obstacle');
 
-  const lenXZ = Math.hypot(dirX, dirZ) || 1;
-  const hit = this.physics.raycast(ox, oy, oz, dirX/lenXZ, dirY, dirZ/lenXZ, range, hitFilter);
+  const hit = this.physics.raycast(ox, oy, oz, dirX, dirY, dirZ, range, hitFilter);
 
-  const dist2D = hit ? hit.t : range;
-  const actualDist = dist2D / (lenXZ || 1);
-  const endX = ox + dirX * actualDist;
-  const endY = oy + dirY * actualDist;
-  const endZ = oz + dirZ * actualDist;
+  const dirLen = Math.hypot(dirX, dirY, dirZ) || 1;
+  const nx = dirX / dirLen, ny = dirY / dirLen, nz = dirZ / dirLen;
+
+  const actualDist = hit ? hit.t : range;
+  const endX = hit ? hit.point.x : (ox + nx * actualDist);
+  const endY = hit ? hit.point.y : (oy + ny * actualDist);
+  const endZ = hit ? hit.point.z : (oz + nz * actualDist);
 
   this._spawnTracer(ox, oy, oz, endX, endY, endZ, isPlayer ? 0xffe08a : 0xff8b7b);
 
@@ -1768,22 +1765,14 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   const decayK = realisticDrop ? COMBAT.RANGE_DECAY_REALISTIC : COMBAT.RANGE_DECAY;
   const energy = CombatSystem.energyAtRange(baseEnergy, actualDist, range, decayK);
 
-  /* ★ 修复 A：pen 用 ammoDef.pen（独立字段），不再错用 tier（稀有度） */
   const pen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
 
   if (hit && hit.body.userData.type !== 'obstacle') {
     const targetBody = hit.body;
-
-    /* ★ 修复 B：爆头判定改为相对目标半径的固定区间，
-         不再依赖 (position.y + 1.2) 这种会撞浮点边界的硬阈值。
-         下界 = 中心 + 半径×1.4（约"眼睛以上"），
-         上界 = 中心 + 半径×2.2（约"头顶以上"）。
-         效果：平视不爆头，需抬高准星才爆头；不同体型分别适应。 */
-    const tR = targetBody.radius || 1.2;
-    const tY = targetBody.position.y;
-    const headLow  = tY + tR * 1.4;
-    const headHigh = tY + tR * 2.2;
-    const isHeadshot = endY > headLow && endY < headHigh;
+    const hitY = hit.point.y;
+    const headLow  = targetBody.position.y + targetBody.halfH * 0.55;
+    const headHigh = targetBody.position.y + targetBody.halfH;
+    const isHeadshot = hitY > headLow && hitY < headHigh;
 
     if (isPlayer && hit.body.userData.type === 'enemy') {
       this._damageEnemy(hit.body.userData.ref, energy, pen, isHeadshot);
@@ -1793,8 +1782,7 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
     return;
   }
 
-  // 没打到人，才判定是否打在地上或障碍物上
-  if (endY <= 0) {
+  if (endY <= 0.01) {
     this._spawnSpark(endX, 0.1, endZ);
   } else if (hit && hit.body.userData.type === 'obstacle') {
     this._spawnSpark(endX, endY, endZ);
@@ -2601,13 +2589,12 @@ _applySkillEffect(p, def){
 _syncMeshes(){
   const p = this.player;
   if (p && p.mesh) {
-    p.mesh.position.set(p.body.position.x, 0, p.body.position.z);
+    p.mesh.position.set(p.body.position.x, p.body.footY, p.body.position.z);
     p.mesh.rotation.y = -p.angle;
   }
   for (const e of this.enemies) {
     if (!e.mesh) continue;
     
-    // 如果敌人死了，强制重置一次材质并隐藏
     if (!e.alive) {
       e.mesh.visible = false;
       e.mesh.traverse(obj => {
@@ -2619,11 +2606,11 @@ _syncMeshes(){
       continue;
     }
 
-    e.mesh.position.set(e.body.position.x, 0, e.body.position.z);
+    e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
     e.mesh.rotation.y = -e.angle;
     
     if (e.hitFlash > 0) {
-      e.hitFlash -= 0.016; // 在渲染循环里兜底扣减
+      e.hitFlash -= 0.016;
       e.mesh.traverse(obj => {
         if (obj.isMesh && obj.material && obj.material.emissive) {
           obj.material.emissive.setHex(0xffffff);
@@ -3111,21 +3098,20 @@ _stripInventoryForLoadout(){
   }
 }
    
-startMatch(kind){
+
+async startMatch(kind){
   const e = this.engine;
   this._lastMatchKind = kind;
 
-  // ★ 核心修复 1：真正切换屏幕（把菜单关掉，把游戏打开）
   this._showScreen('game');
   
-  // 保险起见，直接把所有悬浮层清理掉
   document.getElementById('result-screen')?.classList.remove('on');
   document.getElementById('pause-screen')?.classList.remove('on');
- const _again = document.getElementById('btn-again');
-if (_again) _again.style.display = '';
-const _reportBtn = document.getElementById('btn-view-report');
-if (_reportBtn) _reportBtn.remove();
-hideCombatReport();
+  const _again = document.getElementById('btn-again');
+  if (_again) _again.style.display = '';
+  const _reportBtn = document.getElementById('btn-view-report');
+  if (_reportBtn) _reportBtn.remove();
+  hideCombatReport();
   
   const crosshair = document.getElementById('crosshair');
   if (crosshair) crosshair.style.display = 'block';
@@ -3138,26 +3124,42 @@ hideCombatReport();
   this._bindCameraControls();
 
   if (this.world) {
-  try { this.world.destroy(); } catch (err) { console.warn(err); }
-  this.world = null;
-}
+    try { this.world.destroy(); } catch (err) { console.warn(err); }
+    this.world = null;
+  }
 
-this._ensureInitialInventory();
+  this._ensureInitialInventory();
 
-try {
-  this.world = new GameWorld(e, {
+  // 尝试加载外置地图
+  let layout = null;
+  const mapSpec = e.content.get('maps', this.menuState.map);
+  if (mapSpec && mapSpec.layoutUrl) {
+    try {
+      const res = await fetch(mapSpec.layoutUrl, { cache: 'no-cache' });
+      if (res.ok) {
+        layout = await res.json();
+      } else {
+        console.warn('[Map] layoutUrl 加载失败，回退随机生成：', mapSpec.layoutUrl, res.status);
+      }
+    } catch (err) {
+      console.warn('[Map] layoutUrl fetch 异常，回退随机生成：', err);
+    }
+  }
+
+  try {
+    this.world = new GameWorld(e, {
       mapId: this.menuState.map,
       charId: this.menuState.char,
       diffId: this.menuState.diff,
       modeId: this.menuState.mode,
       kind,
+      layout,
     });
 
-        this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
+    this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
     this.world.start();
     e.bus.emit('matchStarted', { kind });
 
-    // ★ 在用户点击按钮的同步栈里主动请求 pointerlock，避免"必须拖一下才能转视角"
     if (!isMobile) {
       const canvas = e.renderer.canvas;
       if (typeof canvas.requestPointerLock === 'function') {
