@@ -255,7 +255,8 @@ const name = this.engine.i18n.t(rawName);
     const durBar = dur >= 0 ? `<div class="bagui-dur"><i style="width:${dur}%;background:${dur > 60 ? '#6fe07a' : dur > 30 ? '#ffd93d' : '#ff5a5a'}"></i></div>` : '';
     const val = inv.getItemValue(uid);
 const valBadge = val > 0 ? `<div class="bagui-val">${val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val}</div>` : '';
-return `<div class="bagui-slot has-item" data-uid="${uid}" ${srcAttrs}>
+const rarity = item.rarity || 'L0';
+return `<div class="bagui-slot has-item" data-uid="${uid}" data-rarity="${rarity}" ${srcAttrs}>
   <div class="bagui-icon">${this._icon(item)}</div>
   <div class="bagui-name">${this._esc(name)}</div>
   ${qty}${durBar}${valBadge}
@@ -313,52 +314,137 @@ _quickEquip(uid) {
   this.refresh();
 }
 
-  _renderDetail() {
-    const el = document.getElementById('bagui-detail');
-    const uid = this.selectedUid;
-    if (!uid || !this.inv.items.has(uid)) { el.innerHTML = '<div class="bagui-empty">选择物品查看详情</div>'; return; }
-    const item = this.inv.items.get(uid);
-    const def = this.inv.getDef(item);
-    if (!def) { el.innerHTML = '<div class="bagui-empty">未知物品</div>'; return; }
-    const rawDetailName = def.name || def.n || '?';
-const displayDetailName = this.engine.i18n.t(rawDetailName);
-let html = `<div class="bagui-detail-title">${this._esc(displayDetailName)}</div>`;
-const unitVal = this.inv.getItemValue(uid);
-if (item.qty > 1) {
-  const unit = Math.round(unitVal / item.qty);
-  html += `<div>数量：${item.qty}（单价 ${unit} cp · 总价 ${unitVal} cp）</div>`;
-} else if (unitVal > 0) {
-  html += `<div>价值：${unitVal} cp</div>`;
-}
-if (item.durMax > 0) html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;    if (def.rpm) html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
-    if (def.flavor) html += `<div class="bagui-flavor">「${this._esc(def.flavor)}」</div>`;
-    if (item.attachments) {
-      html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
-      for (const slot of ['muzzle', 'sight', 'mag', 'grip']) {
-        const aUid = item.attachments[slot];
-        html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
-        html += `<span class="bagui-attach-label">${slot}</span>`;
-        if (aUid) {
-  const aDef = this.inv.getDef(this.inv.items.get(aUid));
-  const aRawName = aDef ? (aDef.name || aDef.n || '?') : '?';
-  const aDisplayName = this.engine.i18n.t(aRawName);
-  html += `<span class="bagui-attach-val">${this._esc(aDisplayName)}</span>`;
-} else html += '<span class="bagui-attach-empty">空</span>';
-        html += '</div>';
+  _renderDetail(mx, my) {
+  const el = document.getElementById('bagui-detail');
+  if (!el) return;
+  const uid = this.selectedUid;
+  if (!uid || !this.inv.items.has(uid)) {
+    el.classList.remove('on');
+    el.innerHTML = '';
+    return;
+  }
+  const item = this.inv.items.get(uid);
+  const def = this.inv.getDef(item);
+  if (!def) {
+    el.classList.remove('on');
+    return;
+  }
+  const rawName = def.name || def.n || '?';
+  const displayName = this.engine.i18n.t(rawName);
+  const rarity = item.rarity || 'L0';
+  let html = `<div class="bagui-detail-title"><span>${this._esc(displayName)}</span><span class="bagui-rarity-tag r-${rarity}">${rarity}</span></div>`;
+
+  const unitVal = this.inv.getItemValue(uid);
+  if (item.qty > 1) {
+    const unit = Math.round(unitVal / item.qty);
+    html += `<div>数量：${item.qty} / ${item.stackLimit}（单价 ${unit} cp · 总价 ${unitVal} cp）</div>`;
+  } else if (unitVal > 0) {
+    html += `<div>价值：${unitVal} cp</div>`;
+  }
+  if (item.durMax > 0) {
+    html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;
+  }
+  if (def.rpm) {
+    html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
+  }
+
+  if (item.table === 'weapons' && item.loaded) {
+    const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
+    const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+    const isFull = item.loaded.qty >= (def.mag || 0);
+    html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${def.mag || 0}</span><span style="display:flex;gap:4px">`;
+    if (!isFull) html += `<button class="bagui-ammo-btn" data-action="load" data-uid="${uid}">装填</button>`;
+    if (item.loaded.qty > 0) html += `<button class="bagui-ammo-btn" data-action="unload" data-uid="${uid}">扣下</button>`;
+    html += `</span></div>`;
+  }
+
+  if (def.flavor) html += `<div class="bagui-flavor">「${this._esc(def.flavor)}」</div>`;
+
+  if (item.attachments) {
+    html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
+    for (const slot of ['muzzle', 'sight', 'mag', 'grip']) {
+      const aUid = item.attachments[slot];
+      html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
+      html += `<span class="bagui-attach-label">${slot}</span>`;
+      if (aUid) {
+        const aDef = this.inv.getDef(this.inv.items.get(aUid));
+        const aRaw = aDef ? (aDef.name || aDef.n || '?') : '?';
+        html += `<span class="bagui-attach-val">${this._esc(this.engine.i18n.t(aRaw))}</span>`;
+      } else {
+        html += '<span class="bagui-attach-empty">空</span>';
       }
-      html += '</div>';
+      html += `</div>`;
     }
-    el.innerHTML = html;
-    el.querySelectorAll('.bagui-attach-slot').forEach(s => {
-      s.addEventListener('pointerup', (e) => {
-        if (!this._drag || !this._drag.moved) return;
-        const srcUid = this._drag.uid;
-        this._cancelDrag();
-        this._handleDrop(srcUid, s);
-      });
+    html += '</div>';
+  }
+
+  html += '<div class="bagui-effects-title">效果</div><div class="bagui-effects">';
+  if (item.effects && item.effects.length > 0) {
+    for (const e of item.effects) {
+      const name = typeof e === 'string' ? e : (e.name || e.id || '?');
+      html += `<div class="bagui-effect-item">${this._esc(name)}</div>`;
+    }
+  } else {
+    html += '<div class="bagui-effects-empty">（无）</div>';
+  }
+  html += '</div>';
+
+  if (item.stackLimit > 1 && item.qty > 1) {
+    const halfQty = Math.max(1, Math.floor(item.qty / 2));
+    html += `<div class="bagui-split-row">
+      <span>拆分</span>
+      <input type="number" class="bagui-split-input" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
+      <button class="bagui-split-btn" data-uid="${uid}">执行</button>
+    </div>`;
+  }
+
+  el.innerHTML = html;
+  el.classList.add('on');
+
+  if (mx !== undefined && my !== undefined) {
+    el.style.left = Math.min(window.innerWidth - 300, mx + 18) + 'px';
+    el.style.top = Math.min(window.innerHeight - 100, my + 18) + 'px';
+    requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
+        el.style.left = Math.max(8, mx - rect.width - 18) + 'px';
+      }
+      if (rect.bottom > window.innerHeight - 8) {
+        el.style.top = Math.max(8, my - rect.height - 18) + 'px';
+      }
     });
   }
 
+  el.querySelectorAll('.bagui-ammo-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wUid = btn.dataset.uid;
+      const action = btn.dataset.action;
+      if (action === 'unload') this._unloadAmmo(wUid);
+      else if (action === 'load') this._loadAmmo(wUid);
+    });
+  });
+
+  el.querySelectorAll('.bagui-split-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const splitUid = btn.dataset.uid;
+      const input = el.querySelector(`.bagui-split-input[data-uid="${splitUid}"]`);
+      if (!input) return;
+      const count = parseInt(input.value, 10);
+      if (isFinite(count) && count > 0) this._splitStack(splitUid, count);
+    });
+  });
+
+  el.querySelectorAll('.bagui-attach-slot').forEach(s => {
+    s.addEventListener('pointerup', (e) => {
+      if (!this._drag || !this._drag.moved) return;
+      const srcUid = this._drag.uid;
+      this._cancelDrag();
+      this._handleDrop(srcUid, s);
+    });
+  });
+}
   /* ===== 拖拽 ===== */
   _onDown(e, uid, el) {
     if (e.button !== undefined && e.button > 0) return;
@@ -373,10 +459,11 @@ if (item.durMax > 0) html += `<div>耐久：${Math.round(item.dur)}/${item.durMa
       if (dx * dx + dy * dy < 100) return;
       this._drag.moved = true;
       const item = this.inv.items.get(this._drag.uid);
-      const def = item ? this.inv.getDef(item) : null;
-      const ghost = document.createElement('div');
-      ghost.className = 'bagui-ghost';
-      ghost.textContent = def ? (def.name || def.n) : '?';
+const def = item ? this.inv.getDef(item) : null;
+const rawName = def ? (def.name || def.n || '?') : '?';
+const ghost = document.createElement('div');
+ghost.className = 'bagui-ghost';
+ghost.textContent = this.engine.i18n.t(rawName);
       ghost.style.left = e.clientX + 'px';
       ghost.style.top = e.clientY + 'px';
       document.body.appendChild(ghost);
