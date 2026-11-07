@@ -205,9 +205,9 @@ _renderToolbar() {
 }
 
 _stashAll() {
-  const containers = ['chest', 'pocket', 'bag'];
   let moved = 0, failed = 0;
-  for (const cName of containers) {
+  // ★ 顺序：先容器后装备（避免 unequip 导致 bag/chest cap 归零，物品变孤儿）
+  for (const cName of ['chest', 'pocket', 'bag']) {
     const c = this.inv.containers[cName];
     if (!c) continue;
     const uids = c.uids.slice();
@@ -216,6 +216,15 @@ _stashAll() {
       if (r.ok) moved++;
       else failed++;
     }
+  }
+  const equipSlots = ['main', 'side', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
+  for (const slot of equipSlots) {
+    const uid = this.inv.equipped[slot];
+    if (!uid) continue;
+    this.inv.unequip(slot);
+    const r = this.inv.addToContainer('stash', uid);
+    if (r.ok) moved++;
+    else { failed++; this.inv.equip(slot, uid); }
   }
   console.log('[BagUI] 整理完成：入仓', moved, '失败', failed);
   this.refresh();
