@@ -87,6 +87,84 @@ const ACTION_MAP = {
 };
 
 /* ============================================================
+   [0.6] ActionProcess · 通用动作进程
+   ------------------------------------------------------------
+   任何"需要时间 + 可打断 + 有完成/取消回调"的动作都走这里。
+   同一时间只允许一个进程（手就一双）。
+   ============================================================ */
+class ActionProcess {
+  constructor(world) {
+    this.world = world;
+    this.current = null;
+  }
+
+  isRunning(id) {
+    if (!this.current) return false;
+    if (id && this.current.id !== id) return false;
+    return true;
+  }
+
+  start(opts) {
+    if (this.current) return false;
+    if (!opts || !opts.id) return false;
+    this.current = {
+      id: opts.id,
+      label: opts.label || opts.id,
+      duration: opts.duration || 1,
+      elapsed: 0,
+      cancelable: opts.cancelable !== false,
+      onComplete: opts.onComplete || null,
+      onCancel: opts.onCancel || null,
+    };
+    this.world._updateProgressUI();
+    return true;
+  }
+
+  cancel(reason, force) {
+    if (!this.current) return false;
+    if (!this.current.cancelable && !force) return false;
+    const proc = this.current;
+    const progress = proc.duration > 0 ? Math.min(1, proc.elapsed / proc.duration) : 0;
+    this.current = null;
+    if (proc.onCancel) {
+      try { proc.onCancel(reason, progress); }
+      catch (e) { console.warn('[Process] onCancel err', e); }
+    }
+    this.world._updateProgressUI();
+    return true;
+  }
+
+  update(dt) {
+    if (!this.current) return;
+    const p = this.current;
+    p.elapsed += dt;
+    if (p.elapsed >= p.duration) {
+      this.current = null;
+      this.world._updateProgressUI();
+      if (p.onComplete) {
+        try { p.onComplete(); }
+        catch (e) { console.warn('[Process] onComplete err', e); }
+      }
+      return;
+    }
+    this.world._updateProgressUI();
+  }
+
+  getProgress() {
+    if (!this.current) return null;
+    const p = this.current;
+    return {
+      id: p.id,
+      label: p.label,
+      elapsed: p.elapsed,
+      duration: p.duration,
+      pct: Math.min(1, p.elapsed / p.duration),
+      remain: Math.max(0, p.duration - p.elapsed),
+    };
+  }
+}
+
+/* ============================================================
    [1] 战斗系统 · 纯函数
    ============================================================ */
 const CombatSystem = {
@@ -799,9 +877,12 @@ this._enemySpawnPositions = null;
   this._lastProtectionUse = 0;
   this._protectionStartTime = 0;
 
-  this.tasks = new TaskSystem(this);
+    this.tasks = new TaskSystem(this);
   this.hud = new HUDSystem(this);
   this.combatLog = new CombatLog();
+  this.actionProcess = new ActionProcess(this);
+  this._actionPrev = {};
+  this._edge = {};
   this.lastHitDir = 0;
   this.lastHitTime = -10;
 }
@@ -1064,8 +1145,6 @@ const body = this.physics.add(new Body({
     sidearm: invSide || (spec.sidearm ? this._buildWeapon(spec.sidearm) : null),
     usingSidearm: false,
     fireCd: 0,
-    reloading: 0,
-    reloadTime: 0,
     alive: true,
     kills: 0,
     dealt: 0,
@@ -1351,6 +1430,7 @@ _buildArmorFromInventory(inv) {
 
   this.tasks.tickSurvive(dt);
   this._updatePlayer(dt);
+  this.actionProcess.update(dt);
   this._updateEnemies(dt);
   this._updateExtracts(dt);
   this._updateContainers(dt);
@@ -1382,6 +1462,7 @@ _updatePlayer(dt){
   if (!p || !p.alive) return;
 
   const e = this.engine;
+  this._refreshEdges();
 
   // ★ 1. 陀螺仪视角控制（增量计算，防飘防抖）
   if (e.input.gyroEnabled) {
@@ -1482,11 +1563,11 @@ if (jumpPressed && p.body.grounded && p.body.velocity.y <= 0.1) {
   // 更新耦合防护状态（耗能/恢复）
 this._updateProtection(dt);
 
-// ★ 防护数字键（1/2/3）· edge trigger，避免按住时反复 toggle
+// ★ 防护数字键（1/2/3）· edge trigger
 if (p.charSpec && p.charSpec.prazer) {
-  if (this._wasPressed('protectL1')) this._toggleProtection('L1');
-  if (this._wasPressed('protectL2')) this._toggleProtection('L2');
-  if (this._wasPressed('protectL3')) this._toggleProtection('L3');
+  if (this._edge.protectL1) this._toggleProtection('L1');
+  if (this._edge.protectL2) this._toggleProtection('L2');
+  if (this._edge.protectL3) this._toggleProtection('L3');
 }
 
 // 技能冷却
@@ -1498,24 +1579,22 @@ for (const sk of p.skills) {
   }
 
   // ★ 6. 换弹与开火逻辑
-  if (p.reloading > 0) {
-  p.reloading -= dt;
-  if (p.reloading <= 0) this._finishReload();
-} else if (!this._searching) {
+const reloading = this.actionProcess.isRunning('reload');
+if (!this._searching) {
   if (p.fireCd > 0) p.fireCd -= dt;
-  if (e.input.isActive('fire') && p.fireCd <= 0 && p.weapon) {
+  if (!reloading && e.input.isActive('fire') && p.fireCd <= 0 && p.weapon) {
     if (p.weapon.mag <= 0) this._startReload();
     else this._fireWeapon(p, p.weapon, true);
   }
 }
 
-// ★ 7. 其他输入动作检测（搜索时禁用）
+// ★ 7. 其他输入动作检测（edge-trigger，搜索时禁用）
 if (!this._searching) {
-  if (e.input.isActive('reload')) this._startReload();
-  if (e.input.isActive('switchWeapon') && p.sidearm) this._switchWeapon();
-  if (e.input.isActive('skill1')) this._useSkill(0);
-  if (e.input.isActive('skill2')) this._useSkill(1);
-  if (e.input.isActive('search')) this._trySearchContainer();
+  if (this._edge.reload) this._startReload();
+  if (this._edge.switchWeapon && p.sidearm) this._switchWeapon();
+  if (this._edge.skill1) this._useSkill(0);
+  if (this._edge.skill2) this._useSkill(1);
+  if (this._edge.search) this._trySearchContainer();
 }
 
   // ★ 8. Headbob + 武器摆动 + 冲刺 FOV
@@ -1579,6 +1658,36 @@ _updateSpeedFeedback(dt, isMoving) {
   return current && !prev;
 }
 
+_refreshEdges() {
+  if (!this._actionPrev) this._actionPrev = {};
+  if (!this._edge) this._edge = {};
+  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search'];
+  for (let i = 0; i < names.length; i++) {
+    const a = names[i];
+    const cur = !!this.engine.input.isActive(a);
+    const prev = !!this._actionPrev[a];
+    this._edge[a] = cur && !prev;
+    this._actionPrev[a] = cur;
+  }
+}
+
+_updateProgressUI() {
+  const el = document.getElementById('action-progress');
+  if (!el) return;
+  const prog = this.actionProcess.getProgress();
+  if (!prog) {
+    el.classList.remove('on');
+    return;
+  }
+  el.classList.add('on');
+  const labelEl = document.getElementById('action-progress-label');
+  const fillEl = document.getElementById('action-progress-fill');
+  const timeEl = document.getElementById('action-progress-time');
+  if (labelEl) labelEl.textContent = prog.label;
+  if (fillEl) fillEl.style.width = (prog.pct * 100).toFixed(1) + '%';
+  if (timeEl) timeEl.textContent = prog.remain.toFixed(1) + 's';
+}
+
 _updateProtection(dt){
   const p = this.player;
   if (!p.charSpec.prazer) return;
@@ -1621,13 +1730,15 @@ _updateProtection(dt){
   }
 
   _switchWeapon(){
-    const p = this.player;
-    if (!p || !p.sidearm) return;
-    if (p.reloading > 0) return;
-    p.usingSidearm = !p.usingSidearm;
-    p.fireCd = Math.max(p.fireCd, 0.3);
-    this._playSFX('switch');
+  const p = this.player;
+  if (!p || !p.sidearm) return;
+  if (this.actionProcess.isRunning()) {
+    if (!this.actionProcess.cancel('切换武器')) return;
   }
+  p.usingSidearm = !p.usingSidearm;
+  p.fireCd = Math.max(p.fireCd, 0.3);
+  this._playSFX('switch');
+}
 
   get currentWeapon(){
     const p = this.player;
@@ -1636,18 +1747,28 @@ _updateProtection(dt){
   }
 
   _startReload(){
-    const p = this.player;
-    const w = this.currentWeapon;
-    if (!w || p.reloading > 0) return;
-    if (w.mag >= w.magCap || w.reserve <= 0) return;
+  const p = this.player;
+  const w = this.currentWeapon;
+  if (!w || !p.alive) return;
+  if (this.actionProcess.isRunning()) return;
+  if (w.mag >= w.magCap || w.reserve <= 0) return;
 
-    // ★ [Profile] 真实换弹时间 ×1.5 / 街机 ×0.8
-    const realistic = this.engine.profile.get('combat.realisticReload', false);
-    const reloadMul = realistic ? 1.5 : 0.8;
-    p.reloading = w.def.reload * reloadMul;
-    p.reloadTime = p.reloading;
-    this._playSFX('reload');
-  }
+  const realistic = this.engine.profile.get('combat.realisticReload', false);
+  const reloadMul = realistic ? 1.5 : 0.8;
+  const duration = w.def.reload * reloadMul;
+
+  this.actionProcess.start({
+    id: 'reload',
+    label: '换弹',
+    duration,
+    cancelable: true,
+    onComplete: () => this._finishReload(),
+    onCancel: () => {
+      this._log('换弹被中断', 'y');
+    },
+  });
+  this._playSFX('reload');
+}
 
   _finishReload(){
   const p = this.player;
@@ -1663,7 +1784,6 @@ _updateProtection(dt){
       w.reserve -= take;
     }
   }
-  p.reloading = 0;
 }
 
  _fireWeapon(owner, weapon, isPlayer, target){
@@ -2000,9 +2120,13 @@ _damagePlayer(player, energy, pen, isHead = false, srcX, srcZ, sourceEnt = null)
   this.engine.cameraCtl.shake(0.4, 0.15);
   this._playSFX('hurt', { volume: 0.5 });
 
- if (this._searching) {
+  if (this._searching) {
   this._closeSearch();
   this._log('搜索被打断', 'r');
+}
+
+if (this.actionProcess.isRunning()) {
+  this.actionProcess.cancel('受伤');
 }
 
 if (player.hp <= 0 && player.alive) this._playerDown();
@@ -2050,17 +2174,20 @@ _addKillFeed(name, dmg, dist) {
 }
 
  _playerDown(){
-  const p = this.player;
-  this.combatLog.push({
-    type: 'downed',
-    t: this.time,
-    hp: p.hp,
-    maxHp: p.maxHp,
-  });
-  p.alive = false;
-    this._processModeHook('onPlayerDowned');
-    this._end(false);
-  }
+ const p = this.player;
+ if (this.actionProcess.isRunning()) {
+   this.actionProcess.cancel('死亡', true);
+ }
+ this.combatLog.push({
+   type: 'downed',
+   t: this.time,
+   hp: p.hp,
+   maxHp: p.maxHp,
+ });
+ p.alive = false;
+   this._processModeHook('onPlayerDowned');
+   this._end(false);
+ }
 
   _updateEnemies(dt){
     for (const e of this.enemies) {
@@ -2283,14 +2410,35 @@ _updateMobileButtons(){
   if (!this._mobileButtons) return;
   const searchBtn = this._mobileButtons.search;
   if (searchBtn) {
-    const c = this._searchTarget;
-    const show = c && !(c.searched && c.revealed && c.revealed.length === 0) && !this._searching;
-    searchBtn.style.display = show ? 'flex' : 'none';
+    if (this._searching) {
+      searchBtn.style.display = 'none';
+    } else {
+      searchBtn.style.display = 'flex';
+      const c = this._searchTarget;
+      const hasTarget = c && !(c.searched && c.revealed && c.revealed.length === 0);
+      searchBtn.style.opacity = hasTarget ? '1' : '0.45';
+    }
+  }
+
+  const reloadBtn = this._mobileButtons.reload;
+  if (reloadBtn) {
+    const reloading = this.actionProcess.isRunning('reload');
+    if (reloading) {
+      reloadBtn.style.background = 'rgba(255,210,80,.6)';
+      reloadBtn.style.borderColor = 'rgba(255,220,100,.9)';
+    } else {
+      reloadBtn.style.background = 'rgba(200,200,200,.3)';
+      reloadBtn.style.borderColor = 'rgba(255,255,255,.6)';
+    }
   }
 }
    
   _trySearchContainer(){
   if (this._searching) return;
+  if (this.actionProcess.isRunning()) {
+    this._log('动作进行中，无法搜索', 'y');
+    return;
+  }
   const c = this._searchTarget;
   if (!c) { this._log('附近没有可搜索的容器', 'y'); return; }
   if (c.searched && c.revealed && c.revealed.length === 0) {
