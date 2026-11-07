@@ -314,6 +314,64 @@ _quickEquip(uid) {
   this.refresh();
 }
 
+  _unloadAmmo(weaponUid) {
+  const item = this.inv.items.get(weaponUid);
+  if (!item || item.table !== 'weapons' || !item.loaded || item.loaded.qty <= 0) return;
+  const ammoType = item.loaded.ammoType;
+  const qty = item.loaded.qty;
+  const uid = this.inv.createItem('ammo', ammoType, { qty });
+  if (!uid) return;
+  const r = this.inv.addToContainer('bag', uid);
+  if (!r.ok) { this.inv.destroyItem(uid); return; }
+  item.loaded.qty = 0;
+  this.refresh();
+}
+
+_loadAmmo(weaponUid) {
+  const item = this.inv.items.get(weaponUid);
+  if (!item || item.table !== 'weapons' || !item.loaded) return;
+  const def = this.inv.getDef(item);
+  if (!def) return;
+  const space = (def.mag || 0) - item.loaded.qty;
+  if (space <= 0) return;
+  const take = this._consumeAmmoFromBag(def.ammoType, space);
+  if (take > 0) {
+    item.loaded.qty += take;
+    this.refresh();
+  }
+}
+
+_consumeAmmoFromBag(ammoType, count) {
+  const c = this.inv.containers.bag;
+  if (!c) return 0;
+  let remaining = count;
+  for (let i = c.uids.length - 1; i >= 0 && remaining > 0; i--) {
+    const uid = c.uids[i];
+    const it = this.inv.items.get(uid);
+    if (!it || it.table !== 'ammo' || it.defId !== ammoType) continue;
+    const take = Math.min(it.qty, remaining);
+    it.qty -= take;
+    remaining -= take;
+    if (it.qty <= 0) this.inv.destroyItem(uid);
+  }
+  return count - remaining;
+}
+
+_splitStack(uid, count) {
+  const newUid = this.inv.splitStack(uid, count);
+  if (!newUid) {
+    console.warn('[BagUI] 拆分失败', uid, count);
+    return;
+  }
+  const r = this.inv.addToContainer('stash', newUid);
+  if (!r.ok) {
+    this.inv.destroyItem(newUid);
+    return;
+  }
+  this.selectedUid = uid;
+  this.refresh();
+}
+
   _renderDetail(mx, my) {
   const el = document.getElementById('bagui-detail');
   if (!el) return;
