@@ -1326,14 +1326,15 @@ _computeCarriedValue(){
     const uid = inv.equipped[slot];
     if (uid) total += inv.getItemValue(uid);
   }
-  for (const cName of ['chest', 'pocket', 'bag']) {
+  // ★ 包含 safe 安全箱，因为安全箱也是带在身上的
+  for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
     const c = inv.containers[cName];
     if (!c) continue;
     for (const uid of c.uids) total += inv.getItemValue(uid);
   }
   return total;
 }
-
+   
 _computeLootValue(){
   const current = this._computeCarriedValue();
   const base = this._carriedValueBaseline || 0;
@@ -3291,10 +3292,10 @@ _updateGlowState(entity, dt) {
 
 _syncMeshes(dt){
   const p = this.player;
-  if (p && p.mesh) {
-    p.mesh.position.set(p.body.position.x, p.body.footY, p.body.position.z);
-    p.mesh.rotation.y = -p.angle;
-  }
+if (p && p.mesh) {
+  p.mesh.position.set(p.body.position.x, p.body.footY, p.body.position.z);
+  p.mesh.rotation.y = Math.PI - p.angle;
+}
   for (const e of this.enemies) {
     if (!e.mesh) continue;
 
@@ -3322,8 +3323,9 @@ _syncMeshes(dt){
       continue;
     }
 
-    e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
-e.mesh.rotation.y = -e.angle;
+   e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
+// e.angle 是 atan2(dz, dx)，加 90 度让模型正面(+z)朝向玩家
+e.mesh.rotation.y = Math.PI / 2 - e.angle;
 
 // ★ 敌人流光状态
 this._updateGlowState(e, dt);
