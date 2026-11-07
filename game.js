@@ -529,10 +529,11 @@ class HUDSystem {
   }
 
  // 武器与弹药
-if (p.weapon) {
-  this._setText('weapon-name', this.engine.i18n.t(p.weapon.def.name));
-  this._setText('ammo-mag', String(p.weapon.mag));
-  this._setText('ammo-reserve', String(p.weapon.reserve));
+const cw = this.world.currentWeapon || p.weapon;
+if (cw) {
+  this._setText('weapon-name', this.engine.i18n.t(cw.def.name));
+  this._setText('ammo-mag', String(cw.mag));
+  this._setText('ammo-reserve', String(cw.reserve));
 }
 
 if (p.carriedValue !== undefined) {
@@ -1669,13 +1670,14 @@ for (const sk of p.skills) {
     }
   }
 
-  // ★ 6. 换弹与开火逻辑
+   // ★ 6. 换弹与开火逻辑
 const reloading = this.actionProcess.isRunning('reload');
 if (!this._searching) {
   if (p.fireCd > 0) p.fireCd -= dt;
-  if (!reloading && e.input.isActive('fire') && p.fireCd <= 0 && p.weapon) {
-    if (p.weapon.mag <= 0) this._startReload();
-    else this._fireWeapon(p, p.weapon, true);
+  const cw = this.currentWeapon;
+  if (!reloading && e.input.isActive('fire') && p.fireCd <= 0 && cw) {
+    if (cw.mag <= 0) this._startReload();
+    else this._fireWeapon(p, cw, true);
   }
 }
 
@@ -1830,14 +1832,22 @@ _updateProtection(dt){
     if (this.player) this.player.protectionHold = false;
   }
 
-  _switchWeapon(){
+    _switchWeapon(){
   const p = this.player;
-  if (!p || !p.sidearm) return;
+  if (!p) return;
+  if (!p.sidearm) {
+    this._log('无副武器', 'y');
+    return;
+  }
   if (this.actionProcess.isRunning()) {
     if (!this.actionProcess.cancel('切换武器')) return;
   }
   p.usingSidearm = !p.usingSidearm;
   p.fireCd = Math.max(p.fireCd, 0.3);
+  const cw = p.usingSidearm ? p.sidearm : p.weapon;
+  if (cw && cw.def) {
+    this._log('切换至 ' + this.engine.i18n.t(cw.def.name), 'p');
+  }
   this._playSFX('switch');
 }
 
