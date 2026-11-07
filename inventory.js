@@ -97,8 +97,27 @@ const item = {
 };
 
     if (table === 'weapons') {
-      item.attachments = {};
-      for (const k of WEAPON_ATTACH_SLOTS) item.attachments[k] = null;
+  item.attachments = {};
+  for (const k of WEAPON_ATTACH_SLOTS) item.attachments[k] = null;
+
+  // 预设配件：extras.attachments = { muzzle: 'xxx', sight: 'yyy' }
+  if (extras.attachments && typeof extras.attachments === 'object') {
+    for (const k in extras.attachments) {
+      if (k in item.attachments && extras.attachments[k]) {
+        item.attachments[k] = extras.attachments[k];
+      }
+    }
+  }
+
+  // 内置弹药：出厂空枪，由配装/搜刮流程决定填多少
+  const ammoType = def.ammoType || null;
+  const magCap = def.mag || 0;
+  let loadedQty = 0;
+  if (extras.loadedQty !== undefined) {
+    const n = extras.loadedQty | 0;
+    loadedQty = Math.max(0, Math.min(magCap, n));
+  }
+  item.loaded = { ammoType, qty: loadedQty };
     }
 
     this.items.set(uid, item);
