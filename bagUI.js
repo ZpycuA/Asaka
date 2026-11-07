@@ -291,11 +291,18 @@ _renderCharPreview() {
     host.innerHTML = '<div style="color:#5c82a8;font-size:11px">无角色</div>';
     return;
   }
-  if (!window.THREE) {
-    host.innerHTML = '<div style="color:#5c82a8;font-size:11px">' + this._esc(this.engine.i18n.t(spec.name)) + '</div>';
-    return;
+
+  // ★ 清理上一次的 renderer，避免 WebGL context 泄漏
+  if (this._charPreviewRenderer) {
+    try {
+      this._charPreviewRenderer.dispose();
+      if (this._charPreviewRenderer.forceContextLoss) {
+        this._charPreviewRenderer.forceContextLoss();
+      }
+    } catch (_) {}
+    this._charPreviewRenderer = null;
   }
-  const THREE = window.THREE;
+
   const w = host.clientWidth || 200;
   const h = host.clientHeight || 240;
 
@@ -303,11 +310,12 @@ _renderCharPreview() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h, false);
   renderer.setClearColor(0x000000, 0);
+  this._charPreviewRenderer = renderer;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
-  camera.position.set(0, 2.2, 5.5);
-  camera.lookAt(0, 1.4, 0);
+  camera.position.set(0, 1.6, 4.2);
+  camera.lookAt(0, 1.15, 0);
 
   scene.add(new THREE.AmbientLight(0xffffff, 1.2));
   const key = new THREE.DirectionalLight(0xfff4e0, 1.4);
