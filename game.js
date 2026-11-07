@@ -1407,38 +1407,39 @@ const body = this.physics.add(new Body({
   const invArmor = this._buildArmorFromInventory(inv);
   
   this.player = {
-    mesh, body,
-    weaponGroup, // ★ 存入玩家对象
-    charSpec: spec,
-    charId: spec.id,
-    hp: spec.hp,
-    maxHp: spec.hp,
-    coupling: spec.prazer ? 100 : 0,
-    maxCoupling: spec.prazer ? 100 : 0,
-    protection: null,
-    protectionHold: false,
-    angle: 0,
-    weapon: invMain || this._buildWeapon(spec.weapon),
-    sidearm: invSide || (spec.sidearm ? this._buildWeapon(spec.sidearm) : null),
-    usingSidearm: false,
-    fireCd: 0,
-    alive: true,
-    kills: 0,
-    dealt: 0,
-    taken: 0,
-    carriedValue: 0,
-    limbDamage: 0,
-    speedMul: 1,
-    stamina: 100,
-    maxStamina: 100,
-    armor: invArmor || {
-       shell: { lv: 3, dur: 100, max: 100 },
-       visor: { lv: 3, dur: 100, max: 100 },
-       fiber: { lv: 4, dur: 100, max: 100 },
-       plate: { lv: 4, dur: 100, max: 100 },
-},
-    skills: this._buildSkills(spec.skills || []),
-  };
+  mesh, body,
+  weaponGroup, // ★ 存入玩家对象
+  charSpec: spec,
+  charId: spec.id,
+  hp: spec.hp,
+  maxHp: spec.hp,
+  coupling: spec.prazer ? 100 : 0,
+  maxCoupling: spec.prazer ? 100 : 0,
+  protection: null,
+  protectionHold: false,
+  angle: 0,
+  weapon: invMain || this._buildWeapon(spec.weapon),
+  sidearm: invSide || (spec.sidearm ? this._buildWeapon(spec.sidearm) : null),
+  usingSidearm: false,
+  fireCd: 0,
+  alive: true,
+  kills: 0,
+  dealt: 0,
+  taken: 0,
+  carriedValue: 0,
+  limbDamage: 0,
+  speedMul: 1,
+  stamina: 100,
+  maxStamina: 100,
+  armor: invArmor || {
+     shell: { lv: 3, dur: 100, max: 100 },
+     visor: { lv: 3, dur: 100, max: 100 },
+     fiber: { lv: 4, dur: 100, max: 100 },
+     plate: { lv: 4, dur: 100, max: 100 },
+  },
+  skills: this._buildSkills(spec.skills || []),
+  status: new EntityStatus(spec, spec.prazer), // ★ 新增
+};
   this.player.body.userData.ref = this.player;
 
 // ★ 收集轮廓流光 mesh，并初始化消耗检测状态
@@ -1676,32 +1677,33 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   const maxCoup = isPrazer ? 100 : 0;
 
   const enemy = {
-    mesh, body, spec,
-    hp: spec.hp * diffMul * profileMul,
-    maxHp: spec.hp * diffMul * profileMul,
-    angle: Math.random() * Math.PI * 2,
-    weapon: this._buildWeapon(spec.weapon),
-    fireCd: 0.5 + Math.random() * 1.0,
-    alive: true,
-    awareness: 0,
-    state: 'patrol',
-    stateT: 0,
-    wanderT: 1 + Math.random() * 2,
-    wanderDir: Math.random() * Math.PI * 2,
-    strafeDir: Math.random() < 0.5 ? 1 : -1,
-    strafeT: 0.7 + Math.random() * 1.2,
-    hitFlash: 0,
-    trainingDummy: this.kind === 'training',
-    // ★ 新增：护甲 + 耦合 + charSpec（与玩家一致）
-    armor,
-    coupling: maxCoup,
-    maxCoupling: maxCoup,
-    protection: null,
-    protectionHold: false,
-    limbDamage: 0,
-    speedMul: 1,
-    charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
-  };
+  mesh, body, spec,
+  hp: spec.hp * diffMul * profileMul,
+  maxHp: spec.hp * diffMul * profileMul,
+  angle: Math.random() * Math.PI * 2,
+  weapon: this._buildWeapon(spec.weapon),
+  fireCd: 0.5 + Math.random() * 1.0,
+  alive: true,
+  awareness: 0,
+  state: 'patrol',
+  stateT: 0,
+  wanderT: 1 + Math.random() * 2,
+  wanderDir: Math.random() * Math.PI * 2,
+  strafeDir: Math.random() < 0.5 ? 1 : -1,
+  strafeT: 0.7 + Math.random() * 1.2,
+  hitFlash: 0,
+  trainingDummy: this.kind === 'training',
+  // ★ 新增：护甲 + 耦合 + charSpec（与玩家一致）
+  armor,
+  coupling: maxCoup,
+  maxCoupling: maxCoup,
+  protection: null,
+  protectionHold: false,
+  limbDamage: 0,
+  speedMul: 1,
+  charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
+  status: new EntityStatus(spec, isPrazer), // ★ 新增
+};
     body.userData.ref = enemy;
 
   // ★ 收集轮廓流光（非 Prazer 时为空数组）
