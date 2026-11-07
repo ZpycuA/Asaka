@@ -143,15 +143,27 @@ export class BagUI {
     this.openedBagUid = null;
     this.refresh();
   }
+
+  openLoot(target) {
+  if (document.pointerLockElement) document.exitPointerLock();
+  this._lootTarget = target;
+  this.open = true;
+  this._clearGhosts();
+  document.getElementById('bagui-overlay').classList.add('on');
+  this.refresh();
+  }
   
   close() {
-    this.open = false;
-    document.getElementById('bagui-overlay').classList.remove('on');
-    this._cancelDrag();
-    this._clearGhosts();
-    this._deselectDetail();
+  this.open = false;
+  document.getElementById('bagui-overlay').classList.remove('on');
+  this._cancelDrag();
+  this._clearGhosts();
+  this._deselectDetail();
+  if (this._lootTarget) {
+    this._lootTarget = null;
+    this.inv.containers.loot = new GridContainer(0, 0);
   }
-
+}
   _deselectDetail() {
     this.selectedUid = null;
     const el = document.getElementById('bagui-detail');
@@ -225,80 +237,98 @@ export class BagUI {
   }
 
   _renderLeft() {
-    const el = document.getElementById('bagui-left');
-    const inv = this.inv;
-    let html = '';
-    
-    // 装备
-    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
-    const equipList = [
-      ['main', '主武器'], ['side', '副武器'],
-      ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
-      ['vestFiber', '护甲'], ['vestPlate', '插板'],
-      ['backpack', '背包'], ['chestRig', '胸挂'],
-    ];
-    for (const [slot, label] of equipList) {
-      html += this._equipSlotHtml(inv.equipped[slot], slot, label);
-    }
-    html += '</div></div>';
+  const el = document.getElementById('bagui-left');
+  const inv = this.inv;
 
-    // 容器
-    for (const name of ['chest', 'pocket', 'bag', 'safe']) {
-      const c = inv.containers[name];
-      if (!c || !c.isActive) continue;
-      html += this._gridContainerHtml(name, this._cname(name));
-    }
-    el.innerHTML = html;
+  if (this._lootTarget) {
+    el.innerHTML = this._gridContainerHtml('loot', this._lootTarget.label || '容器');
     this._bindItemEvents(el);
+    return;
   }
 
-  _renderRight() {
-    const el = document.getElementById('bagui-right');
-    if (!el) return;
-    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+  let html = '';
+  
+  // 装备
+  html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
+  const equipList = [
+    ['main', '主武器'], ['side', '副武器'],
+    ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
+    ['vestFiber', '护甲'], ['vestPlate', '插板'],
+    ['backpack', '背包'], ['chestRig', '胸挂'],
+  ];
+  for (const [slot, label] of equipList) {
+    html += this._equipSlotHtml(inv.equipped[slot], slot, label);
+  }
+  html += '</div></div>';
 
-    // 如果打开了嵌套背包，优先显示该背包的内部
-    if (this.openedBagUid) {
-      const bag = this.inv.items.get(this.openedBagUid);
-      if (bag && bag.innerGrid) {
-        el.style.display = '';
-        let html = `<div class="bagui-sec"><h3 style="cursor:pointer;color:var(--accent)" id="bagui-back-inner">← 返回</h3>`;
-        html += `<h3>${this._esc(this.engine.i18n.t(this.inv.getDef(bag).name || bag.defId))} 的内部</h3>`;
-        html += `<div class="bagui-grid-wrap" style="width:${bag.innerGrid.w * CELL}px;height:${bag.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="inner:${bag.uid}">`;
-        for (let y = 0; y < bag.innerGrid.h; y++) {
-          for (let x = 0; x < bag.innerGrid.w; x++) {
-            html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
-          }
-        }
-        for (const [uid, pos] of bag.innerGrid.items) {
-          html += this._itemHtml(uid, pos, `inner:${bag.uid}`);
-        }
-        html += `</div></div>`;
-        el.innerHTML = html;
-        
-        const backBtn = document.getElementById('bagui-back-inner');
-        if (backBtn) backBtn.onclick = () => { this.openedBagUid = null; this.refresh(); };
-        
-        this._bindItemEvents(el);
-        return;
-      }
-      this.openedBagUid = null;
-    }
+  for (const name of ['chest', 'pocket', 'bag', 'safe']) {
+    const c = inv.containers[name];
+    if (!c || !c.isActive) continue;
+    html += this._gridContainerHtml(name, this._cname(name));
+  }
+  el.innerHTML = html;
+  this._bindItemEvents(el);
+}
 
-    if (isInMatch) {
+_renderRight() {
+  const el = document.getElementById('bagui-right');
+  if (!el) return;
+  
+  if (this._lootTarget) {
+    el.style.display = '';
+    let html = '';
+    const chestC = this.inv.containers.chest;
+    if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', '胸挂');
+    const bagC = this.inv.containers.bag;
+    if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', '背包');
+    el.innerHTML = html || '<div class="bagui-empty">无携带容器</div>';
+    this._bindItemEvents(el);
+    return;
+  }
+
+  const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+
+  if (this.openedBagUid) {
+    const bag = this.inv.items.get(this.openedBagUid);
+    if (bag && bag.innerGrid) {
       el.style.display = '';
-      el.innerHTML =
-        '<div class="bagui-preview" id="bagui-preview"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
-        '<div class="bagui-status" id="bagui-status">状态栏（预留）</div>';
-      this._renderCharPreview();
+      let html = `<div class="bagui-sec"><h3 style="cursor:pointer;color:var(--accent)" id="bagui-back-inner">← 返回</h3>`;
+      html += `<h3>${this._esc(this.engine.i18n.t(this.inv.getDef(bag).name || bag.defId))} 的内部</h3>`;
+      html += `<div class="bagui-grid-wrap" style="width:${bag.innerGrid.w * CELL}px;height:${bag.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="inner:${bag.uid}">`;
+      for (let y = 0; y < bag.innerGrid.h; y++) {
+        for (let x = 0; x < bag.innerGrid.w; x++) {
+          html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+        }
+      }
+      for (const [uid, pos] of bag.innerGrid.items) {
+        html += this._itemHtml(uid, pos, `inner:${bag.uid}`);
+      }
+      html += `</div></div>`;
+      el.innerHTML = html;
+      
+      const backBtn = document.getElementById('bagui-back-inner');
+      if (backBtn) backBtn.onclick = () => { this.openedBagUid = null; this.refresh(); };
+      
+      this._bindItemEvents(el);
       return;
     }
-
-    el.style.display = '';
-    let html = this._gridContainerHtml('stash', '仓库');
-    el.innerHTML = html;
-    this._bindItemEvents(el);
+    this.openedBagUid = null;
   }
+
+  if (isInMatch) {
+    el.style.display = '';
+    el.innerHTML =
+      '<div class="bagui-preview" id="bagui-preview"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
+      '<div class="bagui-status" id="bagui-status">状态栏（预留）</div>';
+    this._renderCharPreview();
+    return;
+  }
+
+  el.style.display = '';
+  let html = this._gridContainerHtml('stash', '仓库');
+  el.innerHTML = html;
+  this._bindItemEvents(el);
+}
 
   _gridContainerHtml(name, label) {
     const c = this.inv.containers[name];
@@ -330,8 +360,17 @@ export class BagUI {
   }
 
   _itemHtml(uid, pos, containerName) {
-    const item = this.inv.items.get(uid);
-    if (!item) return '';
+  const item = this.inv.items.get(uid);
+  if (!item) return '';
+  
+  if (item.searched === false) {
+    return `<div class="bagui-item has-item unsearched" data-uid="${uid}" data-container="${containerName}"
+      style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px">
+      <div class="bagui-item-icon" style="color:#5c82a8">?</div>
+    </div>`;
+  }
+
+  const def = this.inv.getDef(item);
     const def = this.inv.getDef(item);
     const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
     const rarity = item.rarity || 'L0';
@@ -368,34 +407,87 @@ export class BagUI {
   _esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
   _bindItemEvents(root) {
-    root.querySelectorAll('.bagui-item.has-item').forEach(el => {
-      const uid = el.dataset.uid;
-      el.addEventListener('pointerdown', (e) => this._onDown(e, uid, el));
-      el.addEventListener('click', (e) => {
-        if (this._didDrag) {
-          this._didDrag = false;
-          return;
-        }
-        this.selectedUid = uid;
-        const mx = e.clientX !== undefined ? e.clientX : 100;
-        const my = e.clientY !== undefined ? e.clientY : 100;
-        this._renderDetail(mx, my);
-      });
-      el.addEventListener('dblclick', (e) => { e.preventDefault(); this._quickEquip(uid); });
+  root.querySelectorAll('.bagui-item.has-item').forEach(el => {
+    const uid = el.dataset.uid;
+    
+    el.addEventListener('pointerdown', (e) => {
+      const item = this.inv.items.get(uid);
+      if (item && item.searched === false) return; // 未搜索不能拖拽
+      this._onDown(e, uid, el);
     });
-  }
+
+    el.addEventListener('click', (e) => {
+      const item = this.inv.items.get(uid);
+      if (item && item.searched === false) {
+        e.stopPropagation();
+        this._startSearchLoot(uid);
+        return;
+      }
+      
+      if (this._didDrag) {
+        this._didDrag = false;
+        return;
+      }
+      this.selectedUid = uid;
+      const mx = e.clientX !== undefined ? e.clientX : 100;
+      const my = e.clientY !== undefined ? e.clientY : 100;
+      this._renderDetail(mx, my);
+    });
+
+    el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      const item = this.inv.items.get(uid);
+      if (item && item.searched === false) {
+        this._startSearchLoot(uid);
+        return;
+      }
+      this._quickEquip(uid);
+    });
+  });
+}
+
+_startSearchLoot(uid) {
+  if (this._searchingItems && this._searchingItems[uid]) return;
+  if (!this._searchingItems) this._searchingItems = {};
+  this._searchingItems[uid] = true;
+  
+  const el = document.querySelector(`.bagui-item[data-uid="${uid}"]`);
+  if (el) el.style.opacity = '0.6';
+  
+  setTimeout(() => {
+    const item = this.inv.items.get(uid);
+    if (item) item.searched = true;
+    this._searchingItems[uid] = false;
+    this.refresh();
+  }, 800); // 假装搜了 0.8 秒
+}
 
 
   _quickEquip(uid) {
-    const item = this.inv.items.get(uid);
-    if (!item) return;
+  const item = this.inv.items.get(uid);
+  if (!item) return;
 
-    // 如果是容器，双击打开
-    if (item.innerGrid) {
-      this.openedBagUid = uid;
-      this.refresh();
+  // 如果当前在搜索战利品，双击直接移动到背包/胸挂
+  if (this._lootTarget) {
+    const parent = this.inv.parentOf.get(uid);
+    if (parent === 'c:loot') {
+      const targets = ['bag', 'chest', 'pocket', 'safe'];
+      let moved = false;
+      for (const t of targets) {
+        if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
+      }
+      if (moved) this.refresh();
+      else console.warn('背包已满');
       return;
     }
+  }
+
+  if (item.innerGrid) {
+    this.openedBagUid = uid;
+    this.refresh();
+    return;
+  }
+  // ...
 
     let targetSlot = null;
     if (item.table === 'weapons') targetSlot = 'main';
@@ -502,13 +594,20 @@ export class BagUI {
     }
 
     if (item.stackLimit > 1 && item.qty > 1) {
-      const halfQty = Math.max(1, Math.floor(item.qty / 2));
-      html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
-        <span>拆分</span>
-        <input type="number" class="bagui-btn" style="width:60px;margin:0;text-align:center" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
-        <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">执行</button>
-      </div>`;
-    }
+  const halfQty = Math.max(1, Math.floor(item.qty / 2));
+  html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
+    <span>拆分</span>
+    <input type="number" class="bagui-btn" style="width:60px;margin:0;text-align:center" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
+    <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">执行</button>
+  </div>`;
+}
+
+const isInStash = this.inv.parentOf.get(uid) === 'c:stash';
+const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+if (isInStash && !isInMatch) {
+  const sellValue = Math.floor(unitVal * 0.8);
+  html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
+}
 
     el.innerHTML = html;
     el.classList.add('on');
@@ -547,6 +646,22 @@ export class BagUI {
         if (isFinite(count) && count > 0) this._splitStack(splitUid, count);
       };
     });
+
+    const sellBtn = document.getElementById('bagui-sell-btn');
+if (sellBtn) {
+  sellBtn.onclick = (e) => {
+    e.stopPropagation();
+    const currentVal = this.inv.getItemValue(uid);
+    const sellVal = Math.floor(currentVal * 0.8);
+    if (confirm(`确认卖出 ${displayName} 获得 ${sellVal} cp 吗？`)) {
+      this.inv.destroyItem(uid);
+      this.engine.save.data.credits = (this.engine.save.data.credits || 0) + sellVal;
+      this.engine.save.save();
+      this._deselectDetail();
+      this.refresh();
+    }
+  };
+}
   }
 
   _loadAmmo(weaponUid) {
