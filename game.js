@@ -1531,7 +1531,7 @@ _buildArmorFromInventory(inv) {
   this._updateSearchHint();
 
   this.physics.step(dt);
-  this._syncMeshes();
+  this._syncMeshes(dt);
 
   if (this.player) {
   const footY = this.player.body.position.y - this.player.body.halfH;
@@ -2255,16 +2255,14 @@ if (this.actionProcess.isRunning()) {
 if (player.hp <= 0 && player.alive) this._playerDown();
 }
 
- _killEnemy(enemy, dmg, dist){
+  _killEnemy(enemy, dmg, dist){
   enemy.alive = false;
-enemy.body.alive = false;
-this.physics.remove(enemy.body);
-if (enemy.mesh) {
-  enemy.mesh.rotation.z = Math.PI / 2 * (enemy.angle > 0 ? 1 : -1);
-  setTimeout(() => {
-    if (enemy.mesh) enemy.mesh.visible = false;
-  }, 600);
-}
+  enemy.body.alive = false;
+  this.physics.remove(enemy.body);
+  // ★ 倒地动画交给 _syncMeshes 每帧驱动，避免 setTimeout 与帧循环冲突
+  enemy.deathTimer = 0.6;
+  enemy.deathTotal = 0.6;
+  enemy.deathStartY = enemy.mesh ? enemy.mesh.position.y : 0;
   this.player.kills++;
   this.stats.kills++;
   this.combatLog.push({
@@ -3017,7 +3015,7 @@ _applySkillEffect(p, def){
     catch (e) { console.error(`[Mode] ${hookName}:`, e); }
   }
 
-_syncMeshes(){
+_syncMeshes(dt){
   const p = this.player;
   if (p && p.mesh) {
     p.mesh.position.set(p.body.position.x, p.body.footY, p.body.position.z);
@@ -3025,23 +3023,36 @@ _syncMeshes(){
   }
   for (const e of this.enemies) {
     if (!e.mesh) continue;
-    
+
     if (!e.alive) {
-      e.mesh.visible = false;
-      e.mesh.traverse(obj => {
-        if (obj.isMesh && obj.material && obj.material.emissive) {
-          obj.material.emissive.setHex(0x000000);
-          obj.material.emissiveIntensity = 0;
+      // ★ 倒地动画：0.6 秒内平滑侧躺 + 下沉，结束后隐藏
+      if (e.deathTimer !== undefined && e.deathTimer > 0) {
+        e.deathTimer -= dt;
+        const total = e.deathTotal || 0.6;
+        const t = Math.min(1, 1 - Math.max(0, e.deathTimer) / total);
+        const et = 1 - Math.pow(1 - t, 3); // ease-out cubic
+        e.mesh.rotation.z = (Math.PI / 2) * et;
+        if (e.deathStartY !== undefined) {
+          e.mesh.position.y = e.deathStartY - et * 0.2;
         }
-      });
+        e.mesh.traverse(obj => {
+          if (obj.isMesh && obj.material && obj.material.emissive) {
+            obj.material.emissive.setHex(0x000000);
+            obj.material.emissiveIntensity = 0;
+          }
+        });
+        if (e.deathTimer <= 0) e.mesh.visible = false;
+      } else {
+        e.mesh.visible = false;
+      }
       continue;
     }
 
     e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
     e.mesh.rotation.y = -e.angle;
-    
+
     if (e.hitFlash > 0) {
-      e.hitFlash -= 0.016;
+      e.hitFlash -= dt;
       e.mesh.traverse(obj => {
         if (obj.isMesh && obj.material && obj.material.emissive) {
           obj.material.emissive.setHex(0xffffff);
