@@ -1842,7 +1842,14 @@ _updateProtection(dt){
   const w = this.currentWeapon;
   if (!w || !p.alive) return;
   if (this.actionProcess.isRunning()) return;
-  if (w.mag >= w.magCap || w.reserve <= 0) return;
+  if (w.mag >= w.magCap) {
+    this._log('弹匣已满', 'y');
+    return;
+  }
+  if (w.reserve <= 0) {
+    this._log('无备用弹药', 'y');
+    return;
+  }
 
   const realistic = this.engine.profile.get('combat.realisticReload', false);
   const reloadMul = realistic ? 1.5 : 0.8;
@@ -2230,9 +2237,14 @@ if (player.hp <= 0 && player.alive) this._playerDown();
 
  _killEnemy(enemy, dmg, dist){
   enemy.alive = false;
-  enemy.body.alive = false;
-  this.physics.remove(enemy.body);
-  if (enemy.mesh) enemy.mesh.visible = false;
+enemy.body.alive = false;
+this.physics.remove(enemy.body);
+if (enemy.mesh) {
+  enemy.mesh.rotation.z = Math.PI / 2 * (enemy.angle > 0 ? 1 : -1);
+  setTimeout(() => {
+    if (enemy.mesh) enemy.mesh.visible = false;
+  }, 600);
+}
   this.player.kills++;
   this.stats.kills++;
   this.combatLog.push({
@@ -2250,9 +2262,9 @@ if (player.hp <= 0 && player.alive) this._playerDown();
   this.tasks.progress('kill', 1, { faction: enemy.spec.faction });
   this._processModeHook('onEnemyKilled', enemy);
 
-  this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
+    this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
 
-  // ★ 生成尸体 loot（武器 + 剩余弹药）
+  // ★ 尸体 loot 立即生成（不等其他逻辑）
   const corpseLoot = [];
   if (enemy.weapon && enemy.weapon.def) {
     const wDef = enemy.weapon.def;
@@ -2298,6 +2310,9 @@ _addKillFeed(name, dmg, dist) {
  if (this.actionProcess.isRunning()) {
    this.actionProcess.cancel('死亡', true);
  }
+ if (this._searching) {
+   this._closeSearch();
+ }
  this.combatLog.push({
    type: 'downed',
    t: this.time,
@@ -2305,8 +2320,40 @@ _addKillFeed(name, dmg, dist) {
    maxHp: p.maxHp,
  });
  p.alive = false;
-   this._processModeHook('onPlayerDowned');
+ p.deadAt = this.time;
+ this._processModeHook('onPlayerDowned');
+
+ // ★ 死亡视觉：相机倒地 + 视角倾斜 + 淡出，延迟 2 秒再结算
+ this.engine.cameraCtl.shake(1.5, 0.5);
+ const ctl = this.engine.cameraCtl;
+ const cam = this.engine.renderer.camera;
+ ctl.setHurtOffset(0, 0);
+
+ const deathCamStart = this.time;
+ const deathAnim = setInterval(() => {
+   const t = Math.min(1, (this.time - deathCamStart) / 1.6);
+   if (!this.running && t >= 1) { clearInterval(deathAnim); return; }
+   ctl.follow(
+     p.body.position.x,
+     (p.body.position.y - p.body.halfH) + 1.55 * (1 - t) + 0.15 * t,
+     p.body.position.z
+   );
+   if (cam) {
+     cam.rotation.z = t * 1.3;
+   }
+   const vignEl = document.getElementById('fx-vignette');
+   if (vignEl) vignEl.style.opacity = String(0.3 + t * 0.6);
+   const filterEl = document.getElementById('fx-filter');
+   if (filterEl) filterEl.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${t * 0.4}) 30%, rgba(60,0,0,${t * 0.8}) 100%)`;
+   if (t >= 1) {
+     clearInterval(deathAnim);
+   }
+ }, 30);
+
+ setTimeout(() => {
+   try { clearInterval(deathAnim); } catch (_) {}
    this._end(false);
+ }, 2000);
  }
 
   _updateEnemies(dt){
@@ -2400,6 +2447,7 @@ _generateLootSpecs(){
 }
 
 _startSearch(c){
+  if (!c) return;
   this._searching = true;
   this._searchTimer = 0;
   this._searchTarget = c;
@@ -2415,7 +2463,13 @@ _startSearch(c){
   this._ensureSearchPanel();
 
   const panel = document.getElementById('search-panel');
-  if (panel) panel.classList.add('on');
+  if (panel) {
+    panel.classList.add('on');
+  } else {
+    console.error('[Search] panel 创建失败');
+    this._searching = false;
+    return;
+  }
   this._renderSearchPanel();
   this._log('开始搜索…', 'p');
   this._playSFX('reload');
@@ -2626,11 +2680,15 @@ _updateMobileButtons(){
     return;
   }
   const c = this._searchTarget;
-  if (!c) { this._log('附近没有可搜索的容器', 'y'); return; }
-  if (c.searched && c.revealed && c.revealed.length === 0) {
+  if (!c) {
+    this._log('附近没有可搜索的容器', 'y');
+    return;
+  }
+  if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0)) {
     this._log('容器已空', 'y');
     return;
   }
+  console.log('[Search] 开始搜索', c.isGround ? 'groundLoot' : 'container', 'loot:', c.loot ? c.loot.length : 'N/A');
   this._startSearch(c);
 }
 
@@ -3481,7 +3539,22 @@ async startMatch(kind){
   this._lastMatchKind = kind;
 
   this._showScreen('game');
-  
+
+  // ★ 加一个加载遮罩，避免看到虚空/上一场残留
+  let loadingEl = document.getElementById('match-loading');
+  if (!loadingEl) {
+    loadingEl = document.createElement('div');
+    loadingEl.id = 'match-loading';
+    loadingEl.style.cssText = 'position:absolute;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(4,8,14,.96);color:#a8d8ff;font-family:-apple-system,"PingFang SC",sans-serif;letter-spacing:4px;gap:14px';
+    loadingEl.innerHTML = '<div style="font-size:15px">进入战区…</div><div style="width:200px;height:3px;background:rgba(80,140,200,.15);border-radius:2px;overflow:hidden"><div id="match-loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#3fa8ff,#8ee7ff);transition:width .2s"></div></div>';
+    const gameScreen = document.getElementById('game-screen');
+    if (gameScreen) gameScreen.appendChild(loadingEl);
+    else document.body.appendChild(loadingEl);
+  }
+  loadingEl.style.display = 'flex';
+  const loadingBar = document.getElementById('match-loading-bar');
+  if (loadingBar) loadingBar.style.width = '20%';
+
   document.getElementById('result-screen')?.classList.remove('on');
   document.getElementById('pause-screen')?.classList.remove('on');
   const _again = document.getElementById('btn-again');
@@ -3534,8 +3607,13 @@ async startMatch(kind){
     });
 
     this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
-    this.world.start();
-    e.bus.emit('matchStarted', { kind });
+if (loadingBar) loadingBar.style.width = '70%';
+this.world.start();
+e.bus.emit('matchStarted', { kind });
+if (loadingBar) loadingBar.style.width = '100%';
+setTimeout(() => {
+  if (loadingEl) loadingEl.style.display = 'none';
+}, 250);
 
     if (!isMobile) {
       const canvas = e.renderer.canvas;
@@ -3548,8 +3626,9 @@ async startMatch(kind){
         } catch (_) {}
       }
     }
-  } catch (err) {
+    } catch (err) {
     console.error('[GameApp] startMatch failed:', err);
+    if (loadingEl) loadingEl.style.display = 'none';
     alert('启动失败，请查看控制台：' + (err && err.message ? err.message : String(err)));
     this._showScreen('menu');
   }
