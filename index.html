@@ -79,11 +79,10 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #hud{position:absolute;inset:0;pointer-events:none;z-index:30}
 
 /* 特效层 */
-#fx-filter { position:absolute; inset:0; pointer-events:none; z-index:10; transition:all 0.2s; backdrop-filter:none; }
-#fx-vignette { position:absolute; inset:0; pointer-events:none; z-index:11; opacity:0; background:radial-gradient(circle, transparent 40%, rgba(200,0,0,0.6) 100%); transition:opacity 0.3s; }
+#fx-filter { position:absolute; inset:0; pointer-events:none; z-index:10; transition:opacity 0.3s; }
+#fx-vignette { position:absolute; inset:0; pointer-events:none; z-index:11; opacity:0; background:radial-gradient(ellipse at center, transparent 50%, rgba(120,0,0,0.55) 95%, rgba(40,0,0,0.9) 100%); transition:opacity 0.3s; }
 #fx-coupling { position:absolute; inset:0; pointer-events:none; z-index:12; box-shadow:none; transition:box-shadow 0.3s, background 0.3s; }
 #fx-hit-flash { position:absolute; inset:0; pointer-events:none; z-index:13; background:rgba(255,0,0,0.15); opacity:0; transition:opacity 0.1s; }
-
 /* 伤害方向指示器 */
 #dmg-indicator { position:absolute; inset:0; pointer-events:none; z-index:15; }
 
