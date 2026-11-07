@@ -6,62 +6,45 @@
    纯数据操作走 Inventory 接口，UI 只负责渲染 + 拖拽。
    ============================================================ */
 
+import * as THREE from 'three'
+
 const CSS = `
-#bagui-overlay{position:fixed;inset:0;z-index:500;background:rgba(4,8,14,.94);display:none;flex-direction:column;font-family:-apple-system,"PingFang SC",sans-serif;color:#d8e2ee;padding:12px;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#bagui-overlay{position:fixed;inset:0;z-index:500;background:rgba(4,8,14,.94);display:none;flex-direction:column;font-family:-apple-system,"PingFang SC",sans-serif;color:#d8e2ee;padding:12px;box-sizing:border-box;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #bagui-overlay.on{display:flex}
-.bagui-wrap{display:flex;flex-direction:column;height:100%;max-width:1200px;margin:0 auto;width:100%}
-.bagui-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:1px solid rgba(105,170,235,.3)}
-.bagui-header h2{font-size:16px;letter-spacing:4px;color:#a8d8ff}
-#bagui-close{width:32px;height:32px;border-radius:6px;background:rgba(60,100,150,.5);border:1px solid rgba(110,180,255,.4);color:#cfe8ff;font-size:16px;cursor:pointer}
-.bagui-main{flex:1;display:flex;gap:12px;margin-top:10px;min-height:0}
-.bagui-left,.bagui-right{flex:1;overflow-y:auto;padding:4px;min-width:0}
-.bagui-right{flex:1.5;background:rgba(10,18,28,.5);border-radius:8px}
+.bagui-wrap{display:flex;flex-direction:column;height:100%;width:100%;max-width:1200px;margin:0 auto;min-height:0}
+.bagui-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:1px solid rgba(105,170,235,.3);flex-shrink:0}
+.bagui-header h2{font-size:16px;letter-spacing:4px;color:#a8d8ff;margin:0}
+#bagui-close{width:32px;height:32px;border-radius:6px;background:rgba(60,100,150,.5);border:1px solid rgba(110,180,255,.4);color:#cfe8ff;font-size:16px;cursor:pointer;flex-shrink:0}
+.bagui-main{flex:1;display:flex;gap:12px;margin-top:10px;min-height:0;overflow:hidden}
+.bagui-left,.bagui-right{flex:1;overflow-y:auto;padding:4px;min-width:0;box-sizing:border-box}
+.bagui-right{flex:1.2;background:rgba(10,18,28,.5);border-radius:8px}
 .bagui-sec{margin-bottom:10px;background:rgba(20,32,46,.6);border-radius:6px;padding:8px}
-.bagui-sec h3{font-size:11px;letter-spacing:2px;color:#8fb0c8;margin-bottom:6px;display:flex;justify-content:space-between;font-weight:600}
+.bagui-sec h3{font-size:11px;letter-spacing:2px;color:#8fb0c8;margin:0 0 6px 0;display:flex;justify-content:space-between;font-weight:600}
 .bagui-cap{font-size:9px;color:#5c82a8}
-.bagui-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:4px}
+.bagui-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));grid-auto-rows:56px;gap:4px}
+.bagui-slot{position:relative !important;width:100%;height:56px;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;overflow:hidden;cursor:pointer;user-select:none;touch-action:none;box-sizing:border-box}
 .bagui-slot.has-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
 .bagui-slot.has-item[data-rarity="L1"]{border-color:#5fd47a;background:linear-gradient(180deg,rgba(95,212,122,.22),rgba(30,60,45,.85));box-shadow:0 0 4px rgba(95,212,122,.25) inset}
 .bagui-slot.has-item[data-rarity="L2"]{border-color:#4a9eff;background:linear-gradient(180deg,rgba(74,158,255,.22),rgba(25,50,80,.85));box-shadow:0 0 4px rgba(74,158,255,.25) inset}
 .bagui-slot.has-item[data-rarity="L3"]{border-color:#ffd93d;background:linear-gradient(180deg,rgba(255,217,61,.2),rgba(70,60,25,.85));box-shadow:0 0 5px rgba(255,217,61,.3) inset}
 .bagui-slot.has-item[data-rarity="L4"]{border-color:#ff9a3c;background:linear-gradient(180deg,rgba(255,154,60,.24),rgba(80,50,20,.85));box-shadow:0 0 6px rgba(255,154,60,.35) inset}
 .bagui-slot.has-item[data-rarity="L5"]{border-color:#ff5b5b;background:linear-gradient(180deg,rgba(255,91,91,.26),rgba(85,30,30,.85));box-shadow:0 0 7px rgba(255,91,91,.4) inset}
-.bagui-slot.has-item[data-rarity="FAN"]{
-  border-color:#d4a373;
-  background:linear-gradient(135deg,rgba(200,130,70,.5) 0%,rgba(140,85,40,.4) 35%,rgba(255,180,110,.55) 50%,rgba(140,85,40,.4) 65%,rgba(200,130,70,.5) 100%);
-  box-shadow:0 0 8px rgba(212,163,115,.45) inset,0 0 3px rgba(212,163,115,.5);
-}
-.bagui-slot.has-item[data-rarity="EXT"]{
-  border-color:#d0d0d0;
-  background:linear-gradient(135deg,rgba(200,200,200,.5) 0%,rgba(120,120,120,.4) 35%,rgba(240,240,240,.55) 50%,rgba(120,120,120,.4) 65%,rgba(200,200,200,.5) 100%);
-  box-shadow:0 0 8px rgba(208,208,208,.45) inset,0 0 3px rgba(208,208,208,.5);
-}
-.bagui-slot.has-item[data-rarity="PHE"]{
-  border-color:#ffd700;
-  background:linear-gradient(135deg,rgba(255,215,0,.55) 0%,rgba(180,140,0,.42) 35%,rgba(255,240,100,.6) 50%,rgba(180,140,0,.42) 65%,rgba(255,215,0,.55) 100%);
-  box-shadow:0 0 10px rgba(255,215,0,.5) inset,0 0 4px rgba(255,215,0,.55);
-}
-.bagui-slot.has-item[data-rarity="INC"]{
-  border-color:#c8c8e0;
-  background:linear-gradient(135deg,#0a0a14 0%,#2a1a3a 25%,#1a2a3a 50%,#3a1a2a 75%,#0a0a14 100%);
-  background-size:200% 200%;
-  animation:bagIncShift 3s linear infinite,bagIncPulse 1.5s ease-in-out infinite alternate;
-}
+.bagui-slot.has-item[data-rarity="FAN"]{border-color:#d4a373;background:linear-gradient(135deg,rgba(200,130,70,.5) 0%,rgba(140,85,40,.4) 35%,rgba(255,180,110,.55) 50%,rgba(140,85,40,.4) 65%,rgba(200,130,70,.5) 100%);box-shadow:0 0 8px rgba(212,163,115,.45) inset,0 0 3px rgba(212,163,115,.5)}
+.bagui-slot.has-item[data-rarity="EXT"]{border-color:#d0d0d0;background:linear-gradient(135deg,rgba(200,200,200,.5) 0%,rgba(120,120,120,.4) 35%,rgba(240,240,240,.55) 50%,rgba(120,120,120,.4) 65%,rgba(200,200,200,.5) 100%);box-shadow:0 0 8px rgba(208,208,208,.45) inset,0 0 3px rgba(208,208,208,.5)}
+.bagui-slot.has-item[data-rarity="PHE"]{border-color:#ffd700;background:linear-gradient(135deg,rgba(255,215,0,.55) 0%,rgba(180,140,0,.42) 35%,rgba(255,240,100,.6) 50%,rgba(180,140,0,.42) 65%,rgba(255,215,0,.55) 100%);box-shadow:0 0 10px rgba(255,215,0,.5) inset,0 0 4px rgba(255,215,0,.55)}
+.bagui-slot.has-item[data-rarity="INC"]{border-color:#c8c8e0;background:linear-gradient(135deg,#0a0a14 0%,#2a1a3a 25%,#1a2a3a 50%,#3a1a2a 75%,#0a0a14 100%);background-size:200% 200%;animation:bagIncShift 3s linear infinite,bagIncPulse 1.5s ease-in-out infinite alternate}
 @keyframes bagIncShift{0%{background-position:0% 0%}100%{background-position:200% 200%}}
-@keyframes bagIncPulse{
-  0%{box-shadow:0 0 6px rgba(200,200,230,.5) inset,0 0 4px rgba(180,180,220,.6)}
-  100%{box-shadow:0 0 14px rgba(255,255,255,.9) inset,0 0 10px rgba(220,220,255,.85)}
-}
+@keyframes bagIncPulse{0%{box-shadow:0 0 6px rgba(200,200,230,.5) inset,0 0 4px rgba(180,180,220,.6)}100%{box-shadow:0 0 14px rgba(255,255,255,.9) inset,0 0 10px rgba(220,220,255,.85)}}
 .bagui-slot.drop-hint{box-shadow:0 0 0 2px #7bf5a8 inset}
 .bagui-slot.empty{opacity:.4;cursor:default}
-.bagui-icon{position:absolute;top:3px;left:50%;transform:translateX(-50%);font-size:18px;line-height:1}
-.bagui-name{position:absolute;bottom:2px;left:2px;right:2px;font-size:8px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cfe4f8}
-.bagui-qty{position:absolute;top:1px;right:3px;font-size:9px;color:#ffd93d;font-weight:700}
-.bagui-val{position:absolute;top:1px;left:3px;font-size:8px;color:#a8d8ff;font-weight:600;text-shadow:0 1px 2px #000}
-.bagui-dur{position:absolute;bottom:0;left:0;right:0;height:2px;background:rgba(0,0,0,.6)}
+.bagui-icon{position:absolute;top:3px;left:50%;transform:translateX(-50%);font-size:18px;line-height:1;pointer-events:none;z-index:2}
+.bagui-name{position:absolute;bottom:2px;left:2px;right:2px;font-size:8px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cfe4f8;pointer-events:none;z-index:1}
+.bagui-qty{position:absolute;top:1px;right:3px;font-size:9px;color:#ffd93d;font-weight:700;pointer-events:none;z-index:3}
+.bagui-val{position:absolute;top:1px;left:3px;font-size:8px;color:#a8d8ff;font-weight:600;text-shadow:0 1px 2px #000;pointer-events:none;z-index:3}
+.bagui-dur{position:absolute;bottom:0;left:0;right:0;height:2px;background:rgba(0,0,0,.6);pointer-events:none;z-index:1}
 .bagui-dur i{display:block;height:100%}
 .bagui-ghost{position:fixed;z-index:9999;padding:4px 10px;background:rgba(60,120,190,.9);border:1px solid #7fd0ff;border-radius:4px;font-size:11px;transform:translate(-50%,-50%);pointer-events:none;white-space:nowrap;color:#fff;font-weight:600}
-.bagui-detail{position:fixed;z-index:600;display:none;width:280px;max-height:70vh;overflow-y:auto;padding:10px;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:8px;font-size:11px;line-height:1.7;box-shadow:0 6px 24px rgba(0,0,0,.7)}
+.bagui-detail{position:fixed;z-index:600;display:none;width:280px;max-height:70vh;overflow-y:auto;padding:10px;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:8px;font-size:11px;line-height:1.7;box-shadow:0 6px 24px rgba(0,0,0,.7);box-sizing:border-box}
 .bagui-detail.on{display:block}
 .bagui-detail-title{font-size:13px;color:#a8d8ff;margin-bottom:6px;font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:6px}
 .bagui-rarity-tag{font-size:9px;padding:1px 6px;border-radius:3px;font-weight:800;letter-spacing:1px}
@@ -91,10 +74,13 @@ const CSS = `
 .bagui-split-row{display:flex;gap:4px;align-items:center;margin-top:6px;font-size:11px}
 .bagui-split-input{width:56px;padding:2px 4px;background:rgba(10,18,28,.8);border:1px solid rgba(80,125,175,.35);border-radius:3px;color:#cfe8ff;font-family:inherit;font-size:11px}
 .bagui-empty{color:#5c82a8;text-align:center;padding:20px}
-.bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between}
+.bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between;flex-shrink:0}
 .bagui-toolbar button{padding:5px 12px;font-size:11px;cursor:pointer;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:5px;font-family:inherit}
 .bagui-total{font-size:10px;color:#ffd93d;letter-spacing:1px;font-weight:700}
-@media(max-width:768px){.bagui-main{flex-direction:column}.bagui-right{flex:1}}
+.bagui-preview{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,rgba(40,60,90,.6),rgba(10,18,28,.9));border-radius:8px;overflow:hidden}
+.bagui-preview canvas{max-width:100%;max-height:100%;display:block}
+.bagui-status{margin-top:8px;padding:8px;background:rgba(10,18,28,.5);border-radius:6px;font-size:10px;color:#5c82a8;text-align:center;letter-spacing:1px}
+@media(max-width:768px){.bagui-main{flex-direction:column}.bagui-right{flex:0 0 180px;min-height:180px}}
 `;
 
 export class BagUI {
@@ -265,10 +251,17 @@ _stashAll() {
   const el = document.getElementById('bagui-right');
   if (!el) return;
   const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+
   if (isInMatch) {
-    el.style.display = 'none';
+    // 战局内：显示角色建模 + 状态栏（先留空）
+    el.style.display = '';
+    el.innerHTML =
+      '<div class="bagui-preview" id="bagui-preview"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
+      '<div class="bagui-status" id="bagui-status">状态栏（预留）</div>';
+    this._renderCharPreview();
     return;
   }
+
   el.style.display = '';
   const c = this.inv.containers.stash;
   let html = `<div class="bagui-sec"><h3>仓库<span class="bagui-cap">${c.uids.length}/${c.cap}</span></h3><div class="bagui-grid">`;
@@ -277,6 +270,67 @@ _stashAll() {
   html += '</div></div>';
   el.innerHTML = html;
   this._bindSlotEvents(el);
+}
+
+_renderCharPreview() {
+  const host = document.getElementById('bagui-preview');
+  if (!host) return;
+  const charId = this.engine.app && this.engine.app.menuState ? this.engine.app.menuState.char : 'captain';
+  const spec = this.engine.content.get('characters', charId);
+  if (!spec) {
+    host.innerHTML = '<div style="color:#5c82a8;font-size:11px">无角色</div>';
+    return;
+  }
+  if (!window.THREE) {
+    host.innerHTML = '<div style="color:#5c82a8;font-size:11px">' + this._esc(this.engine.i18n.t(spec.name)) + '</div>';
+    return;
+  }
+  const THREE = window.THREE;
+  const w = host.clientWidth || 200;
+  const h = host.clientHeight || 240;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h, false);
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
+  camera.position.set(0, 2.2, 5.5);
+  camera.lookAt(0, 1.4, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+  const key = new THREE.DirectionalLight(0xfff4e0, 1.4);
+  key.position.set(3, 6, 4);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x88aaff, 0.8);
+  rim.position.set(-4, 3, -3);
+  scene.add(rim);
+
+  let mesh = null;
+  try {
+    mesh = this.engine.meshes.build('player', {
+      color: spec.color !== undefined ? spec.color : 0x5a6b7c,
+      radius: spec.radius || 1.2,
+      prazer: spec.prazer || false,
+    });
+    scene.add(mesh);
+  } catch (e) {
+    console.warn('[BagUI] 建模失败', e);
+  }
+
+  renderer.render(scene, camera);
+
+  const canvas = renderer.domElement;
+  host.innerHTML = '';
+  host.appendChild(canvas);
+  canvas.style.maxWidth = '100%';
+  canvas.style.maxHeight = '100%';
+
+  const nameEl = document.createElement('div');
+  nameEl.style.cssText = 'position:absolute;bottom:8px;left:8px;right:8px;text-align:center;font-size:11px;color:#a8d8ff;letter-spacing:2px;text-shadow:0 1px 3px #000';
+  nameEl.textContent = this.engine.i18n.t(spec.name);
+  host.appendChild(nameEl);
 }
 
   _slotHtml(uid, src, hint) {
