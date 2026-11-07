@@ -431,8 +431,16 @@ _quickEquip(uid) {
   const qty = item.loaded.qty;
   const uid = this.inv.createItem('ammo', ammoType, { qty });
   if (!uid) return;
-  const r = this.inv.addToContainer('bag', uid);
-  if (!r.ok) { this.inv.destroyItem(uid); return; }
+  // ★ 关键修复：bag → chest → pocket → safe → stash 依次 fallback
+  const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
+  let placed = false;
+  for (const t of targets) {
+    if (this.inv.addToContainer(t, uid).ok) { placed = true; break; }
+  }
+  if (!placed) {
+    this.inv.destroyItem(uid);
+    return;
+  }
   item.loaded.qty = 0;
   this.refresh();
 }
@@ -444,25 +452,31 @@ _loadAmmo(weaponUid) {
   if (!def) return;
   const space = (def.mag || 0) - item.loaded.qty;
   if (space <= 0) return;
-  const take = this._consumeAmmoFromBag(def.ammoType, space);
+  const take = this._consumeAmmoFromAll(def.ammoType, space);
   if (take > 0) {
     item.loaded.qty += take;
     this.refresh();
   }
 }
 
-_consumeAmmoFromBag(ammoType, count) {
-  const c = this.inv.containers.bag;
-  if (!c) return 0;
+_consumeAmmoFromAll(ammoType, count) {
+  // ★ 关键修复：遍历所有可及容器（胸挂/口袋/背包/安全箱），不再只搜 bag
+  const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
   let remaining = count;
-  for (let i = c.uids.length - 1; i >= 0 && remaining > 0; i--) {
-    const uid = c.uids[i];
-    const it = this.inv.items.get(uid);
-    if (!it || it.table !== 'ammo' || it.defId !== ammoType) continue;
-    const take = Math.min(it.qty, remaining);
-    it.qty -= take;
-    remaining -= take;
-    if (it.qty <= 0) this.inv.destroyItem(uid);
+  for (const cName of searchOrder) {
+    if (remaining <= 0) break;
+    const c = this.inv.containers[cName];
+    if (!c) continue;
+    for (let i = c.uids.length - 1; i >= 0 && remaining > 0; i--) {
+      const uid = c.uids[i];
+      const it = this.inv.items.get(uid);
+      if (!it || it.table !== 'ammo' || it.defId !== ammoType) continue;
+      const take = Math.min(it.qty, remaining);
+      it.qty -= take;
+      remaining -= take;
+      // destroyItem 内部会 _detach，自动从 c.uids 移除
+      if (it.qty <= 0) this.inv.destroyItem(uid);
+    }
   }
   return count - remaining;
 }
