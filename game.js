@@ -2332,7 +2332,7 @@ this.combatLog.push({
     ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon }
     : { name: '未知' },
   amount: dmg,
-  part: part
+  part: part,
   pierced: pen >= 3,
   armor: armorSnapshot,
   coupling: couplingSnapshot,
