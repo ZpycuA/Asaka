@@ -415,8 +415,8 @@ class HUDSystem {
   const stPct = Math.max(0, Math.min(100, p.stamina / p.maxStamina * 100));
   this._setStyle('stamina-bar', 'width', stPct + '%');
   let stBg;
-  if (stPct < 15)      stBg = 'linear-gradient(90deg,#d94040,#ff6a4a)';
-  else if (stPct < 35) stBg = 'linear-gradient(90deg,#e09a30,#ffc850)';
+  if (stPct < 20)      stBg = 'linear-gradient(90deg,#d94040,#ff6a4a)';
+  else if (stPct < 40) stBg = 'linear-gradient(90deg,#e09a30,#ffc850)';
   else                 stBg = 'linear-gradient(90deg,#ffd93d,#fff08a)';
   this._setStyle('stamina-bar', 'background', stBg);
 }
@@ -518,13 +518,15 @@ _updateHurtFX(hpPct) {
     filterEl.style.backdropFilter = 'none';
   }
 
-  // 濒死轻微相机抖动（不影响瞄准，只传递"手不稳"）
-  if (shakeAmp > 0 && cam) {
+    // 濒死轻微相机抖动（通过 cameraCtl 统一应用）
+  const camCtl = this.engine.cameraCtl;
+  if (shakeAmp > 0 && camCtl && typeof camCtl.setHurtOffset === 'function') {
     this._vitalShakePhase = (this._vitalShakePhase || 0) + 0.016;
     const sx = Math.sin(this._vitalShakePhase * 11) * shakeAmp;
     const sy = Math.cos(this._vitalShakePhase * 13) * shakeAmp;
-    cam.position.x += sx;
-    cam.position.y += sy;
+    camCtl.setHurtOffset(sx, sy);
+  } else if (camCtl && typeof camCtl.setHurtOffset === 'function') {
+    camCtl.setHurtOffset(0, 0);
   }
 }
 
@@ -985,8 +987,8 @@ r.scene.add(grid);
 
     this._carriedValueBaseline = this._computeCarriedValue();
   this._carriedValueTimer = 0;
-  this._bob = { phase: 0, yBase: 0 };
-  this._fov = { base: 60, target: 60 };
+  this._bob = { phase: 0 };
+  this._sprintProgress = 0;
 }
 
   _buildWeapon(id){
