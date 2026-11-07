@@ -1176,6 +1176,7 @@ class SceneManager {
 /* ============================================================
    [14] CameraController
    ============================================================ */
+
 class CameraController {
   constructor(camera, opts){
     this.camera = camera;
@@ -1192,6 +1193,10 @@ class CameraController {
     this.bobRoll = 0;
     this.hurtOffsetX = 0;
     this.hurtOffsetY = 0;
+    // ★ 死亡姿态（在 lookAt 之后统一应用，避免被覆盖导致闪烁）
+    this.deathRoll = 0;
+    this.deathDrop = 0;
+    this.deathPitchOffset = 0;
   }
   
   follow(x, y, z){ 
@@ -1208,6 +1213,19 @@ class CameraController {
   setHurtOffset(x, y) {
     this.hurtOffsetX = x || 0;
     this.hurtOffsetY = y || 0;
+  }
+
+  // ★ 死亡姿态：roll 侧倾弧度，drop 相机下沉距离，pitchOffset 俯仰偏移
+  setDeathPose(roll, drop, pitchOffset) {
+    this.deathRoll = roll || 0;
+    this.deathDrop = drop || 0;
+    this.deathPitchOffset = pitchOffset || 0;
+  }
+
+  resetDeathPose() {
+    this.deathRoll = 0;
+    this.deathDrop = 0;
+    this.deathPitchOffset = 0;
   }
   
   rotate(dx, dy) {
@@ -1231,18 +1249,22 @@ class CameraController {
     }
 
     const ox = this.target.x + this.shakeOffset.x + this.hurtOffsetX;
-    const oy = this.target.y + this.shakeOffset.y + this.hurtOffsetY + this.bobOffsetY;
+    const oy = this.target.y + this.shakeOffset.y + this.hurtOffsetY + this.bobOffsetY - this.deathDrop;
     const oz = this.target.z + this.shakeOffset.z;
 
     this.camera.position.set(ox, oy, oz);
     
-    const lookX = ox + Math.sin(this.yaw) * Math.cos(this.pitch);
-    const lookY = oy + Math.sin(this.pitch);
-    const lookZ = oz - Math.cos(this.yaw) * Math.cos(this.pitch);
+    const lookX = ox + Math.sin(this.yaw) * Math.cos(this.pitch + this.deathPitchOffset);
+    const lookY = oy + Math.sin(this.pitch + this.deathPitchOffset);
+    const lookZ = oz - Math.cos(this.yaw) * Math.cos(this.pitch + this.deathPitchOffset);
     this.camera.lookAt(lookX, lookY, lookZ);
 
     if (this.bobRoll !== 0) {
       this.camera.rotateZ(this.bobRoll);
+    }
+    // ★ 死亡侧倾（lookAt 之后应用，保证不被覆盖）
+    if (this.deathRoll !== 0) {
+      this.camera.rotateZ(this.deathRoll);
     }
   }
 }
