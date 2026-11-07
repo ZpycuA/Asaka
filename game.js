@@ -546,20 +546,6 @@ if (p.carriedValue !== undefined) {
   // ★ 核心：耦合视觉特效
   this._updateCouplingFX(p);
   
-  // ★ 核心：玩家模型描边发光
-  if (p.auraMesh) {
-    if (p.protectionHold && p.coupling > 0) {
-      p.auraMesh.visible = true;
-      // 根据防护等级变色
-      const colors = { L1: 0x50ff8a, L2: 0x50aaff, L3: 0xc878ff };
-      const targetColor = colors[p.protection] || 0xffffff;
-      p.auraMesh.material.color.setHex(targetColor);
-      // 随耦合能多少微弱闪烁
-      p.auraMesh.material.opacity = 0.3 + (p.coupling / p.maxCoupling) * 0.4 + Math.sin(this.world.time * 10) * 0.1;
-    } else {
-      p.auraMesh.visible = false;
-    }
-  }
   // ★ 防护按钮可用性与显隐
 const protectGroup = document.getElementById('protect-group');
 if (protectGroup) {
@@ -1268,10 +1254,18 @@ const body = this.physics.add(new Body({
   };
   this.player.body.userData.ref = this.player;
 
-   // 将整个相机加入场景（否则相机子节点无法显示）
-  if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) {
-    this.engine.renderer.scene.add(this.engine.renderer.camera);
-  }
+// ★ 收集轮廓流光 mesh，并初始化消耗检测状态
+this.player.glowMeshes = [];
+this.player.mesh.traverse(obj => {
+  if (obj.isMesh && obj.name === '__prazer_glow__') this.player.glowMeshes.push(obj);
+});
+this.player._lastCoupling = this.player.coupling;
+this.player._glowTimer = 0;
+
+ // 将整个相机加入场景（否则相机子节点无法显示）
+if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) {
+  this.engine.renderer.scene.add(this.engine.renderer.camera);
+}
 
     this._carriedValueBaseline = this._computeCarriedValue();
   this._carriedValueTimer = 0;
@@ -1520,10 +1514,18 @@ _buildArmorFromInventory(inv) {
     speedMul: 1,
     charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
   };
-  body.userData.ref = enemy;
+    body.userData.ref = enemy;
+
+  // ★ 收集轮廓流光（非 Prazer 时为空数组）
+  enemy.glowMeshes = [];
+  enemy.mesh.traverse(obj => {
+    if (obj.isMesh && obj.name === '__prazer_glow__') enemy.glowMeshes.push(obj);
+  });
+  enemy._lastCoupling = enemy.coupling;
+  enemy._glowTimer = 0;
+
   this.enemies.push(enemy);
 }
-
   _spawnExtracts(){
   if (this.extracts.length > 0) return;
   const half = this.mapSpec.size / 2 - 4;
@@ -1575,7 +1577,8 @@ _buildArmorFromInventory(inv) {
   this._updateSearchHint();
 
   this.physics.step(dt);
-  this._syncMeshes(dt);
+this._syncMeshes(dt);
+this._updateGlowState(this.player, dt);
 
     // ★ 玩家存活 → 常规跟随；玩家死亡 → 死亡相机接管
   if (this.player && this.player.alive) {
@@ -2491,14 +2494,25 @@ _ensureEyelids() {
     css.id = 'eyelid-css';
     css.textContent = `
       #eyelid-top, #eyelid-bottom {
-        position: fixed; left: 0; right: 0; height: 50%;
-        background: #000;
-        pointer-events: none;
-        z-index: 350;
-        will-change: transform;
-      }
-      #eyelid-top { top: 0; transform: translateY(-100%); }
-      #eyelid-bottom { bottom: 0; transform: translateY(100%); }
+  position: fixed; left: 0; right: 0;
+  background: #000;
+  pointer-events: none;
+  z-index: 350;
+  will-change: transform;
+  box-shadow: 0 0 40px 15px rgba(0,0,0,0.75);
+}
+#eyelid-top {
+  top: 0;
+  height: 65%;
+  border-radius: 0 0 50% 50% / 0 0 100% 100%;
+  transform: translateY(-100%);
+}
+#eyelid-bottom {
+  bottom: 0;
+  height: 45%;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  transform: translateY(100%);
+}
     `;
     document.head.appendChild(css);
   }
@@ -2512,13 +2526,15 @@ _ensureEyelids() {
 }
 
 // t = 0 完全睁开，t = 1 完全闭合
+// smoothstep 曲线 + 弧形眼皮，视觉更柔和
 _updateEyelids(t) {
   const top = document.getElementById('eyelid-top');
   const bottom = document.getElementById('eyelid-bottom');
   if (!top || !bottom) return;
   const p = Math.max(0, Math.min(1, t));
-  top.style.transform = `translateY(${-100 * (1 - p)}%)`;
-  bottom.style.transform = `translateY(${100 * (1 - p)}%)`;
+  const ease = p * p * (3 - 2 * p); // smoothstep：首尾柔和，中段加速
+  top.style.transform = `translateY(${-100 + 100 * ease}%)`;
+  bottom.style.transform = `translateY(${100 - 100 * ease}%)`;
 }
 
 // 结算前收起眼皮（带 0.15 秒淡出）
@@ -3232,6 +3248,37 @@ _applySkillEffect(p, def){
     catch (e) { console.error(`[Mode] ${hookName}:`, e); }
   }
 
+// ★ 流光状态更新：耦合能随时间减少时点亮，粘滞 0.2 秒防单帧闪烁
+_updateGlowState(entity, dt) {
+  if (!entity || !entity.glowMeshes || entity.glowMeshes.length === 0) return;
+  const cur = entity.coupling || 0;
+  const last = entity._lastCoupling;
+  if (last === undefined) {
+    entity._lastCoupling = cur;
+    entity._glowTimer = 0;
+    return;
+  }
+  // 判据：本帧耦合能比上一帧低 → 正在消耗
+  const consuming = cur < last - 0.0001;
+  entity._lastCoupling = cur;
+
+  if (consuming) {
+    entity._glowTimer = 0.2;
+  } else if (entity._glowTimer > 0) {
+    entity._glowTimer -= dt;
+    if (entity._glowTimer < 0) entity._glowTimer = 0;
+  }
+
+  const targetOpacity = entity._glowTimer > 0 ? 0.55 : 0;
+  const lerpSpeed = Math.min(1, dt * 8);
+  for (const g of entity.glowMeshes) {
+    const mat = g.material;
+    mat.opacity += (targetOpacity - mat.opacity) * lerpSpeed;
+    g.visible = mat.opacity > 0.01;
+  }
+}
+
+
 _syncMeshes(dt){
   const p = this.player;
   if (p && p.mesh) {
@@ -3266,9 +3313,12 @@ _syncMeshes(dt){
     }
 
     e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
-    e.mesh.rotation.y = -e.angle;
+e.mesh.rotation.y = -e.angle;
 
-    if (e.hitFlash > 0) {
+// ★ 敌人流光状态
+this._updateGlowState(e, dt);
+
+if (e.hitFlash > 0) {
       e.hitFlash -= dt;
       e.mesh.traverse(obj => {
         if (obj.isMesh && obj.material && obj.material.emissive) {
