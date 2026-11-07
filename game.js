@@ -233,6 +233,153 @@ const CombatSystem = {
 };
 
 /* ============================================================
+   [1.5] 实体健康与状态系统 (EntityStatus)
+   ============================================================ */
+const PART_MAX_HP = { head: 35, thorax: 85, abdomen: 70, larm: 60, rarm: 60, lleg: 65, rleg: 65, legs: 65 };
+const WOUND_ENERGY_THRESHOLD = [0, 100, 350, 700, 1200]; // 无，轻，中，重，致命
+
+class EntityStatus {
+  constructor(entity, isPrazer) {
+    this.entity = entity;
+    this.isPrazer = isPrazer;
+    this.maxBlood = isPrazer ? 6000 : 5000;
+    this.blood = this.maxBlood;
+    
+    this.parts = {};
+    for (const p in PART_MAX_HP) {
+      this.parts[p] = { hp: PART_MAX_HP[p], maxHp: PART_MAX_HP[p], wound: 0, fracture: 0 };
+    }
+    
+    this.effects = new Map(); // id -> { duration, strength, awareness }
+    this.healthQuality = 100;
+    this._lastEmitTime = 0;
+  }
+
+  addEffect(id, duration, strength, awareness = 0) {
+    const existing = this.effects.get(id);
+    if (existing) {
+      existing.duration = Math.max(existing.duration, duration);
+      existing.strength = Math.max(existing.strength, strength);
+    } else {
+      this.effects.set(id, { id, duration, strength, awareness });
+    }
+  }
+
+  removeEffect(id) {
+    this.effects.delete(id);
+  }
+
+  hasEffect(id) {
+    return this.effects.has(id);
+  }
+
+  takeDamage(part, energy, pen) {
+    if (!this.parts[part]) part = 'thorax';
+    // 如果是四肢，稍微合并一下
+    if (part === 'larm' || part === 'rarm') part = 'larm'; 
+    if (part === 'lleg' || part === 'rleg') part = 'legs';
+
+    const p = this.parts[part];
+    if (!p) return;
+
+    // 动能转部位伤害
+    const dmg = energy / (this.isPrazer ? 48 : 34);
+    p.hp = Math.max(-p.maxHp * 2, p.hp - dmg);
+    
+    // 伤口等级判定
+    let newWound = 0;
+    for (let i = 1; i < WOUND_ENERGY_THRESHOLD.length; i++) {
+      if (energy >= WOUND_ENERGY_THRESHOLD[i]) newWound = i;
+    }
+    p.wound = Math.max(p.wound, newWound);
+    
+    if (p.wound > 0) {
+      // 受伤必流血，强度等于伤口等级
+      this.addEffect('bleeding', 30, Math.max(p.wound, this.effects.get('bleeding')?.strength || 0));
+      this.addEffect('pain', 10, 1);
+    }
+    
+    // 骨折判定
+    if (p.hp <= 0 && p.fracture === 0) {
+      p.fracture = 1; // 骨折
+      this.addEffect('fracture', 999, 1);
+      this.addEffect('bleeding', 30, Math.min(4, (this.effects.get('bleeding')?.strength || 0) + 1));
+    } else if (p.hp <= -p.maxHp && p.fracture === 1) {
+      p.fracture = 2; // 粉碎性骨折
+      this.addEffect('fracture', 999, 2);
+      this.addEffect('bleeding', 30, Math.min(4, (this.effects.get('bleeding')?.strength || 0) + 2));
+    }
+
+    this.updateOverallHealth();
+    return { hp: p.hp, wound: p.wound, fracture: p.fracture };
+  }
+
+  tick(dt) {
+    let bleedRate = 0;
+    for (const [id, eff] of this.effects) {
+      if (id === 'bleeding') bleedRate += eff.strength * 1.5; // 每秒流 1.5 * 强度
+      eff.duration -= dt;
+      if (eff.duration <= 0) this.effects.delete(id);
+    }
+    
+    this.blood = Math.max(0, this.blood - bleedRate * dt);
+    
+    if (this.blood < this.maxBlood * 0.5) {
+      this.addEffect('hypovolemia', 999, 1);
+    } else {
+      this.removeEffect('hypovolemia');
+    }
+
+    this.updateOverallHealth();
+  }
+
+  updateOverallHealth() {
+    let totalHp = 0;
+    let totalMax = 0;
+    for (const p in this.parts) {
+      totalHp += Math.max(0, this.parts[p].hp);
+      totalMax += this.parts[p].maxHp;
+    }
+    this.healthQuality = (totalHp / totalMax) * 100;
+  }
+
+  getHealthText() {
+    if (this.healthQuality > 85) return '健康';
+    if (this.healthQuality > 60) return '轻伤';
+    if (this.healthQuality > 35) return '重伤';
+    if (this.healthQuality > 15) return '濒死';
+    return '危殆';
+  }
+
+  getMoveSpeedMul() {
+    let mul = 1;
+    if (this.effects.has('hypovolemia')) mul *= 0.75;
+    if (this.parts.legs.fracture > 0) mul *= 0.5;
+    if (this.effects.has('pain')) mul *= 0.9;
+    if (this.effects.has('moving_speed_up')) mul *= 1.2;
+    return mul;
+  }
+
+  getHandlingMul() {
+    let mul = 1;
+    if (this.effects.has('hypovolemia')) mul *= 0.8;
+    if (this.effects.has('pain')) mul *= 0.8;
+    return mul;
+  }
+
+  isDead() {
+    if (this.blood <= 0) return true;
+    if (this.parts.head.hp <= -this.parts.head.maxHp * 0.5) return true; // 爆头
+    if (this.parts.thorax.hp <= -this.parts.thorax.maxHp * 0.5) return true; // 穿心
+    return false;
+  }
+
+  isDowned() {
+    return !this.isDead() && (this.blood < this.maxBlood * 0.2 || this.parts.thorax.hp <= 0);
+  }
+}
+
+/* ============================================================
    [2] AI 系统
    ============================================================ */
 const AISystem = {
