@@ -584,43 +584,58 @@ if (this._protectBtns) {
 
 // 受伤视觉引擎 · 中央视野保持清晰，只处理边缘 + 轻微相机抖动
 _updateHurtFX(hpPct) {
+  const p = this.world.player;
+  if (p && !p.alive) return; // 死亡后视觉由 _updateDeathCamera 接管，避免覆盖
+
   const filterEl = document.getElementById('fx-filter');
   const vignetteEl = document.getElementById('fx-vignette');
-  const cam = this.engine.renderer.camera;
 
-  // 边缘暗角：按 HP 分档，只在边缘加深
   let vignetteOpacity = 0;
   let filterOpacity = 0;
+  let centerDark = 0;
   let shakeAmp = 0;
 
   if (hpPct > 70) {
     vignetteOpacity = 0;
     filterOpacity = 0;
+    centerDark = 0;
     shakeAmp = 0;
   } else if (hpPct > 40) {
-    vignetteOpacity = 0.15;
-    filterOpacity = 0.06;
+    vignetteOpacity = 0.20;
+    filterOpacity = 0.08;
+    centerDark = 0;
     shakeAmp = 0;
   } else if (hpPct > 20) {
-    vignetteOpacity = 0.4;
-    filterOpacity = 0.14;
-    shakeAmp = 0.005;
+    vignetteOpacity = 0.52;
+    filterOpacity = 0.18;
+    centerDark = 0.02;
+    shakeAmp = 0.006;
+  } else if (hpPct > 10) {
+    // 濒死：重度边缘黑红 + 强脉冲
+    const pulse = Math.sin(this.world.time * 5.5) * 0.20;
+    vignetteOpacity = 0.72 + pulse;
+    filterOpacity = 0.28;
+    centerDark = 0.10;
+    shakeAmp = 0.011;
   } else {
-    // 濒死：边缘黑红 + 缓慢脉冲 + 呼吸起伏
-    const pulse = Math.sin(this.world.time * 4.5) * 0.15;
-    vignetteOpacity = 0.55 + pulse;
-    filterOpacity = 0.22;
-    shakeAmp = 0.008;
+    // 危殆：几乎全屏暗红压暗 + 剧烈脉冲
+    const pulse = Math.sin(this.world.time * 6.5) * 0.22;
+    vignetteOpacity = 0.88 + pulse;
+    filterOpacity = 0.38;
+    centerDark = 0.22;
+    shakeAmp = 0.016;
   }
 
-  if (vignetteEl) vignetteEl.style.opacity = String(vignetteOpacity);
-  // fx-filter 不做 blur，只做一层极淡的红色滤镜（模拟视野充血）
+  if (vignetteEl) {
+    const v = Math.max(0, Math.min(1, vignetteOpacity));
+    vignetteEl.style.opacity = String(v);
+  }
   if (filterEl) {
-    filterEl.style.background = `radial-gradient(ellipse at center, transparent 55%, rgba(140,20,20,${filterOpacity}) 100%)`;
+    // 中心逐渐压暗模拟视野收缩/失血性黑视
+    filterEl.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${centerDark}) 10%, rgba(140,20,20,${filterOpacity}) 100%)`;
     filterEl.style.backdropFilter = 'none';
   }
 
-    // 濒死轻微相机抖动（通过 cameraCtl 统一应用）
   const camCtl = this.engine.cameraCtl;
   if (shakeAmp > 0 && camCtl && typeof camCtl.setHurtOffset === 'function') {
     this._vitalShakePhase = (this._vitalShakePhase || 0) + 0.016;
@@ -2471,47 +2486,132 @@ this.combatLog.push({
 p.alive = false;
 p.deadAt = this.time;
 p.deathStartedAt = this.time;
+p._deathShaken = false;
+p.deathRollOffset = (Math.random() * 2 - 1) * 0.10; // 极轻随机侧偏，主姿态是后仰
 this._processModeHook('onPlayerDowned');
 
-// ★ 死亡视觉：交给 _updateDeathCamera 每帧驱动，避免 setInterval 与 lookAt 打架
-this.engine.cameraCtl.shake(1.0, 0.35);
-this.engine.cameraCtl.setHurtOffset(0, 0);
-this.engine.cameraCtl.setBob(0, 0);
+// ★ 死亡视觉：pitch 归零，从水平开始后仰
+const ctl = this.engine.cameraCtl;
+ctl.pitch = 0;
+ctl.shake(0.9, 0.18);
+ctl.setHurtOffset(0, 0);
+ctl.setBob(0, 0);
+
+// ★ 确保眼皮图层存在
+this._ensureEyelids();
 
 setTimeout(() => {
   this._end(false);
 }, 2000);
 }
 
-// ★ 新增：死亡相机每帧平滑驱动
+// ★ 眼皮图层：上下两片黑色幕布，自注入 DOM
+_ensureEyelids() {
+  if (document.getElementById('eyelid-top')) return;
+
+  if (!document.getElementById('eyelid-css')) {
+    const css = document.createElement('style');
+    css.id = 'eyelid-css';
+    css.textContent = `
+      #eyelid-top, #eyelid-bottom {
+        position: fixed; left: 0; right: 0; height: 50%;
+        background: #000;
+        pointer-events: none;
+        z-index: 350;
+        will-change: transform;
+      }
+      #eyelid-top { top: 0; transform: translateY(-100%); }
+      #eyelid-bottom { bottom: 0; transform: translateY(100%); }
+    `;
+    document.head.appendChild(css);
+  }
+
+  const top = document.createElement('div');
+  top.id = 'eyelid-top';
+  document.body.appendChild(top);
+  const bottom = document.createElement('div');
+  bottom.id = 'eyelid-bottom';
+  document.body.appendChild(bottom);
+}
+
+// t = 0 完全睁开，t = 1 完全闭合
+_updateEyelids(t) {
+  const top = document.getElementById('eyelid-top');
+  const bottom = document.getElementById('eyelid-bottom');
+  if (!top || !bottom) return;
+  const p = Math.max(0, Math.min(1, t));
+  top.style.transform = `translateY(${-100 * (1 - p)}%)`;
+  bottom.style.transform = `translateY(${100 * (1 - p)}%)`;
+}
+
+// 结算前收起眼皮（带 0.15 秒淡出）
+_clearEyelids() {
+  const top = document.getElementById('eyelid-top');
+  const bottom = document.getElementById('eyelid-bottom');
+  if (!top || !bottom) return;
+  top.style.transition = 'transform 0.15s ease-out';
+  bottom.style.transition = 'transform 0.15s ease-out';
+  top.style.transform = 'translateY(-100%)';
+  bottom.style.transform = 'translateY(100%)';
+  setTimeout(() => {
+    if (top) top.style.transition = 'none';
+    if (bottom) bottom.style.transition = 'none';
+  }, 200);
+}
+
+// ★ 死亡相机每帧驱动：快速后仰倒地 + 撞击震屏 + 闭眼
 _updateDeathCamera(dt) {
   const p = this.player;
   if (!p || p.alive) return;
   if (p.deathStartedAt === undefined) return;
-  const t = Math.min(1, (this.time - p.deathStartedAt) / 1.6);
+
+  const elapsed = this.time - p.deathStartedAt;
+  // 倒地阶段 0.45 秒完成（快，不做华尔兹）
+  const t = Math.min(1, elapsed / 0.45);
+  const et = 1 - Math.pow(1 - t, 2); // ease-out 二次：起步快、收尾稳
+
   const ctl = this.engine.cameraCtl;
   const footY = p.body.position.y - p.body.halfH;
-  // 相机从站立高度平滑下沉到贴地 0.30 米，且不低于脚底
-  const camY = footY + 1.55 * (1 - t) + 0.30 * t;
-  ctl.follow(p.body.position.x, Math.max(footY + 0.30, camY), p.body.position.z);
-  // 侧倾 0 → 约 76 度（不完全 90，避免视觉翻转眩晕）
-  const roll = t * (Math.PI / 2) * 0.85;
-  ctl.setDeathPose(roll, 0, -t * 0.15);
-  // 死亡时禁用 bob/hurt 累积
+
+  // 相机高度：站立 1.55 → 躺地 0.22
+  const camY = footY + 1.55 * (1 - et) + 0.22 * et;
+  ctl.follow(p.body.position.x, Math.max(footY + 0.22, camY), p.body.position.z);
+
+  // 后仰姿态：pitch 0 → +1.25 rad（约 72°，仰面朝天）
+  // 极轻侧偏保留人体不完美的观感
+  const roll = (p.deathRollOffset || 0) * et;
+  ctl.setDeathPose(roll, 0, 1.25 * et);
+
+  // 死亡期间禁用 bob/hurt 累积
   ctl.setBob(0, 0);
   ctl.setHurtOffset(0, 0);
-  // FOV 平滑回落至 60
+
+  // 撞击地面瞬间（倒地进度 30%~50% 区间）震屏一次
+  if (t > 0.30 && !p._deathShaken) {
+    p._deathShaken = true;
+    ctl.shake(0.9, 0.18);
+  }
+
+  // FOV 收窄（晕眩、失血）
   const cam = this.engine.renderer.camera;
-  const fovDiff = 60 - cam.fov;
+  const targetFov = 60 - et * 8;
+  const fovDiff = targetFov - cam.fov;
   if (Math.abs(fovDiff) > 0.05) {
-    cam.fov += fovDiff * Math.min(1, dt * 6);
+    cam.fov += fovDiff * Math.min(1, dt * 14);
     cam.updateProjectionMatrix();
   }
-  // 边缘泛红
+
+  // 边缘红雾加深
   const vignEl = document.getElementById('fx-vignette');
-  if (vignEl) vignEl.style.opacity = String(0.3 + t * 0.6);
+  if (vignEl) vignEl.style.opacity = String(Math.min(1, 0.30 + et * 0.65));
   const filterEl = document.getElementById('fx-filter');
-  if (filterEl) filterEl.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${t * 0.4}) 30%, rgba(60,0,0,${t * 0.8}) 100%)`;
+  if (filterEl) {
+    filterEl.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${et * 0.55}) 25%, rgba(60,0,0,${et * 0.85}) 100%)`;
+  }
+
+  // 闭眼：倒地后 0.40s 开始，再 0.50s 完全合上（合计约 0.9s 全黑）
+  const eyeT = Math.max(0, Math.min(1, (elapsed - 0.40) / 0.50));
+  this._updateEyelids(eyeT);
 }
 
   _updateEnemies(dt){
@@ -3213,13 +3313,15 @@ _syncMeshes(dt){
   pause(){ this.paused = true; }
   resume(){ this.paused = false; }
 
-  _end(success){
+_end(success){
 if (!this.running) return;
 this.running = false;
 // ★ 清理死亡姿态，避免污染下一局
 if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
   this.engine.cameraCtl.resetDeathPose();
 }
+// ★ 收起眼皮
+this._clearEyelids();
 try { this._processModeHook('onMatchEnd', success); }
   catch (e) { console.error('[Mode] onMatchEnd:', e); }
   if (this.modeConfig && this.modeConfig.teardown) {
@@ -3244,12 +3346,14 @@ try { this._processModeHook('onMatchEnd', success); }
 }
 }
 
-  destroy(){
+destroy(){
 this.running = false;
 // ★ 清理死亡姿态
 if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
   this.engine.cameraCtl.resetDeathPose();
 }
+// ★ 收起眼皮
+this._clearEyelids();
 if (this._searching) this._closeSearch();
   const _sp = document.getElementById('search-panel');
   if (_sp) _sp.classList.remove('on');
