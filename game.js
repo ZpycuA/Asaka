@@ -2490,32 +2490,31 @@ _ensureEyelids() {
   if (document.getElementById('eyelid-top')) return;
 
   if (!document.getElementById('eyelid-css')) {
-    const css = document.createElement('style');
-    css.id = 'eyelid-css';
-    css.textContent = `
-      #eyelid-top, #eyelid-bottom {
-  position: fixed; left: 0; right: 0;
-  background: #000;
-  pointer-events: none;
-  z-index: 350;
-  will-change: transform;
-  box-shadow: 0 0 40px 15px rgba(0,0,0,0.75);
+  const css = document.createElement('style');
+  css.id = 'eyelid-css';
+  css.textContent = `
+    #eyelid-top, #eyelid-bottom {
+      position: fixed; left: 0; right: 0;
+      background: #000;
+      pointer-events: none;
+      z-index: 350;
+      will-change: transform;
+    }
+    #eyelid-top {
+      top: 0;
+      height: 60%;
+      border-radius: 0 0 20% 20% / 0 0 10% 10%;
+      transform: translateY(-100%);
+    }
+    #eyelid-bottom {
+      bottom: 0;
+      height: 60%;
+      border-radius: 20% 20% 0 0 / 10% 10% 0 0;
+      transform: translateY(100%);
+    }
+  `;
+  document.head.appendChild(css);
 }
-#eyelid-top {
-  top: 0;
-  height: 65%;
-  border-radius: 0 0 50% 50% / 0 0 100% 100%;
-  transform: translateY(-100%);
-}
-#eyelid-bottom {
-  bottom: 0;
-  height: 45%;
-  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
-  transform: translateY(100%);
-}
-    `;
-    document.head.appendChild(css);
-  }
 
   const top = document.createElement('div');
   top.id = 'eyelid-top';
