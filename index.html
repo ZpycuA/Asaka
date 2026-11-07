@@ -231,11 +231,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 <div id="search-hint">按 <b>G</b> 搜索物资</div>
    
 /* 暂停按钮 */
-#pause-btn{position:absolute;right:172px;top:14px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.88);border:1px solid rgba(105,170,235,.4);color:#cfe8ff;font-size:16px;z-index:40;cursor:pointer;pointer-events:auto;display:flex;align-items:center;justify-content:center;transition:.15s;box-shadow:0 2px 8px rgba(0,0,0,.5)}
-#pause-btn:hover{color:var(--accent);background:rgba(30,50,80,.95);border-color:var(--accent)}
-@media(max-width:640px){
-  #pause-btn{right:120px;top:12px;width:40px;height:40px;font-size:14px}
-}
+/* #pause-btn 的定位由内联 style 处理，CSS 只保留 hover 效果 */
+#pause-btn:hover{color:var(--accent);background:rgba(30,50,80,.95) !important;border-color:var(--accent) !important}
 
 /* ---------- Overlay ---------- */
 .overlay{position:absolute;inset:0;background:rgba(4,8,14,.9);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:60;padding:24px;text-align:center}
@@ -530,12 +527,13 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
      <div id="search-hint">按 <b>G</b> 搜索物资</div>
 
-    <!-- 11. 暂停按钮 -->
-    <button id="pause-btn">❚❚</button>
   </div>
 
-  <!-- 暂停浮层 -->
-  <div class="overlay" id="pause-screen">
+<!-- 暂停按钮 · 直接作为 game-screen 子元素，内联 style 不依赖 <style> 块 -->
+<button id="pause-btn" style="position:absolute;right:12px;top:12px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.92);border:1px solid rgba(105,170,235,.5);color:#cfe8ff;font-size:16px;z-index:60;cursor:pointer;pointer-events:auto;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.5);font-family:inherit">❚❚</button>
+
+<!-- 暂停浮层 -->
+<div class="overlay" id="pause-screen">
     <h2 data-i18n="ui.pause.title">暂 停</h2>
     <div class="stat" id="pause-stats"></div>
     <div class="row">
