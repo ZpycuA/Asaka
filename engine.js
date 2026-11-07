@@ -1067,17 +1067,30 @@ const buildHumanoid = (spec, opts) => {
   ring.position.y = 0.02;
   g.add(ring);
 
-  // Prazer 光环
-  if (spec.prazer) {
-    const aura = new THREE.Mesh(
-      new THREE.RingGeometry(1.2, 1.35, 32),
-      new THREE.MeshBasicMaterial({ color: 0xb98cff, transparent: true, opacity: 0.35, side: THREE.DoubleSide })
-    );
-    aura.rotation.x = -Math.PI / 2;
-    aura.position.y = 0.03;
-    aura.name = '__prazer_aura__';
-    g.add(aura);
+  // ★ Prazer 轮廓流光（B 方案：每个部位复制一份 BackSide 放大体）
+// 副作用：部位接缝处会有内轮廓线，视作能量从裂缝逸散，符合设定
+if (spec.prazer) {
+  const glowColor = spec.glowColor !== undefined ? spec.glowColor : 0xb98cff;
+  const glowMeshes = [];
+  g.traverse(obj => {
+    if (obj.isMesh && obj.userData.part) glowMeshes.push(obj);
+  });
+  for (const m of glowMeshes) {
+    const glow = new THREE.Mesh(m.geometry, new THREE.MeshBasicMaterial({
+      color: glowColor,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    }));
+    glow.scale.set(1.08, 1.08, 1.08);
+    glow.position.copy(m.position);
+    glow.rotation.copy(m.rotation);
+    glow.name = '__prazer_glow__';
+    glow.userData.isGlow = true;
+    g.add(glow);
   }
+}
 
   return g;
 };
