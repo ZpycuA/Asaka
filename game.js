@@ -3431,6 +3431,24 @@ if (!inv.equipped.side && charSpec.sidearm) {
     if (sDef) giveAmmo(sDef.ammoType, 60);
   }
 
+    // ★ 修复老存档：如果主/副武器 loaded.qty 为 0（旧逻辑未填满），补满
+  const fixLoaded = (slotName) => {
+    const uid = inv.equipped[slotName];
+    if (!uid) return;
+    const item = inv.items.get(uid);
+    if (!item || item.table !== 'weapons') return;
+    if (!item.loaded) {
+      const wDef = this.engine.content.get('weapons', item.defId);
+      if (wDef) item.loaded = { ammoType: wDef.ammoType, qty: 0 };
+    }
+    if (item.loaded && item.loaded.qty === 0) {
+      const wDef = this.engine.content.get('weapons', item.defId);
+      if (wDef) item.loaded.qty = wDef.mag || 0;
+    }
+  };
+  fixLoaded('main');
+  fixLoaded('side');
+
   data.flags.initialInventoryGiven = true;
   this.engine.save.save();
 }
