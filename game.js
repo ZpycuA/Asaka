@@ -1716,6 +1716,9 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   this.time += dt;
 
   this.tasks.tickSurvive(dt);
+  if (this.player && this.player.status) this.player.status.tick(dt);
+for (const e of this.enemies) { if (e.alive && e.status) e.status.tick(dt); }
+this._updatePlayer(dt);
   this._updatePlayer(dt);
   this.actionProcess.update(dt);
   this._updateEnemies(dt);
@@ -1825,6 +1828,9 @@ const speed = baseSpeed * speedMul;
 // 力竭惩罚：< 20% 体力时移动减速
 const exhaustionMul = staminaRatio < 0.2 ? 0.75 : 1;
 
+// ★ 状态惩罚：骨折、失血过多、疼痛等
+const statusSpeedMul = p.status ? p.status.getMoveSpeedMul() : 1;
+
   // ★ 3. 移动计算（搜索时锁定移动）
 let moveX = 0, moveZ = 0;
 if (!this._searching) {
@@ -1836,7 +1842,7 @@ if (!this._searching) {
   moveZ = rightZ * mv.x + forwardZ * -mv.z;
 }
 
-const finalSpeed = speed * exhaustionMul;
+const finalSpeed = speed * exhaustionMul * statusSpeedMul;
 p.body.velocity.x = moveX * finalSpeed;
 p.body.velocity.z = moveZ * finalSpeed;
 if (isMoving && !this._searching) p.body.wake();
