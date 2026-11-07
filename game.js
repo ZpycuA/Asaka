@@ -699,7 +699,7 @@ if (p.carriedValue !== undefined) {
 }
 
   // ★ 核心：受伤视觉状态机
-  this._updateHurtFX(hpPct);
+  this._updateHurtFX(hq);
   
   // ★ 核心：耦合视觉特效
   this._updateCouplingFX(p);
