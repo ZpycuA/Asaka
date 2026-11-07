@@ -2324,55 +2324,64 @@ _addKillFeed(name, dmg, dist) {
 }
 
  _playerDown(){
- const p = this.player;
- if (this.actionProcess.isRunning()) {
-   this.actionProcess.cancel('死亡', true);
- }
- if (this._searching) {
-   this._closeSearch();
- }
- this.combatLog.push({
-   type: 'downed',
-   t: this.time,
-   hp: p.hp,
-   maxHp: p.maxHp,
- });
- p.alive = false;
- p.deadAt = this.time;
- this._processModeHook('onPlayerDowned');
+const p = this.player;
+if (this.actionProcess.isRunning()) {
+  this.actionProcess.cancel('死亡', true);
+}
+if (this._searching) {
+  this._closeSearch();
+}
+this.combatLog.push({
+  type: 'downed',
+  t: this.time,
+  hp: p.hp,
+  maxHp: p.maxHp,
+});
+p.alive = false;
+p.deadAt = this.time;
+p.deathStartedAt = this.time;
+this._processModeHook('onPlayerDowned');
 
- // ★ 死亡视觉：相机倒地 + 视角倾斜 + 淡出，延迟 2 秒再结算
- this.engine.cameraCtl.shake(1.5, 0.5);
- const ctl = this.engine.cameraCtl;
- const cam = this.engine.renderer.camera;
- ctl.setHurtOffset(0, 0);
+// ★ 死亡视觉：交给 _updateDeathCamera 每帧驱动，避免 setInterval 与 lookAt 打架
+this.engine.cameraCtl.shake(1.0, 0.35);
+this.engine.cameraCtl.setHurtOffset(0, 0);
+this.engine.cameraCtl.setBob(0, 0);
 
- const deathCamStart = this.time;
- const deathAnim = setInterval(() => {
-   const t = Math.min(1, (this.time - deathCamStart) / 1.6);
-   if (!this.running && t >= 1) { clearInterval(deathAnim); return; }
-   ctl.follow(
-     p.body.position.x,
-     (p.body.position.y - p.body.halfH) + 1.55 * (1 - t) + 0.15 * t,
-     p.body.position.z
-   );
-   if (cam) {
-     cam.rotation.z = t * 1.3;
-   }
-   const vignEl = document.getElementById('fx-vignette');
-   if (vignEl) vignEl.style.opacity = String(0.3 + t * 0.6);
-   const filterEl = document.getElementById('fx-filter');
-   if (filterEl) filterEl.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${t * 0.4}) 30%, rgba(60,0,0,${t * 0.8}) 100%)`;
-   if (t >= 1) {
-     clearInterval(deathAnim);
-   }
- }, 30);
+setTimeout(() => {
+  this._end(false);
+}, 2000);
+}
 
- setTimeout(() => {
-   try { clearInterval(deathAnim); } catch (_) {}
-   this._end(false);
- }, 2000);
- }
+// ★ 新增：死亡相机每帧平滑驱动
+_updateDeathCamera(dt) {
+  const p = this.player;
+  if (!p || p.alive) return;
+  if (p.deathStartedAt === undefined) return;
+  const t = Math.min(1, (this.time - p.deathStartedAt) / 1.6);
+  const ctl = this.engine.cameraCtl;
+  const footY = p.body.position.y - p.body.halfH;
+  // 相机从站立高度平滑下沉到贴地 0.30 米，且不低于脚底
+  const camY = footY + 1.55 * (1 - t) + 0.30 * t;
+  ctl.follow(p.body.position.x, Math.max(footY + 0.30, camY), p.body.position.z);
+  // 侧倾 0 → 约 76 度（不完全 90，避免视觉翻转眩晕）
+  const roll = t * (Math.PI / 2) * 0.85;
+  ctl.setDeathPose(roll, 0, -t * 0.15);
+  // 死亡时禁用 bob/hurt 累积
+  ctl.setBob(0, 0);
+  ctl.setHurtOffset(0, 0);
+  // FOV 平滑回落至 60
+  const cam = this.engine.renderer.camera;
+  const fovDiff = 60 - cam.fov;
+  if (Math.abs(fovDiff) > 0.05) {
+    cam.fov += fovDiff * Math.min(1, dt * 6);
+    cam.updateProjectionMatrix();
+  }
+  // 边缘泛红
+  const vignEl = document.getElementById('fx-vignette');
+  if (vignEl) vignEl.style.opacity = String(0.3 + t * 0.6);
+  const filterEl = document.getElementById('fx-filter');
+  if (filterEl) filterEl.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${t * 0.4}) 30%, rgba(60,0,0,${t * 0.8}) 100%)`;
+}
 
   _updateEnemies(dt){
     for (const e of this.enemies) {
