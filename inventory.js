@@ -80,16 +80,21 @@ export class Inventory {
     }
     const uid = _genUid(table === 'weapons' ? 'w' : defId);
 
-    const item = {
-      uid,
-      table,
-      defId,
-      qty: extras.qty || 1,
-      dur: extras.dur !== undefined ? extras.dur : (def.maxDur || 0),
-      durMax: def.maxDur || 0,
-      attachments: null,
-      subSlots: null,
-    };
+    const valueMul = extras.lockValue ? 1 : (0.9 + Math.random() * 0.2);
+const item = {
+  uid,
+  table,
+  defId,
+  qty: extras.qty || 1,
+  dur: extras.dur !== undefined ? extras.dur : (def.maxDur || 0),
+  durMax: def.maxDur || 0,
+  attachments: null,
+  subSlots: null,
+  rarity: def.rarity || 'L0',
+  effects: [],
+  valueMul,
+  stackLimit: def.stackLimit || STACK_LIMITS[table] || 1,
+};
 
     if (table === 'weapons') {
       item.attachments = {};
@@ -146,7 +151,12 @@ getItemValue(itemOrUid) {
     const ratio = Math.max(0, Math.min(1, item.dur / item.durMax));
     unit = Math.round(unit * (0.3 + 0.7 * ratio));
   }
-  return unit * (item.qty || 1);
+  let total = unit * (item.qty || 1) * (item.valueMul || 1);
+  if (item.table === 'weapons' && item.loaded && item.loaded.qty > 0) {
+    const ammoDef = this.content.get('ammo', item.loaded.ammoType);
+    if (ammoDef) total += (ammoDef.value || 0) * item.loaded.qty * (item.valueMul || 1);
+  }
+  return Math.round(total);
 }
 
 getContainerValue(name) {
@@ -167,6 +177,17 @@ getTotalValue() {
     total += this.getContainerValue(name);
   }
   return total;
+}
+
+splitStack(uid, count) {
+  const item = this.items.get(uid);
+  if (!item) return null;
+  if (item.qty <= 1) return null;
+  if (count <= 0 || count >= item.qty) return null;
+  const newUid = this.createItem(item.table, item.defId, { qty: count, lockValue: true });
+  if (!newUid) return null;
+  item.qty -= count;
+  return newUid;
 }
 
   /* ====================== 容器操作 ====================== */
