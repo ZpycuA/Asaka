@@ -47,7 +47,7 @@ const EQUIP_TABLE = {
   backpack: 'backpack', chestRig: 'chestRig',
 };
 
-const CONTAINER_NAMES = ['chest', 'pocket', 'bag', 'safe', 'stash'];
+const CONTAINER_NAMES = ['chest', 'pocket', 'bag', 'safe', 'stash', 'loot'];
 
 const CONTAINER_DEFAULTS = {
   chest:  { w: 0,  h: 0 },   // 由 chestRig 提供
@@ -55,6 +55,7 @@ const CONTAINER_DEFAULTS = {
   bag:    { w: 0,  h: 0 },   // 由 backpack 提供
   safe:   { w: 3,  h: 1 },   // 3 格
   stash:  { w: 20, h: 10 },  // 200 格
+  loot:   { w: 8,  h: 6 },   // 搜索时的临时容器（冗余 48 格）
 };
 
 const WEAPON_ATTACH_SLOTS = ['muzzle', 'sight', 'mag', 'grip'];
