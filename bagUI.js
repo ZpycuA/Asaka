@@ -591,18 +591,34 @@ ghost.textContent = this.engine.i18n.t(rawName);
   }
 
   _onUp(e) {
-    if (!this._drag) return;
-    const moved = this._drag.moved;
-    const uid = this._drag.uid;
-    const srcEl = this._drag.srcEl;
-    if (!moved) { this._cancelDrag(); return; }
-    const tgt = document.elementFromPoint(e.clientX, e.clientY);
-    this._cancelDrag();
-    if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
-    const slotEl = tgt.closest('.bagui-slot,.bagui-attach-slot');
-    if (!slotEl) { if (srcEl) srcEl.style.opacity = 1; return; }
-    this._handleDrop(uid, slotEl);
+  if (!this._drag) return;
+  const moved = this._drag.moved;
+  const uid = this._drag.uid;
+  const srcEl = this._drag.srcEl;
+  const px = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : this._drag.lastX;
+  const py = (e.clientY !== undefined && e.clientY !== 0) ? e.clientY : this._drag.lastY;
+  if (!moved) { this._cancelDrag(); return; }
+  const tgt = document.elementFromPoint(px, py);
+  this._cancelDrag();
+  if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
+  const overlayEl = document.getElementById('bagui-overlay');
+  const inOverlay = overlayEl && overlayEl.contains(tgt);
+  if (!inOverlay) {
+    const world = this.engine.app && this.engine.app.world;
+    const inMatch = world && world.running;
+    if (inMatch) {
+      const ok = world._dropItemToGround(uid);
+      if (ok) this.refresh();
+    } else {
+      console.warn('[BagUI] 战局外不能丢弃到地上');
+    }
+    return;
   }
+  const slotEl = tgt.closest('.bagui-slot,.bagui-attach-slot');
+  if (!slotEl) { if (srcEl) srcEl.style.opacity = 1; return; }
+  if (slotEl === srcEl) { if (srcEl) srcEl.style.opacity = 1; return; }
+  this._handleDrop(uid, slotEl);
+}
 
    _clearGhosts() {
   document.querySelectorAll('.bagui-ghost').forEach(g => { try { g.remove(); } catch (_) {} });
