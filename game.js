@@ -1533,14 +1533,17 @@ _buildArmorFromInventory(inv) {
   this.physics.step(dt);
   this._syncMeshes(dt);
 
-  if (this.player) {
-  const footY = this.player.body.position.y - this.player.body.halfH;
-  this.engine.cameraCtl.follow(
-    this.player.body.position.x,
-    footY + 1.55,
-    this.player.body.position.z
-  );
-}
+    // ★ 玩家存活 → 常规跟随；玩家死亡 → 死亡相机接管
+  if (this.player && this.player.alive) {
+    const footY = this.player.body.position.y - this.player.body.halfH;
+    this.engine.cameraCtl.follow(
+      this.player.body.position.x,
+      footY + 1.55,
+      this.player.body.position.z
+    );
+  } else {
+    this._updateDeathCamera(dt);
+  }
 this.hud.update();
 
   if (this.timeLimit > 0 && this.time >= this.timeLimit) {
@@ -3083,9 +3086,13 @@ _syncMeshes(dt){
   resume(){ this.paused = false; }
 
   _end(success){
-  if (!this.running) return;
-  this.running = false;
-  try { this._processModeHook('onMatchEnd', success); }
+if (!this.running) return;
+this.running = false;
+// ★ 清理死亡姿态，避免污染下一局
+if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
+  this.engine.cameraCtl.resetDeathPose();
+}
+try { this._processModeHook('onMatchEnd', success); }
   catch (e) { console.error('[Mode] onMatchEnd:', e); }
   if (this.modeConfig && this.modeConfig.teardown) {
     try { this.modeConfig.teardown(this); }
@@ -3110,8 +3117,12 @@ _syncMeshes(dt){
 }
 
   destroy(){
-  this.running = false;
-  if (this._searching) this._closeSearch();
+this.running = false;
+// ★ 清理死亡姿态
+if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
+  this.engine.cameraCtl.resetDeathPose();
+}
+if (this._searching) this._closeSearch();
   const _sp = document.getElementById('search-panel');
   if (_sp) _sp.classList.remove('on');
   if (this.player && this.player.weaponGroup) {
