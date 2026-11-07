@@ -406,15 +406,20 @@ _splitStack(uid, count) {
     html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
   }
 
-  if (item.table === 'weapons' && item.loaded) {
-    const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
-    const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-    const isFull = item.loaded.qty >= (def.mag || 0);
-    html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${def.mag || 0}</span><span style="display:flex;gap:4px">`;
-    if (!isFull) html += `<button class="bagui-ammo-btn" data-action="load" data-uid="${uid}">装填</button>`;
-    if (item.loaded.qty > 0) html += `<button class="bagui-ammo-btn" data-action="unload" data-uid="${uid}">扣下</button>`;
-    html += `</span></div>`;
+  if (item.table === 'weapons') {
+  if (!item.loaded) {
+    const ammoType = def.ammoType || '9mm';
+    item.loaded = { ammoType, qty: 0 };
   }
+  const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
+  const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+  const magCap = def.mag || 0;
+  const isFull = item.loaded.qty >= magCap;
+  html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
+  if (!isFull) html += `<button class="bagui-ammo-btn" data-action="load" data-uid="${uid}">装填</button>`;
+  if (item.loaded.qty > 0) html += `<button class="bagui-ammo-btn" data-action="unload" data-uid="${uid}">扣下</button>`;
+  html += `</span></div>`;
+}
 
   if (def.flavor) html += `<div class="bagui-flavor">「${this._esc(def.flavor)}」</div>`;
 
