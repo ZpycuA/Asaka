@@ -2292,11 +2292,47 @@ _startSearch(c){
   }
   if (!c.revealed) c.revealed = [];
 
+  this._ensureSearchPanel();
+
   const panel = document.getElementById('search-panel');
   if (panel) panel.classList.add('on');
   this._renderSearchPanel();
   this._log('开始搜索…', 'p');
   this._playSFX('reload');
+}
+
+_ensureSearchPanel(){
+  if (document.getElementById('search-panel')) return;
+  if (!document.getElementById('search-panel-css')) {
+    const style = document.createElement('style');
+    style.id = 'search-panel-css';
+    style.textContent = `
+      #search-panel{position:absolute;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(4,8,14,.5);pointer-events:auto}
+      #search-panel.on{display:flex}
+      #search-panel .search-box{width:90%;max-width:380px;max-height:72vh;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:10px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.7)}
+      #search-panel .search-header{padding:10px 14px;border-bottom:1px solid rgba(105,170,235,.25);display:flex;justify-content:space-between;align-items:center;color:#a8d8ff;font-size:13px;letter-spacing:2px;font-weight:700}
+      #search-panel .search-header button{width:26px;height:26px;border-radius:5px;background:rgba(60,100,150,.5);border:1px solid rgba(110,180,255,.4);color:#cfe8ff;cursor:pointer;font-size:13px;font-family:inherit}
+      #search-panel .search-body{flex:1;overflow-y:auto;padding:8px;min-height:100px;max-height:48vh}
+      #search-panel .search-empty{text-align:center;color:#5c82a8;padding:20px;font-size:12px}
+      #search-panel .search-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:4px;background:rgba(20,32,46,.7);border-radius:5px;font-size:12px;color:#cfe4f8}
+      #search-panel .search-item-take{padding:4px 12px;border-radius:4px;background:rgba(60,120,185,.5);border:1px solid rgba(120,190,255,.5);color:#e0f0ff;font-size:11px;cursor:pointer;font-family:inherit}
+      #search-panel .search-footer{padding:8px 14px;border-top:1px solid rgba(105,170,235,.25);display:flex;justify-content:flex-end}
+      #search-panel .search-footer button{padding:6px 18px;border-radius:5px;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;font-size:12px;cursor:pointer;font-family:inherit}
+      #search-panel .search-footer button:disabled{opacity:.4;cursor:default}
+    `;
+    document.head.appendChild(style);
+  }
+  const panel = document.createElement('div');
+  panel.id = 'search-panel';
+  panel.innerHTML =
+    '<div class="search-box">' +
+      '<div class="search-header"><span>物资容器</span><button id="search-close">✕</button></div>' +
+      '<div class="search-body" id="search-body"><div class="search-empty">搜索中…</div></div>' +
+      '<div class="search-footer"><button id="search-take-all" disabled>全部拾取</button></div>' +
+    '</div>';
+  const gameScreen = document.getElementById('game-screen');
+  if (gameScreen) gameScreen.appendChild(panel);
+  else document.body.appendChild(panel);
 }
 
 _revealOne(){
