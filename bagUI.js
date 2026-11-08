@@ -315,7 +315,7 @@ _renderRight() {
     this.openedBagUid = null;
   }
 
-  ifif (isInMatch) {
+  if (isInMatch) {
   el.style.display = '';
   el.innerHTML =
     '<div class="bagui-preview" id="bagui-preview" style="flex:0 0 220px;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
