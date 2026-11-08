@@ -4895,12 +4895,16 @@ _bindCameraControls() {
     el.style.transform = 'scale(0.9)';
     setTimeout(() => { el.style.transform = 'scale(1)'; }, 100);
     if (name === 'bag') {
-      if (this.bagUI) this.bagUI.toggle();
-    } else if (name === 'search') {
-      if (this.world) this.world._trySearchContainer();
-    } else if (name === 'switchWeapon') {
-      if (this.world) this.world._switchWeapon();
-    }
+  if (this.bagUI) this.bagUI.toggle();
+} else if (name === 'search') {
+  if (this.world) this.world._trySearchContainer();
+} else if (name === 'switchWeapon') {
+  if (this.world) this.world._switchWeapon();
+} else if (name === 'skill1') {
+  if (this.world) this.world._useSkill(0);
+} else if (name === 'skill2') {
+  if (this.world) this.world._useSkill(1);
+}
   });
 } else {
       el.addEventListener('pointerdown', (e) => {
