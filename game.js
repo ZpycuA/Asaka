@@ -423,27 +423,31 @@ class EntityStatus {
 
 
 /* ============================================================
-   [2] AI 系统 (战术重构版)
+   [2] AI 系统 (多阵营战术版)
    ============================================================ */
 const AISystem = {
   update(world, enemy, dt){
     if (!enemy.alive || enemy.trainingDummy) return;
 
-    // 击倒等死
     if (enemy.status && enemy.status.isDowned()) {
       enemy.body.velocity.x *= 0.9;
       enemy.body.velocity.z *= 0.9;
       return; 
     }
 
-    const p = world.player;
     const ai = enemy.spec.ai || { aggression: 0.5, composure: 0.5, perception: 0.5, opportunism: 0.5 };
-    const canSee = this._canSeePlayer(world, enemy, p, ai.perception);
-    const dist = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
+    
+    // 寻找目标（包含玩家和其他敌人）
+    const target = this._findTarget(world, enemy, ai);
+    const canSee = !!target;
+    const dist = target ? Math.hypot(target.body.position.x - enemy.body.position.x, target.body.position.z - enemy.body.position.z) : Infinity;
+    
+    if (target) {
+      enemy.targetEntity = target;
+    }
 
     // --- 感知逻辑 ---
     if (canSee) {
-      // 敏感度越高，察觉越快
       const rate = (1.0 + ai.perception * 2) / (dist * 0.1 + 1);
       enemy.awareness = Math.min(1.2, enemy.awareness + dt * rate);
     } else {
@@ -453,30 +457,29 @@ const AISystem = {
     // --- 状态机切换 ---
     if (enemy.awareness >= 1.0 && enemy.state !== 'combat' && enemy.state !== 'flee') {
       enemy.state = 'combat';
-      // 冷静度决定反应前摇（0.3秒 ~ 1.5秒）
       const baseReact = 1.5 - ai.composure * 1.2;
       enemy.reactionTimer = baseReact + Math.random() * 0.3; 
       enemy.stateT = 0;
     } else if (enemy.awareness < 0.7 && enemy.state === 'combat') {
       enemy.state = 'investigate';
       enemy.stateT = 0;
-      enemy.targetPos = { x: p.body.position.x, z: p.body.position.z };
+      if (enemy.targetEntity) {
+        enemy.targetPos = { x: enemy.targetEntity.body.position.x, z: enemy.targetEntity.body.position.z };
+      }
     }
 
-    // 重伤跑路判定（战斗欲望低，或被打残）
     const healthPct = enemy.status.healthQuality;
     if (healthPct < 30 && ai.aggression < 0.7 && enemy.state !== 'flee') {
       enemy.state = 'flee';
       enemy.stateT = 0;
-      // 机会主义决定是否找掩体
-      enemy.targetPos = (ai.opportunism > 0.4) ? this._findCover(world, enemy, p) : null;
+      enemy.targetPos = (ai.opportunism > 0.4) ? this._findCover(world, enemy, world.player) : null;
     }
 
     switch (enemy.state) {
       case 'patrol': this._patrol(world, enemy, dt); break;
       case 'investigate': this._investigate(world, enemy, dt); break;
       case 'combat': this._combat(world, enemy, dt, dist, canSee, ai); break;
-      case 'flee': this._flee(world, enemy, dt, p, ai); break;
+      case 'flee': this._flee(world, enemy, dt, enemy.targetEntity || world.player, ai); break;
     }
 
     const half = world.mapSpec.size / 2 - 2;
@@ -486,28 +489,44 @@ const AISystem = {
     if (enemy.hitFlash > 0) enemy.hitFlash -= dt;
   },
 
-  _canSeePlayer(world, enemy, player, perception) {
-    if (!player || !player.alive) return false;
-    const dx = player.body.position.x - enemy.body.position.x;
-    const dz = player.body.position.z - enemy.body.position.z;
-    const dist = Math.hypot(dx, dz);
+  _findTarget(world, enemy, ai) {
+    let bestTarget = null;
+    let bestDist = Infinity;
+    const eFaction = enemy.spec.faction;
 
-    // 感知距离：30米基础 + 最高50米
-    const maxDist = 30 + perception * 50;
-    if (dist > maxDist) return false;
+    const candidates = [world.player, ...world.enemies];
 
-    // 视锥限制：基础 90度，高感知可达 150度
-    const angleToPlayer = Math.atan2(dz, dx);
-    let angleDiff = Math.abs(angleToPlayer - enemy.angle);
-    if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-    const fov = (Math.PI / 2) + (perception * (Math.PI / 3));
-    if (angleDiff > fov / 2) return false;
+    for (const c of candidates) {
+      if (c === enemy || !c.alive) continue;
+      if (c.body && c.body.userData.type === 'enemy' && c.body.userData.ref === enemy) continue;
 
-    return this._checkLOS(world, enemy, player);
+      const cFaction = c.faction || (c.spec ? c.spec.faction : 'player');
+      if (!world.isHostile(eFaction, cFaction)) continue; 
+
+      const dx = c.body.position.x - enemy.body.position.x;
+      const dz = c.body.position.z - enemy.body.position.z;
+      const dist = Math.hypot(dx, dz);
+
+      const maxDist = 30 + ai.perception * 50;
+      if (dist > maxDist) continue;
+
+      const angleToTarget = Math.atan2(dz, dx);
+      let angleDiff = Math.abs(angleToTarget - enemy.angle);
+      if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+      const fov = (Math.PI / 2) + (ai.perception * (Math.PI / 3));
+      if (angleDiff > fov / 2) continue;
+
+      if (!this._checkLOS(world, enemy, c)) continue;
+
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestTarget = c;
+      }
+    }
+    return bestTarget;
   },
 
   _findCover(world, enemy, player) {
-    // 简易掩体搜索：找离自己 10-20 米，且在玩家视线反方向的障碍物
     let bestCover = null;
     let bestDist = Infinity;
     const px = player.body.position.x;
@@ -521,7 +540,6 @@ const AISystem = {
       const d = Math.hypot(odx, odz);
       if (d > 20 || d < 5) continue;
 
-      // 必须远离玩家
       const pdx = ox - px;
       const pdz = oz - pz;
       const pDist = Math.hypot(pdx, pdz);
@@ -529,7 +547,6 @@ const AISystem = {
 
       if (d < bestDist) {
         bestDist = d;
-        // 目标点：障碍物背离玩家的侧面
         const angleFromPlayer = Math.atan2(oz - pz, ox - px);
         bestCover = {
           x: ox + Math.cos(angleFromPlayer) * 2.0,
@@ -576,19 +593,22 @@ const AISystem = {
   },
 
   _combat(world, enemy, dt, dist, canSee, ai){
-    const p = world.player;
+    const target = enemy.targetEntity;
+    if (!target || !target.alive) {
+      enemy.state = 'investigate';
+      return;
+    }
     
     if (!canSee) {
       enemy.state = 'investigate';
-      enemy.targetPos = { x: p.body.position.x, z: p.body.position.z };
+      enemy.targetPos = { x: target.body.position.x, z: target.body.position.z };
       return;
     }
 
-    const dx = p.body.position.x - enemy.body.position.x;
-    const dz = p.body.position.z - enemy.body.position.z;
+    const dx = target.body.position.x - enemy.body.position.x;
+    const dz = target.body.position.z - enemy.body.position.z;
     enemy.angle = Math.atan2(dz, dx);
 
-    // 战术动作：机会主义决定是否蹲下/走位
     const isOpportunist = ai.opportunism > 0.6;
     if (isOpportunist && dist < 30 && dist > 10) {
       enemy.isCrouching = true;
@@ -596,7 +616,6 @@ const AISystem = {
       enemy.body.velocity.x = Math.cos(enemy.angle + Math.PI/2) * enemy.spec.speed * 0.4;
       enemy.body.velocity.z = Math.sin(enemy.angle + Math.PI/2) * enemy.spec.speed * 0.4;
     } else if (ai.aggression > 0.7 && dist > 10) {
-      // 战斗欲望高，直接冲脸
       enemy.isCrouching = false;
       enemy.body.height = 2.4; enemy.body.halfH = 1.2;
       enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed;
@@ -606,13 +625,11 @@ const AISystem = {
       enemy.body.velocity.z = 0;
     }
 
-    // 反应前摇
     if (enemy.reactionTimer > 0) {
       enemy.reactionTimer -= dt;
       return;
     }
 
-    // 开火逻辑（点射）
     if (enemy.fireCd > 0) enemy.fireCd -= dt;
     if (enemy.burstCount === undefined) enemy.burstCount = 0;
     if (enemy.burstCooldown === undefined) enemy.burstCooldown = 0;
@@ -620,10 +637,9 @@ const AISystem = {
     if (enemy.burstCooldown > 0) {
       enemy.burstCooldown -= dt;
     } else if (enemy.fireCd <= 0 && enemy.weapon && enemy.weapon.loaded.qty > 0) {
-      world.enemyFire(enemy, p);
+      world.enemyFire(enemy, target);
       enemy.burstCount++;
       
-      // 爆发连射数受战斗欲望影响
       const maxBurst = 2 + Math.floor(ai.aggression * 4);
       if (enemy.burstCount >= maxBurst) {
         enemy.burstCount = 0;
@@ -631,7 +647,6 @@ const AISystem = {
       }
     }
 
-    // 自动换弹
     const w = enemy.weapon;
     if (w && w.loaded.qty <= 0 && w.reserve > 0) {
       if (enemy._reloadTimer === undefined) enemy._reloadTimer = 2.5;
@@ -648,13 +663,12 @@ const AISystem = {
     }
   },
 
-  _flee(world, enemy, dt, p, ai){
+  _flee(world, enemy, dt, target, ai){
     enemy.stateT += dt;
     enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
 
     let moveX = 0, moveZ = 0;
     if (enemy.targetPos) {
-      // 跑向掩体
       const dx = enemy.targetPos.x - enemy.body.position.x;
       const dz = enemy.targetPos.z - enemy.body.position.z;
       const dist = Math.hypot(dx, dz);
@@ -663,36 +677,29 @@ const AISystem = {
         moveX = Math.cos(enemy.angle) * enemy.spec.speed;
         moveZ = Math.sin(enemy.angle) * enemy.spec.speed;
       } else {
-        // 到达掩体，缩着
         enemy.isCrouching = true;
         enemy.body.height = 1.6; enemy.body.halfH = 0.8;
       }
     } else {
-      // 无掩体，背向玩家狂奔
-      const dx = p.body.position.x - enemy.body.position.x;
-      const dz = p.body.position.z - enemy.body.position.z;
+      const dx = target.body.position.x - enemy.body.position.x;
+      const dz = target.body.position.z - enemy.body.position.z;
       enemy.angle = Math.atan2(dz, dx) + Math.PI; 
       moveX = Math.cos(enemy.angle) * enemy.spec.speed;
       moveZ = Math.sin(enemy.angle) * enemy.spec.speed;
     }
 
-    // ★ 打带跑：边跑边回头盲射压制（需高机会主义或高战斗欲望）
     if (ai.opportunism > 0.5 || ai.aggression > 0.6) {
-      const distToPlayer = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
-      if (distToPlayer < 20 && enemy.weapon && enemy.weapon.loaded.qty > 0) {
+      const distToTarget = Math.hypot(target.body.position.x - enemy.body.position.x, target.body.position.z - enemy.body.position.z);
+      if (distToTarget < 20 && enemy.weapon && enemy.weapon.loaded.qty > 0) {
         if (enemy.fireCd > 0) enemy.fireCd -= dt;
         if (enemy.fireCd <= 0) {
-          // 强行扭转身体朝向玩家开一枪
           const origAngle = enemy.angle;
-          enemy.angle = Math.atan2(p.body.position.z - enemy.body.position.z, p.body.position.x - enemy.body.position.x);
-          
-          // 临时加大 AI 散布（盲射极不准）
+          enemy.angle = Math.atan2(target.body.position.z - enemy.body.position.z, target.body.position.x - enemy.body.position.x);
           enemy._blindFire = true; 
-          world.enemyFire(enemy, p);
+          world.enemyFire(enemy, target);
           enemy._blindFire = false;
-          
           enemy.angle = origAngle;
-          enemy.fireCd = 0.3 + Math.random() * 0.4; // 压制射击间隔
+          enemy.fireCd = 0.3 + Math.random() * 0.4;
         }
       }
     }
@@ -714,6 +721,48 @@ const AISystem = {
       body => body.userData && body.userData.type === 'obstacle'
     );
     return !hit;
+  },
+
+  onHit(world, enemy, hitPart, srcX, srcZ) {
+    if (!enemy.alive) return;
+    const ai = enemy.spec.ai || { aggression: 0.5, composure: 0.5, opportunism: 0.5 };
+    
+    enemy.awareness = 1.0; 
+    const dx = srcX - enemy.body.position.x;
+    const dz = srcZ - enemy.body.position.z;
+    const attackAngle = Math.atan2(dz, dx);
+    
+    if (ai.composure > 0.6) {
+      enemy.angle = attackAngle;
+      if (enemy.state !== 'combat') {
+        enemy.state = 'combat';
+        enemy.reactionTimer = 0.15;
+      }
+    } else {
+      enemy.angle = attackAngle + (Math.random() - 0.5) * Math.PI;
+      enemy.state = 'flee';
+      enemy.targetPos = AISystem._findCover(world, enemy, world.player);
+      enemy.reactionTimer = 1.2;
+    }
+
+    const isLegBroken = enemy.status.parts.legs.fracture > 0;
+    const isHeavyHurt = enemy.status.healthQuality < 30;
+
+    if (isLegBroken && ai.opportunism > 0.4) {
+      enemy.state = 'combat';
+      enemy.isCrouching = true;
+      enemy.body.height = 1.6; enemy.body.halfH = 0.8;
+      enemy.targetPos = null;
+    } else if (isHeavyHurt && ai.aggression < 0.7) {
+      if (enemy.state !== 'flee') {
+        enemy.state = 'flee';
+        enemy.targetPos = AISystem._findCover(world, enemy, world.player);
+      }
+    } else if (ai.aggression > 0.8) {
+      enemy.state = 'combat';
+      enemy.body.velocity.x = Math.cos(attackAngle) * enemy.spec.speed;
+      enemy.body.velocity.z = Math.sin(attackAngle) * enemy.spec.speed;
+    }
   }
 };
 
@@ -1712,6 +1761,7 @@ const body = this.physics.add(new Body({
   weaponGroup, // ★ 存入玩家对象
   charSpec: spec,
   charId: spec.id,
+  faction: 'player', // ★ 新增阵营
   hp: spec.hp,
   maxHp: spec.hp,
   coupling: spec.prazer ? 100 : 0,
@@ -2308,7 +2358,7 @@ if (isDowned && !p._wasDowned) {
   p._wasDowned = false;
   this.engine.cameraCtl.resetDeathPose();
 }
-  // ★ 发出良性声纹（脚步）
+// ★ 发出良性声纹（脚步）
 const speedSq = p.body.velocity.x * p.body.velocity.x + p.body.velocity.z * p.body.velocity.z;
 if (speedSq > 1.0 && p.body.grounded) {
   if (!p._stepTimer) p._stepTimer = 0;
@@ -2327,7 +2377,7 @@ if (speedSq > 1.0 && p.body.grounded) {
       stepRange = 2;
     }
     
-    this.emitSound('benign', stepIntensity, stepRange, p.body.position.x, p.body.position.z, 'player');
+    this.emitSound('benign', stepIntensity, stepRange, p.body.position.x, p.body.position.z, 'player', 'player');
   }
 }
 }
@@ -2561,20 +2611,15 @@ if (isPlayer) {
   if (owner.status && owner.status.hasEffect('pain')) spread *= 1.2;
 } else {
   // ★ AI 散布
-  const ai = owner.spec.ai || { composure: 0.5 };
-  // 冷静度越高，基础散布越小
+  const ai = owner.spec && owner.spec.ai ? owner.spec.ai : { composure: 0.5 };
   const composureMul = 1.5 - (ai.composure || 0.5); 
   spread = baseSpread * composureMul;
   
   if (owner.isCrouching) spread *= 0.6;
-  
-  // ★ 如果处于边跑边盲射状态，散布极大
   if (owner._blindFire) spread *= 3.0;
-  
-  // 如果刚受到攻击，未恢复冷静，散布增加（痛觉惊吓）
-  if (owner.hitFlash > 0 && ai.composure < 0.6) spread *= 1.5;
+  if (owner.hitFlash > 0 && (ai.composure || 0.5) < 0.6) spread *= 1.5;
 }
-
+    
 const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
 const range = (def.range || 50) * 10;
 const pellets = def.pellets || 1;
@@ -2677,16 +2722,15 @@ if (isPlayer) {
   // 发射子弹的动画和声音
 this._playSFX('shot_' + def.cls, { volume: 0.6 });
 
-// ★ 来源判定
+// ★ 增加恶性声纹（枪声）
 const soundSource = isPlayer ? 'player' : 'enemy';
-// 枪声很大，传播极远
-this.emitSound('malignant', 1.0, 150, owner.body.position.x, owner.body.position.z, soundSource);
+const soundFaction = isPlayer ? 'player' : (owner.spec ? owner.spec.faction : 'nipsel');
+this.emitSound('malignant', 1.0, def.range ? def.range * 1.5 : 150, owner.body.position.x, owner.body.position.z, soundSource, soundFaction);
 }
 
 _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef, ammoDef, isPlayer){
-  const hitFilter = isPlayer
-    ? (body) => body !== owner.body && (body.userData?.type === 'enemy' || body.userData?.type === 'obstacle')
-    : (body) => body !== owner.body && (body.userData?.type === 'player' || body.userData?.type === 'obstacle');
+  // ★ 只要不是自己，物理上都可以挡住子弹
+  const hitFilter = (body) => body !== owner.body && (body.userData?.type === 'enemy' || body.userData?.type === 'player' || body.userData?.type === 'obstacle');
 
   const hit = this.physics.raycast(ox, oy, oz, dirX, dirY, dirZ, range, hitFilter);
 
@@ -2707,37 +2751,44 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   const pen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
 
   if (hit && hit.body.userData.type !== 'obstacle') {
-  const targetBody = hit.body;
-  const hitY = hit.point.y;
-  const relY = hitY - targetBody.position.y;
-  const hh = targetBody.halfH || 1.2;
+    const targetBody = hit.body;
+    const hitY = hit.point.y;
+    const relY = hitY - targetBody.position.y;
+    const hh = targetBody.halfH || 1.2;
 
-  // ★ 部位判定：与视觉模型比例严格对齐
-  // 视觉模型（body 中心 1.2，半高 1.2）：
-  //   头 1.875~2.325 / 胸 1.30~1.875 / 腹 1.00~1.30 / 腿 0~1.00
-  // 相对 body 中心并除以 hh 后的阈值：
-  //   head > 0.5625 / thorax > 0.0833 / abdomen > -0.1667 / else legs
-  const r = relY / hh;
-  let part;
-  if (r > 0.5625) part = 'head';
-  else if (r > 0.0833) part = 'thorax';
-  else if (r > -0.1667) part = 'abdomen';
-  else part = 'legs';
+    const r = relY / hh;
+    let part;
+    if (r > 0.5625) part = 'head';
+    else if (r > 0.0833) part = 'thorax';
+    else if (r > -0.1667) part = 'abdomen';
+    else part = 'legs';
 
-  if (isPlayer && hit.body.userData.type === 'enemy') {
-    this._damageEnemy(hit.body.userData.ref, energy, pen, part);
-  } else if (!isPlayer && hit.body.userData.type === 'player') {
-    this._damagePlayer(hit.body.userData.ref, energy, pen, part, ox, oz, owner);
+    // ★ 伤害归属判定
+    if (hit.body.userData.type === 'enemy') {
+      const targetEnemy = hit.body.userData.ref;
+      const ownerFaction = owner.faction || (isPlayer ? 'player' : owner.spec.faction);
+      const targetFaction = targetEnemy.spec.faction;
+      
+      // 只有敌对才扣血，否则子弹穿过（直接 return 会导致后面的火花不触发，所以正常结算）
+      if (this.isHostile(ownerFaction, targetFaction)) {
+        this._damageEnemy(targetEnemy, energy, pen, part, isPlayer);
+      }
+    } else if (hit.body.userData.type === 'player') {
+      // 玩家被击中（目前只有 AI 会走这条线）
+      if (!isPlayer) {
+        this._damagePlayer(hit.body.userData.ref, energy, pen, part, ox, oz, owner);
+      }
+    }
+    return;
   }
-  return;
-}
+
   if (endY <= 0.01) {
     this._spawnSpark(endX, 0.1, endZ);
   } else if (hit && hit.body.userData.type === 'obstacle') {
     this._spawnSpark(endX, endY, endZ);
   }
 }
-
+   
   enemyFire(enemy, target){
   if (!enemy.alive || !enemy.weapon) return;
   if (enemy.trainingDummy) return;
@@ -2770,12 +2821,10 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
   return { remaining, snapshot };
 }
    
-_damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
+_damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true){
   if (!enemy.alive) return;
   if (hitPart === true) hitPart = 'head';
   else if (hitPart === false || hitPart === undefined) hitPart = 'thorax';
-
-  if (!enemy.status) enemy.status = new EntityStatus(enemy.spec, enemy.charSpec ? enemy.charSpec.prazer : false);
 
   const profile = this.engine.profile;
   const hpBefore = enemy.status.healthQuality;
@@ -2795,50 +2844,62 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
   remaining = armorRes.remaining;
   armorSnapshot = armorRes.snapshot;
 
+  if (hitPart === 'head') {
+    remaining *= COMBAT.HEAD_MULT;
+    if (profile.get('combat.headshotInstantKill', false)) {
+      const lethalEnergy = enemy.status.parts.head.maxHp * COMBAT.BODY_COEFF_HUMAN + 500;
+      if (remaining >= lethalEnergy) remaining = lethalEnergy;
+    }
+  }
+
   const res = enemy.status.takeDamage(hitPart, remaining, pen);
   enemy.hitFlash = 0.15;
-  this.player.dealt += remaining;
-  this.stats.hits++;
+  
+  // ★ 只有玩家造成的伤害才算入战绩和日志
+  if (byPlayer) {
+    this.player.dealt += remaining;
+    this.stats.hits++;
+    this._hitMarker(hitPart === 'head');
 
-  this._hitMarker(hitPart === 'head');
+    const targetEffs = Array.from(enemy.status.effects.keys()).map(k => {
+      const d = this.engine.content.get('effects', k);
+      return d ? d.name : k;
+    });
 
-  // ★ 获取目标当前状态列表
-const targetEffs = Array.from(enemy.status.effects.keys()).map(k => {
-  const d = this.engine.content.get('effects', k);
-  return d ? d.name : k;
-});
-
-this.combatLog.push({
-  type: 'damage_dealt',
-  t: this.time,
-  target: { name: this.engine.i18n.t(enemy.spec.name), isBoss: false, isElite: false, effects: targetEffs },
-  amount: Math.round(remaining), // ★ 保留动能数值
-  part: hitPart,
-  weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
-  headshot: hitPart === 'head',
-  pierced: pen >= 3,
-  armor: armorSnapshot,
-  coupling: couplingSnapshot,
-  targetHpBefore: hpBefore,
-  targetHpAfter: Math.round(enemy.status.healthQuality),
-  targetMaxHp: 100,
-});
+    this.combatLog.push({
+      type: 'damage_dealt',
+      t: this.time,
+      target: { name: this.engine.i18n.t(enemy.spec.name), isBoss: false, isElite: false, effects: targetEffs },
+      amount: Math.round(remaining),
+      part: hitPart,
+      weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
+      headshot: hitPart === 'head',
+      pierced: pen >= 3,
+      armor: armorSnapshot,
+      coupling: couplingSnapshot,
+      targetHpBefore: hpBefore,
+      targetHpAfter: Math.round(enemy.status.healthQuality),
+      targetMaxHp: 100,
+    });
+  }
 
   if (enemy.status.isDead() && enemy.alive) {
-  const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
-  this._killEnemy(enemy, remaining, dist);
-} else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
-  enemy.isDownedState = true;
-  enemy.mesh.rotation.z = Math.PI / 2; // 视觉倒地
-  enemy.body.height = 0.5;             // 物理体变矮
-  enemy.body.halfH = 0.25;             // ★ 核心：必须同步 halfH，否则判定框还是原高度
-  enemy.body.position.y = 0.25;
-} else if (enemy.alive) {
-  // ★ 未死未倒，触发受击响应
-  AISystem.onHit(this, enemy, hitPart, this.player.body.position.x, this.player.body.position.z);
+    const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
+    this._killEnemy(enemy, remaining, dist);
+  } else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
+    enemy.isDownedState = true;
+    enemy.mesh.rotation.z = Math.PI / 2;
+    enemy.body.height = 0.5;
+    enemy.body.halfH = 0.25;
+    enemy.body.position.y = 0.25;
+  } else if (enemy.alive) {
+    // 任何来源的伤害都会触发敌人的受击反击，但来源坐标需要判断是谁打的
+    let srcX = this.player.body.position.x;
+    let srcZ = this.player.body.position.z;
+    AISystem.onHit(this, enemy, hitPart, srcX, srcZ);
+  }
 }
-}
-
+   
 _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null){
   if (!player.alive) return;
 
@@ -3924,11 +3985,18 @@ _updateGlowState(entity, dt) {
   }
 }
 
+// ★ 阵营判定
+isHostile(factionA, factionB) {
+  if (!factionA || !factionB) return true;
+  if (factionA === factionB) return false;
+  return true; // 非同阵营即敌对
+}
+
 // ★ 发出声纹
-emitSound(type, intensity, maxRange, x, z, source = 'enemy') {
+emitSound(type, intensity, maxRange, x, z, source = 'enemy', faction = 'nipsel') {
   this.soundEvents.push({
     type, intensity, maxRange,
-    x, z, source,
+    x, z, source, faction, // ★ 带上阵营
     life: 0.5,
     maxLife: 0.5
   });
@@ -3936,7 +4004,6 @@ emitSound(type, intensity, maxRange, x, z, source = 'enemy') {
 
 // ★ 更新声纹系统
 _updateSoundSystem(dt) {
-  // 1. 衰减生命周期
   for (let i = this.soundEvents.length - 1; i >= 0; i--) {
     this.soundEvents[i].life -= dt;
     if (this.soundEvents[i].life <= 0) {
@@ -3944,37 +4011,34 @@ _updateSoundSystem(dt) {
     }
   }
 
-  // 2. AI 接收声纹
-  const p = this.player;
   for (const e of this.enemies) {
     if (!e.alive) continue;
     const ai = e.spec.ai || { perception: 0.5 };
-    
-    // ★ 移除 AI 对自己发出的声音的反应（如果是敌人发出的，跳过）
-    // 实际上，如果别的敌人开枪，他是能听到的。所以我们只过滤他自己。
-    
+    const eFaction = e.spec.faction;
     const earRange = 20 + ai.perception * 40; 
-    
-    for (const s of this.soundEvents) {
-      // 如果这声音是 AI 自己发出的，不处理
-      if (s.source === 'enemy' && Math.hypot(s.x - e.body.position.x, s.z - e.body.position.z) < 1.0) continue;
 
+    for (const s of this.soundEvents) {
+      // 不听自己发出的声音
+      if (s.source === 'enemy' && Math.hypot(s.x - e.body.position.x, s.z - e.body.position.z) < 1.0) continue;
       if (e.state === 'combat' || e.state === 'flee') continue;
 
       const dist = Math.hypot(e.body.position.x - s.x, e.body.position.z - s.z);
       if (dist > earRange || dist > s.maxRange) continue;
 
+      const isEnemySound = this.isHostile(eFaction, s.faction);
       const heardIntensity = s.intensity * (1 - dist / s.maxRange);
       
       if (heardIntensity > 0.15) {
-        e.awareness = Math.min(1.0, e.awareness + heardIntensity * (s.type === 'malignant' ? 0.8 : 0.3));
-        
-        if (s.type === 'malignant' && e.awareness > 0.3 && e.state === 'patrol') {
-          e.state = 'investigate';
-          e.targetPos = { x: s.x, z: s.z };
-        } else if (s.type === 'benign' && heardIntensity > 0.5 && e.state === 'patrol') {
-          e.state = 'investigate';
-          e.targetPos = { x: s.x, z: s.z };
+        if (isEnemySound) {
+          // 敌对声音，大幅提升警觉，并可能去调查
+          e.awareness = Math.min(1.0, e.awareness + heardIntensity * (s.type === 'malignant' ? 0.8 : 0.4));
+          if (e.awareness > 0.3 && e.state === 'patrol') {
+            e.state = 'investigate';
+            e.targetPos = { x: s.x, z: s.z };
+          }
+        } else {
+          // 同阵营声音，小幅提升警觉，但不调查
+          e.awareness = Math.min(1.0, e.awareness + heardIntensity * 0.2);
         }
       }
     }
