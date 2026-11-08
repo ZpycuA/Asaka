@@ -232,10 +232,18 @@ const CombatSystem = {
   },
 };
 
+
 /* ============================================================
    [1.5] 实体健康与状态系统 (EntityStatus)
    ============================================================ */
-const PART_MAX_HP = { head: 35, thorax: 85, abdomen: 70, larm: 60, rarm: 60, lleg: 65, rleg: 65, legs: 65 };
+const PART_MAX_HP = {
+  head: 35,
+  thorax: 100,  // 胸部（核心），加高一点防秒杀
+  abdomen: 80,  // 腹部
+  larm: 120,    // 手臂（合并左右）
+  legs: 130     // 腿部（合并左右）
+};
+
 const WOUND_ENERGY_THRESHOLD = [0, 100, 350, 700, 1200]; // 无，轻，中，重，致命
 
 class EntityStatus {
@@ -252,7 +260,6 @@ class EntityStatus {
     
     this.effects = new Map(); // id -> { duration, strength, awareness }
     this.healthQuality = 100;
-    this._lastEmitTime = 0;
   }
 
   addEffect(id, duration, strength, awareness = 0) {
@@ -275,14 +282,14 @@ class EntityStatus {
 
   takeDamage(part, energy, pen) {
     if (!this.parts[part]) part = 'thorax';
-    // 如果是四肢，稍微合并一下
-    if (part === 'larm' || part === 'rarm') part = 'larm'; 
+    // ★ 核心修复 1：严格合并部位，不产生永远满血的隐藏部位
+    if (part === 'rarm') part = 'larm'; 
     if (part === 'lleg' || part === 'rleg') part = 'legs';
 
     const p = this.parts[part];
     if (!p) return;
 
-    // 动能转部位伤害
+    // 动能转部位伤害（每点能量约等于 0.02 ~ 0.03 部位血量）
     const dmg = energy / (this.isPrazer ? 48 : 34);
     p.hp = Math.max(-p.maxHp * 2, p.hp - dmg);
     
@@ -334,16 +341,18 @@ class EntityStatus {
   }
 
   updateOverallHealth() {
-    let totalHp = 0;
-    let totalMax = 0;
-    for (const p in this.parts) {
-      totalHp += Math.max(0, this.parts[p].hp);
-      totalMax += this.parts[p].maxHp;
-    }
-    this.healthQuality = (totalHp / totalMax) * 100;
+    // ★ 核心修复 2：只计算 头、胸、腹 这三个核心部位。四肢破损不再拉高整体健康百分比。
+    const headRatio = Math.max(0, this.parts.head.hp) / this.parts.head.maxHp;
+    const thoraxRatio = Math.max(0, this.parts.thorax.hp) / this.parts.thorax.maxHp;
+    const abdomenRatio = Math.max(0, this.parts.abdomen.hp) / this.parts.abdomen.maxHp;
+    
+    // 头部权重 40%，胸部 40%，腹部 20%
+    this.healthQuality = Math.max(0, (headRatio * 0.4 + thoraxRatio * 0.4 + abdomenRatio * 0.2) * 100);
   }
 
   getHealthText() {
+    if (this.isDead()) return '死亡';
+    if (this.isDowned()) return '濒死击倒';
     if (this.healthQuality > 85) return '健康';
     if (this.healthQuality > 60) return '轻伤';
     if (this.healthQuality > 35) return '重伤';
@@ -354,7 +363,7 @@ class EntityStatus {
   getMoveSpeedMul() {
     let mul = 1;
     if (this.effects.has('hypovolemia')) mul *= 0.75;
-    if (this.parts.legs.fracture > 0) mul *= 0.5;
+    if (this.parts.legs.fracture > 0) mul *= 0.5; // 腿部骨折
     if (this.effects.has('pain')) mul *= 0.9;
     if (this.effects.has('moving_speed_up')) mul *= 1.2;
     return mul;
@@ -369,16 +378,17 @@ class EntityStatus {
 
   isDead() {
     if (this.blood <= 0) return true;
-    if (this.parts.head.hp <= -this.parts.head.maxHp * 0.5) return true; // 爆头
+    if (this.parts.head.hp <= -this.parts.head.maxHp * 0.5) return true; // 头部受创极重（爆头）
     if (this.parts.thorax.hp <= -this.parts.thorax.maxHp * 0.5) return true; // 穿心
     return false;
   }
 
   isDowned() {
-    return !this.isDead() && (this.blood < this.maxBlood * 0.2 || this.parts.thorax.hp <= 0);
+    if (this.isDead()) return false;
+    // 胸部被打空，或者失血极低，进入击倒
+    return this.parts.thorax.hp <= 0 || this.blood < this.maxBlood * 0.2;
   }
 }
-
 /* ============================================================
    [2] AI 系统
    ============================================================ */
