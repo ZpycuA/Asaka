@@ -4203,7 +4203,7 @@ export class GameApp {
   if (!this.engine.save.data) {
     this.engine.save.load({
       version: 1,
-      credits: 0,
+      credits: 5000, // 默认给点钱方便测试市场
       stats: { runs: 0, extracts: 0, deaths: 0, kills: 0 },
       flags: {},
     });
@@ -4214,44 +4214,52 @@ export class GameApp {
 
   this.inventory = new Inventory(this.engine.content);
   if (this.engine.save.data && this.engine.save.data.inventory) {
-  try { this.inventory.deserialize(this.engine.save.data.inventory); }
-  catch (e) { console.warn('[Bag] 库存反序列化失败，重置', e); }
+    try { this.inventory.deserialize(this.engine.save.data.inventory); }
+    catch (e) { console.warn('[Bag] 库存反序列化失败，重置', e); }
   }
   this.bagUI = new BagUI(this.engine, this.inventory);
+  
+  // ★ 初始化市场
+  import('./market.js').then(({ MarketSystem }) => {
+    this.market = new MarketSystem(this.engine);
+  });
 }
 
-      _setupMenu(){
-    const e = this.engine;
-    const i18n = e.i18n;
+        _setupMenu(){
+  const e = this.engine;
+  const i18n = e.i18n;
 
-    this._renderOptions('mode-options', e.modeRegistry.all(), (i) => i.id === this.menuState.mode, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.desc || ''), tag: '', value: i.id }), (i) => { this.menuState.mode = i.id; this._updateModeHint(); });
-    this._renderOptions('map-options', e.content.all('maps'), (i) => i.id === this.menuState.map, (i) => ({ title: i18n.t(i.name), sub: `${i.size}m² · ${i.enemyCount} 敌人`, tag: '', value: i.id }), (i) => { this.menuState.map = i.id; });
-    
-    const diffs = [ { id: 'easy', name: 'difficulty.easy.name', desc: '敌人弱 · 数量少' }, { id: 'normal', name: 'difficulty.normal.name', desc: '标准' }, { id: 'hard', name: 'difficulty.hard.name', desc: '敌人强 · 数量多' }, { id: 'nightmare', name: 'difficulty.nightmare.name', desc: '极端难度' }];
-    this._renderOptions('diff-options', diffs, (i) => i.id === this.menuState.diff, (i) => ({ title: i18n.t(i.name), sub: i.desc, tag: '', value: i.id }), (i) => { this.menuState.diff = i.id; });
-    
-    this._renderOptions('char-options', e.content.all('characters'), (i) => i.id === this.menuState.char, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.tag), tag: i.weapon, value: i.id }), (i) => { this.menuState.char = i.id; });
-    this._renderOptions('profile-options', e.profile.list(), (i) => i.id === this.menuState.profile, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.desc || ''), tag: '', value: i.id }), (i) => { this.menuState.profile = i.id; e.profile.setProfile(i.id); this._updateDifficultyDisplay();this._syncCustomSettingsUI(); });
+  // Tab 切换
+  document.querySelectorAll('.menu-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.menu-tab').forEach(t => t.classList.remove('on'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('on'));
+      tab.classList.add('on');
+      document.getElementById('tab-' + tab.dataset.tab).classList.add('on');
+    };
+  });
 
-    // 平台选择绑定
-    const platEl = document.getElementById('platform-options');
-    if (platEl) {
-      platEl.querySelectorAll('.option').forEach(el => {
-        el.onclick = () => {
-          platEl.querySelectorAll('.option').forEach(x => x.classList.remove('on'));
-          el.classList.add('on');
-          this.platform = el.dataset.value;
-        };
-      });
-    }
+  this._renderOptions('map-options', e.content.all('maps'), (i) => i.id === this.menuState.map, (i) => ({ title: i18n.t(i.name), sub: `${i.size}m²`, value: i.id }), (i) => { this.menuState.map = i.id; });
+  this._renderOptions('char-options', e.content.all('characters'), (i) => i.id === this.menuState.char, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.tag), value: i.id }), (i) => { this.menuState.char = i.id; });
+  this._renderOptions('profile-options', e.profile.list(), (i) => i.id === this.menuState.profile, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.desc || ''), value: i.id }), (i) => { this.menuState.profile = i.id; e.profile.setProfile(i.id); this._updateDifficultyDisplay();this._syncCustomSettingsUI(); });
 
-    this._renderCustomSettings();
-    e.profile.setProfile(this.menuState.profile);
-    this._updateDifficultyDisplay();
-    e.profile.onChange(() => { this._updateDifficultyDisplay(); this._syncCustomSettingsUI(); });
-    this._updateModeHint();
-    this._menuReady = true;
+  const platEl = document.getElementById('platform-options');
+  if (platEl) {
+    platEl.querySelectorAll('.option').forEach(el => {
+      el.onclick = () => {
+        platEl.querySelectorAll('.option').forEach(x => x.classList.remove('on'));
+        el.classList.add('on');
+        this.platform = el.dataset.value;
+      };
+    });
   }
+
+  this._renderCustomSettings();
+  e.profile.setProfile(this.menuState.profile);
+  this._updateDifficultyDisplay();
+  e.profile.onChange(() => { this._updateDifficultyDisplay(); this._syncCustomSettingsUI(); });
+  this._menuReady = true;
+}
 
     _updateDifficultyDisplay(){
     const el = document.getElementById('difficulty-display');
@@ -4276,26 +4284,25 @@ export class GameApp {
   }
 
   _renderOptions(containerId, items, isSelected, buildItem, onSelect){
-    const el = document.getElementById(containerId);
-    if (!el) return;
-    el.innerHTML = '';
-    for (const item of items) {
-      const data = buildItem(item);
-      const div = document.createElement('div');
-      div.className = 'option' + (isSelected(item) ? ' on' : '');
-      div.dataset.value = data.value;
-      div.innerHTML =
-        `<div class="opt-title">${data.title}</div>` +
-        (data.sub ? `<div class="opt-sub">${data.sub}</div>` : '') +
-        (data.tag ? `<div class="opt-tag">${data.tag}</div>` : '');
-      div.addEventListener('click', () => {
-        el.querySelectorAll('.option').forEach(x => x.classList.remove('on'));
-        div.classList.add('on');
-        onSelect(item);
-      });
-      el.appendChild(div);
-    }
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '';
+  for (const item of items) {
+    const data = buildItem(item);
+    const div = document.createElement('div');
+    div.className = 'option' + (isSelected(item) ? ' on' : '');
+    div.dataset.value = data.value;
+    div.innerHTML =
+      `<div class="opt-title">${data.title}</div>` +
+      (data.sub ? `<div class="opt-sub">${data.sub}</div>` : '');
+    div.addEventListener('click', () => {
+      el.querySelectorAll('.option').forEach(x => x.classList.remove('on'));
+      div.classList.add('on');
+      onSelect(item);
+    });
+    el.appendChild(div);
   }
+}
 
   _updateModeHint(){
     const el = document.getElementById('mode-hint');
@@ -4304,11 +4311,23 @@ export class GameApp {
     if (mode) el.textContent = this.engine.i18n.t(mode.name);
   }
 
-  _bindGlobalHandlers(){
+   _bindGlobalHandlers(){
   const e = this.engine;
 
-  // 这里不再绑定开始/训练按钮，因为 index.html 已经绑定了。
-  // 只绑定剩下的。
+  // 模态框关闭
+  document.querySelectorAll('.modal-close').forEach(btn => {
+    btn.onclick = () => document.getElementById(btn.dataset.close).classList.remove('on');
+  });
+
+  // 打开设置
+  document.getElementById('btn-settings').onclick = () => document.getElementById('settings-modal').classList.add('on');
+
+  // 打开市场
+  document.getElementById('btn-market').onclick = () => {
+    this._renderMarketList();
+    document.getElementById('market-modal').classList.add('on');
+  };
+
   document.getElementById('pause-btn')?.addEventListener('click', () => this._togglePause());
   document.getElementById('btn-resume')?.addEventListener('click', () => this._togglePause(false));
   document.getElementById('btn-quit')?.addEventListener('click', () => this._quitToMenu());
@@ -4318,91 +4337,121 @@ export class GameApp {
     this.startMatch(this._lastMatchKind);
   });
   document.getElementById('btn-menu')?.addEventListener('click', () => {
-  document.getElementById('result-screen')?.classList.remove('on');
-  this._quitToMenu();
-});
+    document.getElementById('result-screen')?.classList.remove('on');
+    this._quitToMenu();
+  });
 
-document.getElementById('btn-loadout-ticket')?.addEventListener('click', () => {
-  if (!this.inventory) return;
-  this._ensureInitialInventory(true);
-  if (this.bagUI) this.bagUI.refresh();
-  const charSpec = this.engine.content.get('characters', this.menuState.char);
-  const charName = charSpec ? this.engine.i18n.t(charSpec.name) : '当前角色';
-  alert('制式券已发放：' + charName + ' 标准配装。按 B 打开背包查看。');
-});
+  document.getElementById('btn-loadout-ticket')?.addEventListener('click', () => {
+    if (!this.inventory) return;
+    this._ensureInitialInventory(true);
+    if (this.bagUI) this.bagUI.refresh();
+    const charSpec = this.engine.content.get('characters', this.menuState.char);
+    const charName = charSpec ? this.engine.i18n.t(charSpec.name) : '当前角色';
+    alert('制式券已发放：' + charName + ' 标准配装。按 B 打开背包查看。');
+  });
 
-document.getElementById('btn-stash')?.addEventListener('click', () => {
-  if (this.bagUI) this.bagUI.toggle();
-});
+  document.getElementById('btn-stash')?.addEventListener('click', () => {
+    if (this.bagUI) this.bagUI.toggle();
+  });
 
-    window.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && this.world && this.world.running) {
-    ev.preventDefault();
-    this._togglePause();
-  }
-  if (ev.key.toLowerCase() === 'b' && this.bagUI && this.engine.save.data) {
-    const bootEl = document.getElementById('boot-screen');
-    const inBoot = bootEl && bootEl.classList.contains('on');
-    if (!inBoot) {
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && this.world && this.world.running) {
       ev.preventDefault();
-      this.bagUI.toggle();
+      this._togglePause();
     }
-  }
-});
+    if (ev.key.toLowerCase() === 'b' && this.bagUI && this.engine.save.data) {
+      const bootEl = document.getElementById('boot-screen');
+      const inBoot = bootEl && bootEl.classList.contains('on');
+      if (!inBoot) { ev.preventDefault(); this.bagUI.toggle(); }
+    }
+  });
 
-e.i18n.onLanguageChange(() => {
+  e.i18n.onLanguageChange(() => {
     if (this._menuReady) {
       this._setupMenu();
       if (this.world) this.world.hud.update();
     }
   });
-  // ★ 陀螺仪设置事件绑定
-const gyroBtn = document.getElementById('btn-gyro-toggle');
-const gyroStatus = document.getElementById('gyro-status');
-const gyroSens = document.getElementById('gyro-sensitivity');
-const gyroSensVal = document.getElementById('gyro-sens-val');
+  
+  // 语言切换按钮
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('on'));
+      btn.classList.add('on');
+      this.setLanguage(btn.dataset.lang);
+    };
+  });
+  
+  // 陀螺仪设置事件绑定
+  const gyroBtn = document.getElementById('btn-gyro-toggle');
+  const gyroStatus = document.getElementById('gyro-status');
+  const gyroSens = document.getElementById('gyro-sensitivity');
+  const gyroSensVal = document.getElementById('gyro-sens-val');
 
-if (gyroBtn) {
-  gyroBtn.addEventListener('click', async () => {
-    if (e.input.gyroEnabled) {
-      // 关闭陀螺仪
-      e.input.gyroEnabled = false;
-      gyroStatus.textContent = '未开启';
-      gyroStatus.style.color = 'var(--dim2)';
-    } else {
-      // 尝试开启陀螺仪
-      try {
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-          const state = await DeviceOrientationEvent.requestPermission();
-          if (state === 'granted') {
+  if (gyroBtn) {
+    gyroBtn.addEventListener('click', async () => {
+      if (e.input.gyroEnabled) {
+        e.input.gyroEnabled = false;
+        gyroStatus.textContent = '未开启';
+      } else {
+        try {
+          if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            const state = await DeviceOrientationEvent.requestPermission();
+            if (state === 'granted') {
+              e.input.enableGyro();
+              gyroStatus.textContent = '已启用';
+            } else {
+              gyroStatus.textContent = '拒绝';
+            }
+          } else {
             e.input.enableGyro();
             gyroStatus.textContent = '已启用';
-            gyroStatus.style.color = 'var(--green)';
-          } else {
-            gyroStatus.textContent = '权限被拒绝';
-            gyroStatus.style.color = 'var(--danger)';
           }
-        } else {
-          // 安卓通常直接开
-          e.input.enableGyro();
-          gyroStatus.textContent = '已启用';
-          gyroStatus.style.color = 'var(--green)';
-        }
-      } catch (err) {
-        console.error('陀螺仪启动失败', err);
-        gyroStatus.textContent = '不支持';
+        } catch (err) { gyroStatus.textContent = '不支持'; }
       }
-    }
-  });
+    });
+  }
+  if (gyroSens) {
+    gyroSens.addEventListener('input', (ev) => {
+      const val = parseFloat(ev.target.value);
+      e.input.gyroSensitivity = val;
+      if (gyroSensVal) gyroSensVal.textContent = val.toFixed(1);
+    });
+  }
 }
 
-if (gyroSens) {
-  gyroSens.addEventListener('input', (ev) => {
-    const val = parseFloat(ev.target.value);
-    e.input.gyroSensitivity = val;
-    if (gyroSensVal) gyroSensVal.textContent = val.toFixed(1);
+   _renderMarketList() {
+  const el = document.getElementById('market-list');
+  if (!el || !this.market) return;
+  
+  const content = this.engine.content;
+  const tables = ['weapons', 'ammo', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
+  let html = '';
+  
+  for (const t of tables) {
+    for (const item of content.all(t)) {
+      if (!item.value) continue;
+      const price = this.market.getPrice(t, item.id);
+      const name = this.engine.i18n.t(item.name);
+      
+      html += `<div class="market-item">
+        <div class="market-info">
+          <span class="market-name">${name}</span>
+          <span class="market-price">${price} cp</span>
+        </div>
+        <button class="market-buy" data-table="${t}" data-id="${item.id}" data-price="${price}">购买</button>
+      </div>`;
+    }
+  }
+  el.innerHTML = html;
+  
+  el.querySelectorAll('.market-buy').forEach(btn => {
+    btn.onclick = () => {
+      const r = this.market.buy(btn.dataset.table, btn.dataset.id);
+      if (r.ok) alert('购买成功，已存入仓库。');
+      else alert('购买失败：' + r.reason);
+    };
   });
-}
 }
 
   _registerDevCommands(){
