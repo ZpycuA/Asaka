@@ -25,7 +25,8 @@ const CSS = `
 .bagui-grid{position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto}
 .bagui-cell{position:absolute;border:1px solid rgba(255,255,255,.03);box-sizing:border-box;pointer-events:none}
 
-.bagui-item{position:absolute;background:rgba(60,100,150,.4);border:1px solid rgba(110,180,255,.5);border-radius:4px;box-sizing:border-box;cursor:pointer;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}.bagui-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
+.bagui-item{position:absolute;background:rgba(60,100,150,.4);border:1px solid rgba(110,180,255,.5);border-radius:4px;box-sizing:border-box;cursor:pointer;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.bagui-item[data-rarity="L0"]{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.08)}
 .bagui-item[data-rarity="L1"]{border-color:#5fd47a;background:linear-gradient(180deg,rgba(95,212,122,.22),rgba(30,60,45,.85))}
 .bagui-item[data-rarity="L2"]{border-color:#4a9eff;background:linear-gradient(180deg,rgba(74,158,255,.22),rgba(25,50,80,.85))}
 .bagui-item[data-rarity="L3"]{border-color:#ffd93d;background:linear-gradient(180deg,rgba(255,217,61,.2),rgba(70,60,25,.85))}
@@ -61,12 +62,30 @@ const CSS = `
 .bagui-rarity-tag.r-EXT{background:rgba(192,192,192,.25);color:#e0e0e0}
 .bagui-rarity-tag.r-PHE{background:rgba(255,215,0,.25);color:#ffd700}
 .bagui-rarity-tag.r-INC{background:rgba(0,0,0,.6);color:#e0e0ff;border:1px solid rgba(255,255,255,.4)}
+
+/* ★ 配件槽样式（美化版） */
+.bagui-attach-title,.bagui-effects-title{font-size:10px;color:#8fb0c8;margin-top:8px;margin-bottom:4px;letter-spacing:2px}
+.bagui-attach-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
+.bagui-attach-slot{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;background:rgba(10,18,28,.8);border:1px dashed rgba(80,125,175,.4);border-radius:6px;font-size:11px;transition:all 0.2s;cursor:pointer}
+.bagui-attach-slot:hover{background:rgba(60,100,150,.4);border-color:rgba(120,190,255,.8)}
+.bagui-attach-label{color:#5c82a8;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.bagui-attach-val{color:#a8d8ff;font-weight:700}
+.bagui-attach-empty{color:#3a546d;font-style:italic}
+
+.bagui-effects{display:flex;flex-direction:column;gap:2px}
+.bagui-effect-item{font-size:10px;color:#a8d8ff;padding:2px 6px;background:rgba(60,120,185,.2);border-radius:3px}
+.bagui-effects-empty{font-size:10px;color:#4a6d8e;font-style:italic}
+.bagui-ammo-row{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:11px}
+.bagui-split-row{display:flex;gap:4px;align-items:center;margin-top:6px;font-size:11px}
+.bagui-split-input{width:56px;padding:2px 4px;background:rgba(10,18,28,.8);border:1px solid rgba(80,125,175,.35);border-radius:3px;color:#cfe8ff;font-family:inherit;font-size:11px}
+
 .bagui-btn{padding:4px 10px;font-size:11px;border-radius:4px;cursor:pointer;font-family:inherit;border:1px solid rgba(110,180,255,.4);background:rgba(60,100,150,.5);color:#cfe8ff;margin-top:8px;width:100%}
 .bagui-btn:hover{background:rgba(80,150,220,.7)}
 .bagui-empty{color:#5c82a8;text-align:center;padding:20px}
 .bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between;flex-shrink:0}
 .bagui-toolbar button{padding:5px 12px;font-size:11px;cursor:pointer;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:5px;font-family:inherit}
 .bagui-total{font-size:10px;color:#ffd93d;letter-spacing:1px;font-weight:700}
+
 .bagui-preview{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,rgba(40,60,90,.6),rgba(10,18,28,.9));border-radius:8px;overflow:hidden}
 .bagui-preview canvas{max-width:100%;max-height:100%;display:block}
 .bagui-status{margin-top:8px;padding:8px;background:rgba(10,18,28,.5);border-radius:6px;font-size:10px;color:#5c82a8;text-align:center;letter-spacing:1px}
@@ -317,11 +336,13 @@ _renderRight() {
 
   if (isInMatch) {
   el.style.display = '';
+  // ★ 改为相对定位，让状态 UI 能悬浮在模型旁边
+  el.style.position = 'relative';
   el.innerHTML =
-    '<div class="bagui-preview" id="bagui-preview" style="flex:0 0 220px;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
-    '<div class="bagui-status" id="bagui-status" style="flex:1;overflow-y:auto;padding:10px;text-align:left;font-size:11px;line-height:1.6;"></div>';
+    '<div class="bagui-preview" id="bagui-preview" style="width:100%;height:100%;position:absolute;inset:0;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
+    '<div id="bagui-status-float" style="position:absolute;inset:0;pointer-events:none;"></div>';
   this._renderCharPreview();
-  this._renderBagStatus(); // ★ 新增：渲染背包内的状态
+  this._renderBagStatus();
   return;
 }
   el.style.display = '';
@@ -331,53 +352,38 @@ _renderRight() {
 }
 
   _renderBagStatus() {
-  const el = document.getElementById('bagui-status');
+  const el = document.getElementById('bagui-status-float');
   if (!el) return;
   const p = this.engine.app.world.player;
-  if (!p || !p.status) { el.innerHTML = '状态未知'; return; }
+  if (!p || !p.status) return;
 
-  const hq = p.status.healthQuality;
-  const hText = p.status.getHealthText();
-  let hColor = '#5fd47a';
-  if (hq <= 15) hColor = '#ff3030';
-  else if (hq <= 35) hColor = '#ff8b7b';
-  else if (hq <= 60) hColor = '#ffd93d';
-  else if (hq <= 85) hColor = '#a8e05a';
+  // 使用绝对定位，根据部位设定大概的屏幕坐标
+  const partCoords = {
+    head: { top: '15%', left: '50%' },
+    thorax: { top: '35%', left: '50%' },
+    abdomen: { top: '50%', left: '50%' },
+    larm: { top: '40%', left: '25%' },
+    legs: { top: '70%', left: '50%' }
+  };
+  const partNames = { head: '头', thorax: '胸', abdomen: '腹', larm: '臂', legs: '腿' };
 
-  let html = `<div style="font-size:14px;color:#a8d8ff;margin-bottom:8px;font-weight:700;">综合状态: <span style="color:${hColor}">${hText}</span></div>`;
-  
-  // 部位列表
-  const partNames = { head: '头部', thorax: '胸部', abdomen: '腹部', larm: '左臂', rarm: '右臂', legs: '腿部' };
-  const parts = ['head', 'thorax', 'abdomen', 'larm', 'rarm', 'legs'];
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">';
-  for (const pt of parts) {
+  let html = '';
+  for (const pt in partCoords) {
     const d = p.status.parts[pt];
     if (!d) continue;
+    
+    const c = partCoords[pt];
     let pColor = '#5fd47a';
     if (d.hp <= 0) pColor = '#ff3030';
     else if (d.hp < d.maxHp * 0.5) pColor = '#ff8b7b';
     else if (d.hp < d.maxHp * 0.8) pColor = '#ffd93d';
     
     let wStr = '';
-    if (d.fracture === 2) wStr = ' <span style="color:#ff3030">[粉碎性骨折]</span>';
-    else if (d.fracture === 1) wStr = ' <span style="color:#ff8b7b">[骨折]</span>';
-    else if (d.wound > 0) wStr = ` <span style="color:#ffd93d">[${['轻','中','重','致命'][d.wound-1]}伤]</span>`;
+    if (d.fracture === 2) wStr = ' [粉碎骨折]';
+    else if (d.fracture === 1) wStr = ' [骨折]';
+    else if (d.wound > 0) wStr = ` [${['轻','中','重','致命'][d.wound-1]}伤]`;
 
-    html += `<div>${partNames[pt]}: <span style="color:${pColor}">${Math.round(d.hp)}/${d.maxHp}</span>${wStr}</div>`;
-  }
-  html += '</div>';
-
-  // 异常状态列表
-  if (p.status.effects.size > 0) {
-    html += '<div style="color:#8fb0c8;margin-bottom:4px;">当前异常:</div>';
-    for (const [id, eff] of p.status.effects) {
-      const def = this.engine.content.get('effects', id);
-      if (def) {
-        html += `<div style="color:#ff8b7b;margin-bottom:2px;">${def.icon} ${def.name} (强度:${eff.strength})</div>`;
-      }
-    }
-  } else {
-    html += '<div style="color:#5fd47a;">无异常状态</div>';
+    html += `<div style="position:absolute;top:${c.top};left:${c.left};transform:translate(-50%,-50%);background:rgba(10,18,30,0.8);padding:2px 8px;border-radius:4px;border:1px solid ${pColor};color:${pColor};font-size:11px;white-space:nowrap;">${partNames[pt]}${wStr}</div>`;
   }
   el.innerHTML = html;
 }
@@ -609,19 +615,27 @@ _startSearchLoot(uid) {
     }
 
     if (item.table === 'weapons') {
-      if (!item.loaded) {
-        const ammoType = def.ammoType || '9mm';
-        item.loaded = { ammoType, qty: 0 };
-      }
-      const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
-      const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-      const magCap = def.mag || 0;
-      const isFull = item.loaded.qty >= magCap;
-      html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
-      if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
-      if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
-      html += `</span></div>`;
-    }
+  if (!item.loaded) {
+    const ammoType = def.ammoType || '9mm';
+    item.loaded = { ammoType, qty: 0 };
+  }
+  const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
+  const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+  const magCap = def.mag || 0;
+  const isFull = item.loaded.qty >= magCap;
+  
+  // ★ 检查游戏内是否正在换弹
+  const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
+  
+  html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
+  if (isReloading) {
+    html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
+  } else {
+    if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
+    if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
+  }
+  html += `</span></div>`;
+}
 
     if (item.attachments) {
   html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
@@ -718,18 +732,31 @@ if (sellBtn) {
   }
 
   _loadAmmo(weaponUid) {
-    const item = this.inv.items.get(weaponUid);
-    if (!item || item.table !== 'weapons' || !item.loaded) return;
-    const def = this.inv.getDef(item);
-    if (!def) return;
-    const space = (def.mag || 0) - item.loaded.qty;
-    if (space <= 0) return;
+  const item = this.inv.items.get(weaponUid);
+  if (!item || item.table !== 'weapons' || !item.loaded) return;
+  const def = this.inv.getDef(item);
+  if (!def) return;
+  const space = (def.mag || 0) - item.loaded.qty;
+  if (space <= 0) return;
+
+  const world = this.engine.app ? this.engine.app.world : null;
+  const isInMatch = world && world.running;
+
+  if (isInMatch) {
+    // ★ 在战局内：触发真实的换弹动作流程
+    const p = world.player;
+    p.weapon = p.weapon; // 确保引用同步
+    world._startReload();
+    this.close();
+  } else {
+    // 在仓库内：无动作，直接装填（便于配装）
     const take = this._consumeAmmoFromAll(def.ammoType, space);
     if (take > 0) {
       item.loaded.qty += take;
       this.refresh();
     }
   }
+}
 
   _consumeAmmoFromAll(ammoType, count) {
     const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
@@ -924,21 +951,72 @@ _onUp(e) {
       if (srcEl) srcEl.style.opacity = 1;
     }
   } else {
-    const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
-    if (equip) {
-      const slot = equip.dataset.srcSlot;
-      const currentParent = this.inv.parentOf.get(uid);
-      if (currentParent !== 'eq:' + slot) {
-        this.inv._detach(uid);
-        const r = this.inv.equip(slot, uid);
-        if (r.ok) this.refresh();
-        else if (srcEl) srcEl.style.opacity = 1;
+  const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
+  if (equip) {
+    const slot = equip.dataset.srcSlot;
+    const currentParent = this.inv.parentOf.get(uid);
+    if (currentParent !== 'eq:' + slot) {
+      // 记录原位置（用于回滚或安置被换下的装备）
+      const originalParent = this.inv.parentOf.get(uid);
+      const origPos = originalParent && originalParent.startsWith('c:') ? this.inv.containers[originalParent.slice(2)].items.get(uid) : null;
+
+      this.inv._detach(uid);
+      const r = this.inv.equip(slot, uid);
+      
+      if (r.ok) {
+        // ★ 修复：如果换下了老装备，必须给它找个归宿
+        if (r.swapped) {
+          let placed = false;
+          // 1. 尝试放回拖拽物品原本所在的容器格
+          if (originalParent && originalParent.startsWith('c:')) {
+            const cName = originalParent.slice(2);
+            const grid = this.inv.containers[cName];
+            if (grid) {
+              if (origPos) {
+                // 强制放回原格子
+                if (this.inv._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
+              }
+              if (!placed) {
+                // 原格子放不下，就自动找空位
+                if (this.inv.addToContainer(cName, r.swapped).ok) placed = true;
+              }
+            }
+          }
+          // 2. 如果原容器放不下，塞入背包或仓库
+          if (!placed) {
+            for (const t of ['bag', 'chest', 'stash']) {
+              if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+            }
+          }
+          // 3. 如果实在放不下，退回装备槽并取消本次操作
+          if (!placed) {
+            this.inv.unequip(slot);
+            this.inv._detach(uid);
+            // 复原老装备
+            this.inv.equip(slot, r.swapped);
+            // 复原当前装备
+            if (originalParent) this._restoreTo(uid, originalParent);
+            this.refresh();
+            return;
+          }
+        }
+        this.refresh();
       } else {
         if (srcEl) srcEl.style.opacity = 1;
       }
     } else {
       if (srcEl) srcEl.style.opacity = 1;
     }
+  } else {
+    // ★ 修复：丢到界面外 → 丢弃到地上
+    if (this.engine.app && this.engine.app.world && this.engine.app.world.running) {
+      if (this.engine.app.world._dropItemToGround(uid)) {
+        this.refresh();
+        return;
+      }
+    }
+    if (srcEl) srcEl.style.opacity = 1;
+  }
   }
 }
 
@@ -1003,8 +1081,8 @@ _onUp(e) {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
-    camera.position.set(0, 1.6, 4.2);
-    camera.lookAt(0, 1.15, 0);
+    camera.position.set(0, 1.2, 6.5); // 相机拉远
+    camera.lookAt(0, 1.0, 0);         // 焦点下移
 
     scene.add(new THREE.AmbientLight(0xffffff, 1.2));
     const key = new THREE.DirectionalLight(0xfff4e0, 1.4); key.position.set(3, 6, 4); scene.add(key);
