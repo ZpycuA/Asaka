@@ -429,11 +429,11 @@ export class Inventory {
     }
 
     const oldUid = this.equipped[slot];
-    this._detach(uid);
-    // 注意：如果老装备存在，要调用 _detach 清掉老装备的 parentOf
-    if (oldUid) this.parentOf.set(oldUid, null);
+this._detach(uid);
+// ★ 核心修复：不要清空老装备的 parentOf，让它保持原来的状态，由外部 UI 处理它的去向
+// if (oldUid) this.parentOf.set(oldUid, null); 
 
-    this.equipped[slot] = uid;
+this.equipped[slot] = uid;
     this.parentOf.set(uid, 'eq:' + slot);
 
     // ★ 背包/胸挂：替换容器，并更新子物品 parentOf
