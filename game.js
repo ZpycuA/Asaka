@@ -4927,17 +4927,15 @@ _bindCameraControls() {
         });
       }
       const release = (e) => {
-        e.preventDefault(); e.stopPropagation();
-        this.engine.input.setActionState(actionKey, false);
-        el.style.transform = 'scale(1)';
-        if (m.rotate) el._dragPointerId = null;
-      };
-      el.addEventListener('pointerup', release);
-      el.addEventListener('pointercancel', release);
-      el.addEventListener('pointerleave', (e) => {
-        if (m.rotate && el._dragPointerId === e.pointerId) return;
-        release(e);
-      });
+  e.preventDefault(); e.stopPropagation();
+  this.engine.input.setActionState(actionKey, false);
+  el.style.transform = 'scale(1)';
+  if (m.rotate) el._dragPointerId = null;
+};
+el.addEventListener('pointerup', release);
+el.addEventListener('pointercancel', release);
+// ★ 移除 pointerleave 的强制释放，防止按住战术按钮时手指滑出导致动作断断续续
+// 如果手指按住后滑出，直到抬起（pointerup）才会取消动作
     }
 
     this._mobileButtons[name] = el;
