@@ -2571,27 +2571,55 @@ _updateProtection(dt){
   this._playSFX('reload');
 }
 
-  _finishReload(){
+    _finishReload(){
   const p = this.player;
   const w = this.currentWeapon;
   if (!w) return;
   const need = w.magCap - w.mag;
-  const take = Math.min(need, w.reserve);
-  if (take > 0) {
-    w.mag += take;
-    if (typeof w.consumeReserve === 'function') {
-      w.consumeReserve(take);
-    } else {
-      w.reserve -= take;
+  if (need <= 0) return;
+
+  const inv = this.engine.app.inventory;
+  const targets = ['chest', 'pocket', 'bag', 'safe'];
+  let loadedCount = 0;
+
+  // ★ 彩虹子弹：寻找所有 caliber 匹配的弹药
+  for (const t of targets) {
+    if (loadedCount >= need) break;
+    const c = inv.containers[t];
+    if (!c) continue;
+    
+    for (const uid of Array.from(c.items.keys())) {
+      if (loadedCount >= need) break;
+      const it = inv.items.get(uid);
+      if (!it || it.table !== 'ammo') continue;
+      
+      const def = inv.getDef(it);
+      if (!def || def.caliber !== w.def.ammoType) continue;
+      
+      const take = Math.min(it.qty, need - loadedCount);
+      
+      // 压入队列
+      for(let i=0; i<take; i++) w.item.loaded.queue.push(it.defId);
+      w.item.loaded.qty += take;
+      loadedCount += take;
+      
+      it.qty -= take;
+      if (it.qty <= 0) inv.destroyItem(uid);
     }
   }
 }
 
  _fireWeapon(owner, weapon, isPlayer, target){
   if (!weapon || !weapon.def) return;
-  const def = weapon.def;
-  const ammo = weapon.ammoDef;
-  if (!ammo) return;
+const def = weapon.def;
+
+// ★ 彩虹子弹：从队列中取出当前一发
+let currentAmmoId = def.ammoType;
+if (weapon.loaded && weapon.loaded.queue && weapon.loaded.queue.length > 0) {
+  currentAmmoId = weapon.loaded.queue.shift();
+}
+const ammo = this.engine.content.get('ammo', currentAmmoId);
+if (!ammo) return;
 
   if (isPlayer) owner.fireCd = 60 / def.rpm;
 else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
