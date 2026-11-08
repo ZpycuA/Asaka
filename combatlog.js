@@ -271,25 +271,32 @@ export class CombatLog {
   _registerDefaults() {
     /* ---- 造成伤害 ---- */
     this.register('damage_dealt', e => {
-      const tgt = e.target ? (e.target.name || '?') : '?';
-      const part = PART_NAMES[e.part] || e.part || '?';
-      const wpn = e.weapon ? (e.weapon.name || '—') : '—';
-      const hp = `${fmtNum(e.targetHpAfter)}/${fmtNum(e.targetMaxHp)}`;
-      let armor = '';
-      if (e.armor && e.armor.absorbed > 0) {
-  const layer = e.armor.layer ? e.armor.layer + ' ' : '';
-  armor = ` · ${layer}Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
-  if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[完全损坏]</span>';
-} else if (e.pierced) {
-  armor = ' · <span style="color:#ff44aa">穿透护甲</span>';
-}
-      const hsTag = e.headshot ? ' · <span style="color:#ffdd44">击中头部</span>' : '';
-      return {
-        cls: 'out',
-        head: `→ 命中 ${esc(tgt)}`,
-        body: `${esc(wpn)} · ${part} · 伤害 <b>${fmtNum(e.amount)}</b>${armor}${hsTag}<br>敌方 HP ${hp}`,
-      };
-    });
+  const tgt = e.target ? (e.target.name || '?') : '?';
+  const part = PART_NAMES[e.part] || e.part || '?';
+  const wpn = e.weapon ? (e.weapon.name || '—') : '—';
+  const hp = `${fmtNum(e.targetHpAfter)}%`; // 现在返回的是百分比
+  let armor = '';
+  if (e.armor && e.armor.absorbed > 0) {
+    const layer = e.armor.layer ? e.armor.layer + ' ' : '';
+    armor = ` · ${layer}Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
+    if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[破损]</span>';
+  } else if (e.pierced) {
+    armor = ' · <span style="color:#ff44aa">穿甲</span>';
+  }
+  const hsTag = e.headshot ? ' · <span style="color:#ffdd44">爆头</span>' : '';
+  
+  // ★ 状态显示
+  let effHtml = '';
+  if (e.target && e.target.effects && e.target.effects.length > 0) {
+    effHtml = `<br><span style="color:#ff8b7b">异常: ${e.target.effects.join(', ')}</span>`;
+  }
+
+  return {
+    cls: 'out',
+    head: `→ 命中 ${esc(tgt)}`,
+    body: `${esc(wpn)} · ${part} · 动能 <b>${fmtNum(e.amount)}</b> J${armor}${hsTag}<br>敌方状态 ${hp}${effHtml}`,
+  };
+});
 
     /* ---- 承受伤害 ---- */
     this.register('damage_taken', e => {
@@ -299,19 +306,24 @@ export class CombatLog {
   let armor = '';
   if (e.armor && e.armor.absorbed > 0) {
     armor = ` · ${e.armor.layer || '甲'} Lv${e.armor.lv} 吸收 ${fmtNum(e.armor.absorbed)}J（-${fmtNum(e.armor.wear, 1)}%）`;
-    if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[完全损坏]</span>';
+    if (e.armor.broke) armor += ' <span style="color:#ff5a5a">[破损]</span>';
   }
   let coupling = '';
   if (e.coupling && e.coupling.absorbed > 0) {
     coupling = `<br>耦合 ${e.coupling.level || '?'} 吸收 ${fmtNum(e.coupling.absorbed)}J · 消耗 ${fmtNum(e.coupling.cost, 1)} 点`;
   }
-  const hp = `${fmtNum(e.hpAfter)}/${fmtNum(e.maxHp)}`;
-  const bleed = e.bleeding ? ' · <span style="color:#ff5a5a">失血</span>' : '';
+  const hp = `${fmtNum(e.hpAfter)}%`;
+  
+  let effHtml = '';
+  if (e.effects && e.effects.length > 0) {
+    effHtml = `<br><span style="color:#ff8b7b">当前异常: ${e.effects.join(', ')}</span>`;
+  }
+
   const weaponPrefix = srcWeapon ? esc(srcWeapon) + ' · ' : '';
   return {
     cls: 'in',
     head: `← 受到 ${esc(src)} 攻击`,
-    body: `${weaponPrefix}${part} · 伤害 <b>${fmtNum(e.amount)}</b>${armor}${coupling}<br>HP ${hp}${bleed}`,
+    body: `${weaponPrefix}${part} · 动能 <b>${fmtNum(e.amount)}</b> J${armor}${coupling}<br>自身状态 ${hp}${effHtml}`,
   };
 });
 
