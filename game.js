@@ -869,8 +869,8 @@ class HUDSystem {
   this._applyVisibility();
   this._renderMinimap();
   this._renderDamageIndicator();
-  this._updateSoundIndicators();
-
+  this._renderSoundRadar();
+    
   // 数值更新
   this._setText('player-name', p.charSpec ? this.engine.i18n.t(p.charSpec.name) : '—');
   this._setText('player-tag', p.charSpec ? this.engine.i18n.t(p.charSpec.tag) : '—');
@@ -1020,85 +1020,81 @@ _updateHurtFX(hpPct) {
   }
 }
 
-_updateSoundIndicators() {
+_renderSoundRadar() {
+  let canvas = document.getElementById('sound-radar-canvas');
+  if (!canvas) return;
+  if (canvas.width !== window.innerWidth) {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
   const p = this.world.player;
   if (!p || !p.alive) return;
 
-  // 检查是否装备耳机
+  // ★ 检查耳机装备
   const inv = this.engine.app.inventory;
-  const hasHeadset = inv && inv.equipped && inv.equipped.helmetEar;
-  const earMultiplier = hasHeadset ? 1.5 : 1.0; // 耳机增加监听范围
-  const maxHearingRange = 40 * earMultiplier;
+  const hasHeadset = !!(inv && inv.equipped && inv.equipped.helmetEar);
+  
+  // 有耳机听 60 米，没耳机听 25 米
+  const maxHearRange = hasHeadset ? 60 : 25;
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const radius = Math.min(cx, cy) * 0.75; // 绘制半径在屏幕边缘靠内
 
-  // 寻找最近的声音
-  let closestSound = null;
-  let maxStrength = 0;
   for (const s of this.world.soundEvents) {
+    // ★ 不显示自己发出的声音，防止干扰
+    if (s.source === 'player') continue;
+
     const dx = s.x - p.body.position.x;
     const dz = s.z - p.body.position.z;
     const dist = Math.hypot(dx, dz);
+
+    if (dist > maxHearRange || dist > s.maxRange) continue;
+
+    // 计算相对相机的角度
+    const worldAng = Math.atan2(dz, dx);
+    let relAng = worldAng - this.engine.cameraCtl.yaw;
+    // 归一化到 -PI 到 PI
+    while (relAng > Math.PI) relAng -= Math.PI * 2;
+    while (relAng < -Math.PI) relAng += Math.PI * 2;
+
+    // 距离衰减：越远越透明
+    const distRatio = 1 - (dist / s.maxRange);
+    let alpha = s.intensity * distRatio;
     
-    // 声音在范围内的判定
-    if (dist < maxHearingRange && dist < s.maxRange) {
-      const strength = s.intensity * (1 - dist / s.maxRange) * earMultiplier;
-      if (strength > maxStrength) {
-        maxStrength = strength;
-        closestSound = s;
-      }
-    }
-  }
+    // 无耳机时，整体透明度限制在一个很低的水平，且极难辨认
+    if (!hasHeadset) alpha *= 0.25;
+    if (alpha < 0.05) continue;
 
-  const els = {
-    top: document.getElementById('si-top'),
-    bottom: document.getElementById('si-bottom'),
-    left: document.getElementById('si-left'),
-    right: document.getElementById('si-right')
-  };
+    // 转换为屏幕 Canvas 角度 (0 是右边，PI/2 是下边)
+    // 我们通常把视角正前方当作屏幕上方 (即 -PI/2)
+    // 相机 Yaw=0 时，世界 X 轴正方向对应屏幕右。所以需要在 canvas 里旋转 -PI/2
+    const canvasAng = relAng - Math.PI / 2;
 
-  // 重置
-  for (const k in els) {
-    if (els[k]) els[k].style.opacity = '0';
-  }
+    // 绘制弧线
+    ctx.beginPath();
+    // 恶性是红色，良性是白色/淡蓝色
+    const isMalignant = s.type === 'malignant';
+    const color = isMalignant ? '255, 50, 50' : '200, 230, 255';
+    
+    ctx.strokeStyle = `rgba(${color}, ${alpha})`;
+    ctx.lineWidth = isMalignant ? 8 : 4;
+    
+    // 声音的宽度（恶性声音扩散更广）
+    const arcWidth = isMalignant ? 0.3 : 0.15;
+    
+    ctx.arc(cx, cy, radius, canvasAng - arcWidth, canvasAng + arcWidth);
+    ctx.stroke();
 
-  if (!closestSound) return;
-
-  // 计算相对角度
-  const dx = closestSound.x - p.body.position.x;
-  const dz = closestSound.z - p.body.position.z;
-  const ang = Math.atan2(dz, dx);
-  const camYaw = this.engine.cameraCtl.yaw;
-  
-  let relAng = ang - camYaw;
-  while (relAng > Math.PI) relAng -= Math.PI * 2;
-  while (relAng < -Math.PI) relAng += Math.PI * 2;
-
-  // 颜色：恶性红色，良性白色
-  const color = closestSound.type === 'malignant' ? '#ff3030' : '#ffffff';
-  
-  // 不戴耳机时透明度极低
-  const baseOpacity = hasHeadset ? 0.8 : 0.3;
-  const finalOpacity = Math.min(1, maxStrength * baseOpacity * 1.5);
-
-  // 映射到四个方向（基于视角前方为 0 度）
-  // 视角正前方是 relAng = 0，后方是 PI 或 -PI
-  const dirThreshold = Math.PI / 4; // 45度划界
-
-  if (Math.abs(relAng) < dirThreshold) {
-    // 前方
-    els.top.style.borderTopColor = color;
-    els.top.style.opacity = finalOpacity;
-  } else if (Math.abs(relAng) > Math.PI - dirThreshold) {
-    // 后方
-    els.bottom.style.borderBottomColor = color;
-    els.bottom.style.opacity = finalOpacity;
-  } else if (relAng > 0) {
-    // 右侧
-    els.right.style.borderRightColor = color;
-    els.right.style.opacity = finalOpacity;
-  } else {
-    // 左侧
-    els.left.style.borderLeftColor = color;
-    els.left.style.opacity = finalOpacity;
+    // 在弧线上加个高光点
+    ctx.beginPath();
+    const dotX = cx + Math.cos(canvasAng) * radius;
+    const dotY = cy + Math.sin(canvasAng) * radius;
+    ctx.fillStyle = `rgba(${color}, ${alpha})`;
+    ctx.arc(dotX, dotY, isMalignant ? 4 : 2, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -2312,29 +2308,26 @@ if (isDowned && !p._wasDowned) {
   p._wasDowned = false;
   this.engine.cameraCtl.resetDeathPose();
 }
-   // ★ 发出良性声纹（脚步）
+  // ★ 发出良性声纹（脚步）
 const speedSq = p.body.velocity.x * p.body.velocity.x + p.body.velocity.z * p.body.velocity.z;
 if (speedSq > 1.0 && p.body.grounded) {
   if (!p._stepTimer) p._stepTimer = 0;
   p._stepTimer -= dt;
   
   if (p._stepTimer <= 0) {
-    // 跑步间隔短，走路间隔长
-    const isSprinting = speedSq > 25; // 假设冲刺速度平方
+    const isSprinting = speedSq > 25;
     const isWalking = speedSq < 9;
-    
     p._stepTimer = isSprinting ? 0.3 : (isWalking ? 0.6 : 0.45);
     
-    // 发出声纹：跑步强度大，蹲下走路几乎没有声音（强度极小）
     let stepIntensity = isSprinting ? 0.8 : 0.4;
-    let stepRange = isSprinting ? 25 : 10;
+    let stepRange = isSprinting ? 20 : 8;
     
     if (p.isCrouching) {
-      stepIntensity = 0.1;
-      stepRange = 3;
+      stepIntensity = 0.05;
+      stepRange = 2;
     }
     
-    this.emitSound('benign', stepIntensity, stepRange, p.body.position.x, p.body.position.z);
+    this.emitSound('benign', stepIntensity, stepRange, p.body.position.x, p.body.position.z, 'player');
   }
 }
 }
@@ -2684,8 +2677,10 @@ if (isPlayer) {
   // 发射子弹的动画和声音
 this._playSFX('shot_' + def.cls, { volume: 0.6 });
 
-// ★ 增加恶性声纹（枪声）
-this.emitSound('malignant', 1.0, def.range ? def.range * 1.5 : 150, owner.body.position.x, owner.body.position.z);
+// ★ 来源判定
+const soundSource = isPlayer ? 'player' : 'enemy';
+// 枪声很大，传播极远
+this.emitSound('malignant', 1.0, 150, owner.body.position.x, owner.body.position.z, soundSource);
 }
 
 _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef, ammoDef, isPlayer){
@@ -3930,11 +3925,11 @@ _updateGlowState(entity, dt) {
 }
 
 // ★ 发出声纹
-emitSound(type, intensity, maxRange, x, z) {
+emitSound(type, intensity, maxRange, x, z, source = 'enemy') {
   this.soundEvents.push({
     type, intensity, maxRange,
-    x, z,
-    life: 0.5, // 声纹在系统里存在 0.5 秒用于 AI 和玩家 UI 读取
+    x, z, source,
+    life: 0.5,
     maxLife: 0.5
   });
 }
@@ -3954,24 +3949,26 @@ _updateSoundSystem(dt) {
   for (const e of this.enemies) {
     if (!e.alive) continue;
     const ai = e.spec.ai || { perception: 0.5 };
-    const earRange = 20 + ai.perception * 30; // 基础 20m，受感知影响最高 50m
-    const eDistToPlayer = Math.hypot(e.body.position.x - p.body.position.x, e.body.position.z - p.body.position.z);
-
+    
+    // ★ 移除 AI 对自己发出的声音的反应（如果是敌人发出的，跳过）
+    // 实际上，如果别的敌人开枪，他是能听到的。所以我们只过滤他自己。
+    
+    const earRange = 20 + ai.perception * 40; 
+    
     for (const s of this.soundEvents) {
-      // 已经在战斗中的 AI 不重复吃声纹
+      // 如果这声音是 AI 自己发出的，不处理
+      if (s.source === 'enemy' && Math.hypot(s.x - e.body.position.x, s.z - e.body.position.z) < 1.0) continue;
+
       if (e.state === 'combat' || e.state === 'flee') continue;
 
       const dist = Math.hypot(e.body.position.x - s.x, e.body.position.z - s.z);
       if (dist > earRange || dist > s.maxRange) continue;
 
-      // 距离衰减：越远听得越模糊
       const heardIntensity = s.intensity * (1 - dist / s.maxRange);
       
       if (heardIntensity > 0.15) {
-        // 听到声音，增加警觉
         e.awareness = Math.min(1.0, e.awareness + heardIntensity * (s.type === 'malignant' ? 0.8 : 0.3));
         
-        // 恶性声音（枪声）直接触发调查，良性声音（脚步）可能只是转个头
         if (s.type === 'malignant' && e.awareness > 0.3 && e.state === 'patrol') {
           e.state = 'investigate';
           e.targetPos = { x: s.x, z: s.z };
