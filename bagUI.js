@@ -4,7 +4,6 @@
    ============================================================ */
 
 import * as THREE from 'three'
-import { GridContainer } from './inventory.js';
 
 const CELL = 48;
 
@@ -17,12 +16,12 @@ const CSS = `
 #bagui-close{width:32px;height:32px;border-radius:6px;background:rgba(60,100,150,.5);border:1px solid rgba(110,180,255,.4);color:#cfe8ff;font-size:16px;cursor:pointer;flex-shrink:0}
 .bagui-main{flex:1;display:flex;gap:12px;margin-top:10px;min-height:0;overflow:hidden}
 .bagui-left,.bagui-right{flex:1;overflow-y:auto;padding:4px;min-width:0;box-sizing:border-box}
-.bagui-right{flex:1.2;background:rgba(10,18,28,.5);border-radius:8px}
+.bagui-right{flex:1.2;background:rgba(10,18,28,.5);border-radius:8px;position:relative}
 .bagui-sec{margin-bottom:10px;background:rgba(20,32,46,.6);border-radius:6px;padding:8px;display:flex;flex-direction:column;align-items:center}
 .bagui-sec h3{font-size:11px;letter-spacing:2px;color:#8fb0c8;margin:0 0 6px 0;display:flex;justify-content:space-between;width:100%;font-weight:600}
 .bagui-cap{font-size:9px;color:#5c82a8}
 
-.bagui-grid{position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto}
+.bagui-grid-wrap{position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto}
 .bagui-cell{position:absolute;border:1px solid rgba(255,255,255,.03);box-sizing:border-box;pointer-events:none}
 
 .bagui-item{position:absolute;background:rgba(60,100,150,.4);border:1px solid rgba(110,180,255,.5);border-radius:4px;box-sizing:border-box;cursor:pointer;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -63,7 +62,7 @@ const CSS = `
 .bagui-rarity-tag.r-PHE{background:rgba(255,215,0,.25);color:#ffd700}
 .bagui-rarity-tag.r-INC{background:rgba(0,0,0,.6);color:#e0e0ff;border:1px solid rgba(255,255,255,.4)}
 
-/* ★ 配件槽样式（美化版） */
+/* 配件槽 UI */
 .bagui-attach-title,.bagui-effects-title{font-size:10px;color:#8fb0c8;margin-top:8px;margin-bottom:4px;letter-spacing:2px}
 .bagui-attach-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
 .bagui-attach-slot{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;background:rgba(10,18,28,.8);border:1px dashed rgba(80,125,175,.4);border-radius:6px;font-size:11px;transition:all 0.2s;cursor:pointer}
@@ -72,25 +71,17 @@ const CSS = `
 .bagui-attach-val{color:#a8d8ff;font-weight:700}
 .bagui-attach-empty{color:#3a546d;font-style:italic}
 
-.bagui-effects{display:flex;flex-direction:column;gap:2px}
-.bagui-effect-item{font-size:10px;color:#a8d8ff;padding:2px 6px;background:rgba(60,120,185,.2);border-radius:3px}
-.bagui-effects-empty{font-size:10px;color:#4a6d8e;font-style:italic}
-.bagui-ammo-row{display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:11px}
-.bagui-split-row{display:flex;gap:4px;align-items:center;margin-top:6px;font-size:11px}
-.bagui-split-input{width:56px;padding:2px 4px;background:rgba(10,18,28,.8);border:1px solid rgba(80,125,175,.35);border-radius:3px;color:#cfe8ff;font-family:inherit;font-size:11px}
-
 .bagui-btn{padding:4px 10px;font-size:11px;border-radius:4px;cursor:pointer;font-family:inherit;border:1px solid rgba(110,180,255,.4);background:rgba(60,100,150,.5);color:#cfe8ff;margin-top:8px;width:100%}
 .bagui-btn:hover{background:rgba(80,150,220,.7)}
 .bagui-empty{color:#5c82a8;text-align:center;padding:20px}
 .bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between;flex-shrink:0}
 .bagui-toolbar button{padding:5px 12px;font-size:11px;cursor:pointer;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:5px;font-family:inherit}
 .bagui-total{font-size:10px;color:#ffd93d;letter-spacing:1px;font-weight:700}
-
 .bagui-preview{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,rgba(40,60,90,.6),rgba(10,18,28,.9));border-radius:8px;overflow:hidden}
 .bagui-preview canvas{max-width:100%;max-height:100%;display:block}
 .bagui-status{margin-top:8px;padding:8px;background:rgba(10,18,28,.5);border-radius:6px;font-size:10px;color:#5c82a8;text-align:center;letter-spacing:1px}
 
-@media(max-width:768px){.bagui-main{flex-direction:column}.bagui-right{flex:0 0 220px;min-height:220px}}
+@media(max-width:768px){.bagui-main{flex-direction:column}.bagui-right{flex:0 0 280px;min-height:280px}}
 `;
 
 export class BagUI {
@@ -99,7 +90,7 @@ export class BagUI {
     this.inv = inventory;
     this.open = false;
     this.selectedUid = null;
-    this.openedBagUid = null; // 当前打开的嵌套背包
+    this.openedBagUid = null;
     this._drag = null;
     this._injectCSS();
     this._buildDOM();
@@ -162,27 +153,19 @@ export class BagUI {
     this.openedBagUid = null;
     this.refresh();
   }
-
-  openLoot(target) {
-  if (document.pointerLockElement) document.exitPointerLock();
-  this._lootTarget = target;
-  this.open = true;
-  this._clearGhosts();
-  document.getElementById('bagui-overlay').classList.add('on');
-  this.refresh();
-  }
   
   close() {
-  this.open = false;
-  document.getElementById('bagui-overlay').classList.remove('on');
-  this._cancelDrag();
-  this._clearGhosts();
-  this._deselectDetail();
-  if (this._lootTarget) {
-    this._lootTarget = null;
-    this.inv.containers.loot = new GridContainer(0, 0);
+    this.open = false;
+    document.getElementById('bagui-overlay').classList.remove('on');
+    this._cancelDrag();
+    this._clearGhosts();
+    this._deselectDetail();
+    if (this._charPreviewRenderer) {
+      this._charPreviewRenderer.dispose();
+      this._charPreviewRenderer = null;
+    }
   }
-}
+
   _deselectDetail() {
     this.selectedUid = null;
     const el = document.getElementById('bagui-detail');
@@ -256,138 +239,92 @@ export class BagUI {
   }
 
   _renderLeft() {
-  const el = document.getElementById('bagui-left');
-  const inv = this.inv;
-
-  if (this._lootTarget) {
-    el.innerHTML = this._gridContainerHtml('loot', this._lootTarget.label || '容器');
-    this._bindItemEvents(el);
-    return;
-  }
-
-  let html = '';
-  
-  // 装备
-  html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
-  const equipList = [
-    ['main', '主武器'], ['side', '副武器'],
-    ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
-    ['vestFiber', '护甲'], ['vestPlate', '插板'],
-    ['backpack', '背包'], ['chestRig', '胸挂'],
-  ];
-  for (const [slot, label] of equipList) {
-    html += this._equipSlotHtml(inv.equipped[slot], slot, label);
-  }
-  html += '</div></div>';
-
-  for (const name of ['chest', 'pocket', 'bag', 'safe']) {
-    const c = inv.containers[name];
-    if (!c || !c.isActive) continue;
-    html += this._gridContainerHtml(name, this._cname(name));
-  }
-  el.innerHTML = html;
-  this._bindItemEvents(el);
-}
-
-_renderRight() {
-  const el = document.getElementById('bagui-right');
-  if (!el) return;
-  
-  if (this._lootTarget) {
-    el.style.display = '';
+    const el = document.getElementById('bagui-left');
+    const inv = this.inv;
     let html = '';
-    const chestC = this.inv.containers.chest;
-    if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', '胸挂');
-    const bagC = this.inv.containers.bag;
-    if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', '背包');
-    el.innerHTML = html || '<div class="bagui-empty">无携带容器</div>';
+    
+    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
+    const equipList = [
+      ['main', '主武器'], ['side', '副武器'],
+      ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
+      ['vestFiber', '护甲'], ['vestPlate', '插板'],
+      ['backpack', '背包'], ['chestRig', '胸挂'],
+    ];
+    for (const [slot, label] of equipList) {
+      html += this._equipSlotHtml(inv.equipped[slot], slot, label);
+    }
+    html += '</div></div>';
+
+    for (const name of ['chest', 'pocket', 'bag', 'safe']) {
+      const c = inv.containers[name];
+      if (!c || !c.isActive) continue;
+      html += this._gridContainerHtml(name, this._cname(name));
+    }
+    el.innerHTML = html;
     this._bindItemEvents(el);
-    return;
   }
 
-  const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
-
-  if (this.openedBagUid) {
-    const bag = this.inv.items.get(this.openedBagUid);
-    if (bag && bag.innerGrid) {
+  _renderRight() {
+    const el = document.getElementById('bagui-right');
+    if (!el) return;
+    
+    if (this._lootTarget) {
       el.style.display = '';
-      let html = `<div class="bagui-sec"><h3 style="cursor:pointer;color:var(--accent)" id="bagui-back-inner">← 返回</h3>`;
-      html += `<h3>${this._esc(this.engine.i18n.t(this.inv.getDef(bag).name || bag.defId))} 的内部</h3>`;
-      html += `<div class="bagui-grid-wrap" style="width:${bag.innerGrid.w * CELL}px;height:${bag.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="inner:${bag.uid}">`;
-      for (let y = 0; y < bag.innerGrid.h; y++) {
-        for (let x = 0; x < bag.innerGrid.w; x++) {
-          html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
-        }
-      }
-      for (const [uid, pos] of bag.innerGrid.items) {
-        html += this._itemHtml(uid, pos, `inner:${bag.uid}`);
-      }
-      html += `</div></div>`;
-      el.innerHTML = html;
-      
-      const backBtn = document.getElementById('bagui-back-inner');
-      if (backBtn) backBtn.onclick = () => { this.openedBagUid = null; this.refresh(); };
-      
+      let html = '';
+      const chestC = this.inv.containers.chest;
+      if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', '胸挂');
+      const bagC = this.inv.containers.bag;
+      if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', '背包');
+      el.innerHTML = html || '<div class="bagui-empty">无携带容器</div>';
       this._bindItemEvents(el);
       return;
     }
-    this.openedBagUid = null;
+
+    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+
+    if (this.openedBagUid) {
+      const bag = this.inv.items.get(this.openedBagUid);
+      if (bag && bag.innerGrid) {
+        el.style.display = '';
+        let html = `<div class="bagui-sec"><h3 style="cursor:pointer;color:var(--accent)" id="bagui-back-inner">← 返回</h3>`;
+        html += `<h3>${this._esc(this.engine.i18n.t(this.inv.getDef(bag).name || bag.defId))} 的内部</h3>`;
+        html += `<div class="bagui-grid-wrap" style="width:${bag.innerGrid.w * CELL}px;height:${bag.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="inner:${bag.uid}">`;
+        for (let y = 0; y < bag.innerGrid.h; y++) {
+          for (let x = 0; x < bag.innerGrid.w; x++) {
+            html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+          }
+        }
+        for (const [uid, pos] of bag.innerGrid.items) {
+          html += this._itemHtml(uid, pos, `inner:${bag.uid}`);
+        }
+        html += `</div></div>`;
+        el.innerHTML = html;
+        
+        const backBtn = document.getElementById('bagui-back-inner');
+        if (backBtn) backBtn.onclick = () => { this.openedBagUid = null; this.refresh(); };
+        
+        this._bindItemEvents(el);
+        return;
+      }
+      this.openedBagUid = null;
+    }
+
+    if (isInMatch) {
+      el.style.display = '';
+      el.innerHTML =
+        '<div class="bagui-preview" id="bagui-preview" style="width:100%;height:100%;position:absolute;inset:0;background:transparent;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px;position:absolute;top:8px;left:8px;z-index:10">角色状态</div></div>' +
+        '<div id="bagui-status-float" style="position:absolute;inset:0;pointer-events:none;z-index:5;"></div>';
+      this._renderCharPreview();
+      this._renderBagStatus();
+      return;
+    }
+
+    el.style.display = '';
+    let html = this._gridContainerHtml('stash', '仓库');
+    el.innerHTML = html;
+    this._bindItemEvents(el);
   }
 
-  if (isInMatch) {
-  el.style.display = '';
-  // ★ 改为相对定位，让状态 UI 能悬浮在模型旁边
-  el.style.position = 'relative';
-  el.innerHTML =
-    '<div class="bagui-preview" id="bagui-preview" style="width:100%;height:100%;position:absolute;inset:0;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
-    '<div id="bagui-status-float" style="position:absolute;inset:0;pointer-events:none;"></div>';
-  this._renderCharPreview();
-  this._renderBagStatus();
-  return;
-}
-  el.style.display = '';
-  let html = this._gridContainerHtml('stash', '仓库');
-  el.innerHTML = html;
-  this._bindItemEvents(el);
-}
-
-  _renderBagStatus() {
-  const el = document.getElementById('bagui-status-float');
-  if (!el) return;
-  const p = this.engine.app.world.player;
-  if (!p || !p.status) return;
-
-  // 使用绝对定位，根据部位设定大概的屏幕坐标
-  const partCoords = {
-    head: { top: '15%', left: '50%' },
-    thorax: { top: '35%', left: '50%' },
-    abdomen: { top: '50%', left: '50%' },
-    larm: { top: '40%', left: '25%' },
-    legs: { top: '70%', left: '50%' }
-  };
-  const partNames = { head: '头', thorax: '胸', abdomen: '腹', larm: '臂', legs: '腿' };
-
-  let html = '';
-  for (const pt in partCoords) {
-    const d = p.status.parts[pt];
-    if (!d) continue;
-    
-    const c = partCoords[pt];
-    let pColor = '#5fd47a';
-    if (d.hp <= 0) pColor = '#ff3030';
-    else if (d.hp < d.maxHp * 0.5) pColor = '#ff8b7b';
-    else if (d.hp < d.maxHp * 0.8) pColor = '#ffd93d';
-    
-    let wStr = '';
-    if (d.fracture === 2) wStr = ' [粉碎骨折]';
-    else if (d.fracture === 1) wStr = ' [骨折]';
-    else if (d.wound > 0) wStr = ` [${['轻','中','重','致命'][d.wound-1]}伤]`;
-
-    html += `<div style="position:absolute;top:${c.top};left:${c.left};transform:translate(-50%,-50%);background:rgba(10,18,30,0.8);padding:2px 8px;border-radius:4px;border:1px solid ${pColor};color:${pColor};font-size:11px;white-space:nowrap;">${partNames[pt]}${wStr}</div>`;
-  }
-  el.innerHTML = html;
-}
-   
   _gridContainerHtml(name, label) {
     const c = this.inv.containers[name];
     if (!c || !c.isActive) return '';
@@ -406,7 +343,7 @@ _renderRight() {
   }
 
   _equipSlotHtml(uid, slot, hint) {
-    if (!uid) return `<div class="bagui-slot empty" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;display:flex;align-items:center;justify-content:center;position:relative"><div class="bagui-name" style="color:#5c82a8">${hint}</div></div>`;
+    if (!uid) return `<div class="bagui-slot empty" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;display:flex;align-items:center;justify-content:center;position:relative"><div class="bagui-name" style="color:#5c82a8;font-size:10px">${hint}</div></div>`;
     const item = this.inv.items.get(uid);
     const def = this.inv.getDef(item);
     const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
@@ -418,15 +355,15 @@ _renderRight() {
   }
 
   _itemHtml(uid, pos, containerName) {
-  const item = this.inv.items.get(uid);
-  if (!item) return '';
-  
-  if (item.searched === false) {
-    return `<div class="bagui-item has-item unsearched" data-uid="${uid}" data-container="${containerName}"
-      style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px">
-      <div class="bagui-item-icon" style="color:#5c82a8">?</div>
-    </div>`;
-  }
+    const item = this.inv.items.get(uid);
+    if (!item) return '';
+    
+    if (item.searched === false) {
+      return `<div class="bagui-item has-item unsearched" data-uid="${uid}" data-container="${containerName}"
+        style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px">
+        <div class="bagui-item-icon" style="color:#5c82a8">?</div>
+      </div>`;
+    }
 
     const def = this.inv.getDef(item);
     const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
@@ -463,90 +400,87 @@ _renderRight() {
   _cname(n) { return { chest: '胸挂', pocket: '口袋', bag: '背包', safe: '安全箱', stash: '仓库' }[n] || n; }
   _esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
- _bindItemEvents(root) {
-  root.querySelectorAll('.bagui-item.has-item').forEach(el => {
-    const uid = el.dataset.uid;
-    
-    el.addEventListener('dragstart', e => e.preventDefault()); // ★ 禁用原生拖拽
-
-    el.addEventListener('pointerdown', (e) => {
-      const item = this.inv.items.get(uid);
-      if (item && item.searched === false) return; // 未搜索不能拖拽
-      this._onDown(e, uid, el);
-    });
-
-    el.addEventListener('click', (e) => {
-      const item = this.inv.items.get(uid);
-      if (item && item.searched === false) {
-        e.stopPropagation();
-        this._startSearchLoot(uid);
-        return;
-      }
+  _bindItemEvents(root) {
+    root.querySelectorAll('.bagui-item.has-item').forEach(el => {
+      const uid = el.dataset.uid;
       
-      if (this._didDrag) {
-        this._didDrag = false;
-        return;
-      }
-      this.selectedUid = uid;
-      const mx = e.clientX !== undefined ? e.clientX : 100;
-      const my = e.clientY !== undefined ? e.clientY : 100;
-      this._renderDetail(mx, my);
-    });
+      el.addEventListener('dragstart', e => e.preventDefault());
 
-    el.addEventListener('dblclick', (e) => {
-      e.preventDefault();
+      el.addEventListener('pointerdown', (e) => {
+        const item = this.inv.items.get(uid);
+        if (item && item.searched === false) return;
+        this._onDown(e, uid, el);
+      });
+
+      el.addEventListener('click', (e) => {
+        const item = this.inv.items.get(uid);
+        if (item && item.searched === false) {
+          e.stopPropagation();
+          this._startSearchLoot(uid);
+          return;
+        }
+        
+        if (this._didDrag) {
+          this._didDrag = false;
+          return;
+        }
+        this.selectedUid = uid;
+        const mx = e.clientX !== undefined ? e.clientX : 100;
+        const my = e.clientY !== undefined ? e.clientY : 100;
+        this._renderDetail(mx, my);
+      });
+
+      el.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        const item = this.inv.items.get(uid);
+        if (item && item.searched === false) {
+          this._startSearchLoot(uid);
+          return;
+        }
+        this._quickEquip(uid);
+      });
+    });
+  }
+
+  _startSearchLoot(uid) {
+    if (this._searchingItems && this._searchingItems[uid]) return;
+    if (!this._searchingItems) this._searchingItems = {};
+    this._searchingItems[uid] = true;
+    
+    const el = document.querySelector(`.bagui-item[data-uid="${uid}"]`);
+    if (el) el.style.opacity = '0.6';
+    
+    setTimeout(() => {
       const item = this.inv.items.get(uid);
-      if (item && item.searched === false) {
-        this._startSearchLoot(uid);
-        return;
-      }
-      this._quickEquip(uid);
-    });
-  });
-}
-
-_startSearchLoot(uid) {
-  if (this._searchingItems && this._searchingItems[uid]) return;
-  if (!this._searchingItems) this._searchingItems = {};
-  this._searchingItems[uid] = true;
-  
-  const el = document.querySelector(`.bagui-item[data-uid="${uid}"]`);
-  if (el) el.style.opacity = '0.6';
-  
-  setTimeout(() => {
-    const item = this.inv.items.get(uid);
-    if (item) item.searched = true;
-    this._searchingItems[uid] = false;
-    this.refresh();
-  }, 800); // 假装搜了 0.8 秒
-}
-
+      if (item) item.searched = true;
+      this._searchingItems[uid] = false;
+      this.refresh();
+    }, 800);
+  }
 
   _quickEquip(uid) {
-  const item = this.inv.items.get(uid);
-  if (!item) return;
+    const item = this.inv.items.get(uid);
+    if (!item) return;
 
-  // 如果当前在搜索战利品，双击直接移动到背包/胸挂
-  if (this._lootTarget) {
-    const parent = this.inv.parentOf.get(uid);
-    if (parent === 'c:loot') {
-      const targets = ['bag', 'chest', 'pocket', 'safe'];
-      let moved = false;
-      for (const t of targets) {
-        if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
+    if (this._lootTarget) {
+      const parent = this.inv.parentOf.get(uid);
+      if (parent === 'c:loot') {
+        const targets = ['bag', 'chest', 'pocket', 'safe'];
+        let moved = false;
+        for (const t of targets) {
+          if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
+        }
+        if (moved) this.refresh();
+        else console.warn('背包已满');
+        return;
       }
-      if (moved) this.refresh();
-      else console.warn('背包已满');
+    }
+
+    if (item.innerGrid) {
+      this.openedBagUid = uid;
+      this.refresh();
       return;
     }
-  }
-
-  if (item.innerGrid) {
-    this.openedBagUid = uid;
-    this.refresh();
-    return;
-  }
-  // ...
 
     let targetSlot = null;
     if (item.table === 'weapons') targetSlot = 'main';
@@ -566,7 +500,6 @@ _startSearchLoot(uid) {
       return;
     }
 
-    // 不穿的话，智能移动到包/胸挂
     const parent = this.inv.parentOf.get(uid);
     const targetC = (parent === 'c:stash') ? 'bag' : 'stash';
     const res = this.inv.addToContainer(targetC, uid);
@@ -615,66 +548,73 @@ _startSearchLoot(uid) {
     }
 
     if (item.table === 'weapons') {
-  if (!item.loaded) {
-    const ammoType = def.ammoType || '9mm';
-    item.loaded = { ammoType, qty: 0 };
-  }
-  const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
-  const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-  const magCap = def.mag || 0;
-  const isFull = item.loaded.qty >= magCap;
-  
-  // ★ 检查游戏内是否正在换弹
-  const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
-  
-  html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
-  if (isReloading) {
-    html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
-  } else {
-    if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
-    if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
-  }
-  html += `</span></div>`;
-}
+      if (!item.loaded) {
+        const ammoType = def.ammoType || '9mm';
+        item.loaded = { ammoType, qty: 0, queue: [] };
+      }
+      const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
+      const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+      const magCap = def.mag || 0;
+      const isFull = item.loaded.qty >= magCap;
+      
+      const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
+      
+      html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
+      if (isReloading) {
+        html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
+      } else {
+        if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
+        if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
+      }
+      html += `</span></div>`;
+    }
 
     if (item.attachments) {
-  html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
-  for (const slot of ['muzzle', 'sight', 'mag', 'grip']) {
-    const aUid = item.attachments[slot];
-    html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
-    html += `<span class="bagui-attach-label">${slot}</span>`;
-    if (aUid) {
-      const aDef = this.inv.getDef(this.inv.items.get(aUid));
-      const aRaw = aDef ? (aDef.name || aDef.n || '?') : '?';
-      html += `<span class="bagui-attach-val">${this._esc(this.engine.i18n.t(aRaw))}</span>`;
-    } else {
-      html += '<span class="bagui-attach-empty">空</span>';
-    }
-    html += `</div>`;
-  }
-  html += '</div>';
+      html += '<div class="bagui-attach-title">配件槽（拖配件到此）</div><div class="bagui-attach-grid">';
+      for (const slot of ['muzzle', 'sight', 'mag', 'grip']) {
+        const aUid = item.attachments[slot];
+        html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
+        html += `<span class="bagui-attach-label">${slot}</span>`;
+        if (aUid) {
+          const aDef = this.inv.getDef(this.inv.items.get(aUid));
+          const aRaw = aDef ? (aDef.name || aDef.n || '?') : '?';
+          html += `<span class="bagui-attach-val">${this._esc(this.engine.i18n.t(aRaw))}</span>`;
+        } else {
+          html += '<span class="bagui-attach-empty">空</span>';
+        }
+        html += `</div>`;
+      }
+      html += '</div>';
     }
 
-    // 内部网格打开按钮
+    if (item.effects && item.effects.length > 0) {
+      html += '<div class="bagui-effects-title">效果</div><div class="bagui-effects">';
+      for (const e of item.effects) {
+        const name = typeof e === 'string' ? e : (e.name || e.id || '?');
+        html += `<div class="bagui-effect-item">${this._esc(name)}</div>`;
+      }
+      html += '</div>';
+    }
+
     if (item.innerGrid) {
       html += `<button class="bagui-btn" id="bagui-open-inner" data-uid="${uid}">打开内部网格 (${item.innerGrid.w}x${item.innerGrid.h})</button>`;
     }
 
     if (item.stackLimit > 1 && item.qty > 1) {
-  const halfQty = Math.max(1, Math.floor(item.qty / 2));
-  html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
-    <span>拆分</span>
-    <input type="number" class="bagui-btn" style="width:60px;margin:0;text-align:center" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
-    <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">执行</button>
-  </div>`;
-}
+      const halfQty = Math.max(1, Math.floor(item.qty / 2));
+      html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
+        <span>拆分</span>
+        <input type="number" class="bagui-btn" style="width:60px;margin:0;text-align:center" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
+        <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">执行</button>
+      </div>`;
+    }
 
-const isInStash = this.inv.parentOf.get(uid) === 'c:stash';
-const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
-if (isInStash && !isInMatch) {
-  const sellValue = Math.floor(unitVal * 0.8);
-  html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
-}
+    const isInStash = this.inv.parentOf.get(uid) === 'c:stash';
+    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
+    if (isInStash && !isInMatch) {
+      const sellValue = Math.floor(unitVal * 0.8);
+      html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
+    }
 
     el.innerHTML = html;
     el.classList.add('on');
@@ -715,88 +655,101 @@ if (isInStash && !isInMatch) {
     });
 
     const sellBtn = document.getElementById('bagui-sell-btn');
-if (sellBtn) {
-  sellBtn.onclick = (e) => {
-    e.stopPropagation();
-    const currentVal = this.inv.getItemValue(uid);
-    const sellVal = Math.floor(currentVal * 0.8);
-    if (confirm(`确认卖出 ${displayName} 获得 ${sellVal} cp 吗？`)) {
-      this.inv.destroyItem(uid);
-      this.engine.save.data.credits = (this.engine.save.data.credits || 0) + sellVal;
-      this.engine.save.save();
-      this._deselectDetail();
-      this.refresh();
+    if (sellBtn) {
+      sellBtn.onclick = (e) => {
+        e.stopPropagation();
+        const currentVal = this.inv.getItemValue(uid);
+        const sellVal = Math.floor(currentVal * 0.8);
+        if (confirm(`确认卖出 ${displayName} 获得 ${sellVal} cp 吗？`)) {
+          this.inv.destroyItem(uid);
+          this.engine.save.data.credits = (this.engine.save.data.credits || 0) + sellVal;
+          this.engine.save.save();
+          this._deselectDetail();
+          this.refresh();
+        }
+      };
     }
-  };
-}
   }
 
   _loadAmmo(weaponUid) {
-  const item = this.inv.items.get(weaponUid);
-  if (!item || item.table !== 'weapons' || !item.loaded) return;
-  const def = this.inv.getDef(item);
-  if (!def) return;
-  const space = (def.mag || 0) - item.loaded.qty;
-  if (space <= 0) return;
+    const item = this.inv.items.get(weaponUid);
+    if (!item || item.table !== 'weapons' || !item.loaded) return;
+    const def = this.inv.getDef(item);
+    if (!def) return;
+    const space = (def.mag || 0) - item.loaded.qty;
+    if (space <= 0) return;
 
-  const world = this.engine.app ? this.engine.app.world : null;
-  const isInMatch = world && world.running;
+    const world = this.engine.app ? this.engine.app.world : null;
+    const isInMatch = world && world.running;
 
-  if (isInMatch) {
-    // ★ 在战局内：触发真实的换弹动作流程
-    const p = world.player;
-    p.weapon = p.weapon; // 确保引用同步
-    world._startReload();
-    this.close();
-  } else {
-    // 在仓库内：无动作，直接装填（便于配装）
-    const take = this._consumeAmmoFromAll(def.ammoType, space);
-    if (take > 0) {
-      item.loaded.qty += take;
-      this.refresh();
-    }
-  }
-}
-
-  _consumeAmmoFromAll(ammoType, count) {
-    const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
-    let remaining = count;
-    for (const cName of searchOrder) {
-      if (remaining <= 0) break;
-      const c = this.inv.containers[cName];
-      if (!c) continue;
-      for (const uid of Array.from(c.items.keys())) {
-        if (remaining <= 0) break;
-        const it = this.inv.items.get(uid);
-        if (!it || it.table !== 'ammo' || it.defId !== ammoType) continue;
-        const take = Math.min(it.qty, remaining);
-        it.qty -= take;
-        remaining -= take;
-        if (it.qty <= 0) this.inv.destroyItem(uid);
+    if (isInMatch) {
+      if (world.player.weapon && world.player.weapon.item === item) {
+        world._startReload();
+        this.close();
+      } else {
+        alert('战局内只能给手持武器换弹。');
       }
+    } else {
+      const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
+      let remaining = space;
+      for (const cName of searchOrder) {
+        if (remaining <= 0) break;
+        const c = this.inv.containers[cName];
+        if (!c) continue;
+        for (const uid of Array.from(c.items.keys())) {
+          if (remaining <= 0) break;
+          const it = this.inv.items.get(uid);
+          if (!it || it.table !== 'ammo') continue;
+          const ammoDef = this.inv.getDef(it);
+          if (!ammoDef || ammoDef.caliber !== def.ammoType) continue;
+          
+          const take = Math.min(it.qty, remaining);
+          for(let i=0; i<take; i++) item.loaded.queue.push(it.defId);
+          item.loaded.qty += take;
+          remaining -= take;
+          
+          it.qty -= take;
+          if (it.qty <= 0) this.inv.destroyItem(uid);
+        }
+      }
+      if (remaining < space) this.refresh();
     }
-    return count - remaining;
   }
 
   _unloadAmmo(weaponUid) {
     const item = this.inv.items.get(weaponUid);
     if (!item || item.table !== 'weapons' || !item.loaded || item.loaded.qty <= 0) return;
-    const ammoType = item.loaded.ammoType;
-    const qty = item.loaded.qty;
-    // ★ 修复价值漂移：继承武器的 valueMul
-    const uid = this.inv.createItem('ammo', ammoType, { qty, lockValue: true, valueMul: item.valueMul });
-    if (!uid) return;
-    const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
-    let placed = false;
-    for (const t of targets) {
-      if (this.inv.addToContainer(t, uid).ok) { placed = true; break; }
+    
+    // 统计队列里的子弹数量并分类
+    const counts = {};
+    if (item.loaded.queue && item.loaded.queue.length > 0) {
+      for (const id of item.loaded.queue) counts[id] = (counts[id] || 0) + 1;
+    } else {
+      counts[item.loaded.ammoType] = item.loaded.qty;
     }
-    if (!placed) {
-      this.inv.destroyItem(uid);
-      return;
+    
+    let success = false;
+    for (const [ammoId, qty] of Object.entries(counts)) {
+      const uid = this.inv.createItem('ammo', ammoId, { qty, lockValue: true, valueMul: item.valueMul });
+      if (!uid) continue;
+      
+      const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
+      let placed = false;
+      for (const t of targets) {
+        if (this.inv.addToContainer(t, uid).ok) { placed = true; break; }
+      }
+      if (!placed) {
+        this.inv.destroyItem(uid);
+        continue;
+      }
+      success = true;
     }
-    item.loaded.qty = 0;
-    this.refresh();
+    
+    if (success) {
+      item.loaded.qty = 0;
+      item.loaded.queue = [];
+      this.refresh();
+    }
   }
 
   _splitStack(uid, count) {
@@ -812,213 +765,210 @@ if (sellBtn) {
     this.refresh();
   }
 
-/* ===== 拖拽 ===== */
-_onDown(e, uid, el) {
-  if (e.button !== undefined && e.button > 0) return;
-  e.preventDefault(); 
-  const rect = el.getBoundingClientRect();
-  this._drag = { 
-    uid, 
-    startX: e.clientX, 
-    startY: e.clientY, 
-    offsetX: e.clientX - rect.left,
-    offsetY: e.clientY - rect.top,
-    moved: false, 
-    ghost: null, 
-    srcEl: el,
-    pointerId: e.pointerId
-  };
-  // ★ 锁死指针，防止移出元素后丢失事件
-  if (el.setPointerCapture && e.pointerId !== undefined) {
-    try { el.setPointerCapture(e.pointerId); } catch (_) {}
-  }
-}
-
-_onMove(e) {
-  if (!this._drag) return;
-  if (this._drag.pointerId !== undefined && e.pointerId !== this._drag.pointerId) return;
-
-  if (!this._drag.moved) {
-    const dx = e.clientX - this._drag.startX, dy = e.clientY - this._drag.startY;
-    if (dx * dx + dy * dy < 25) return; // 5px 触发
-    this._drag.moved = true;
-    
-    const ghost = this._drag.srcEl.cloneNode(true);
-    ghost.classList.add('ghost');
-    ghost.classList.remove('has-item');
-    ghost.style.width = this._drag.srcEl.offsetWidth + 'px';
-    ghost.style.height = this._drag.srcEl.offsetHeight + 'px';
-    ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
-    ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
-    document.body.appendChild(ghost);
-    
-    this._drag.ghost = ghost;
-    if (this._drag.srcEl) this._drag.srcEl.style.opacity = 0.3;
-  }
-  
-  if (this._drag.ghost) {
-    this._drag.ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
-    this._drag.ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
+  openLoot(target) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    this._lootTarget = target;
+    this.open = true;
+    this._clearGhosts();
+    document.getElementById('bagui-overlay').classList.add('on');
+    this.refresh();
   }
 
-  document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
-  const tgt = document.elementFromPoint(e.clientX, e.clientY);
-  if (tgt) {
-    const wrap = tgt.closest('.bagui-grid-wrap');
-    if (wrap) wrap.style.boxShadow = '0 0 10px #7bf5a8 inset';
-  }
-}
-
-_onUp(e) {
-  if (!this._drag) return;
-  if (this._drag.pointerId !== undefined && e.pointerId !== this._drag.pointerId) return;
-
-  const moved = this._drag.moved;
-  const uid = this._drag.uid;
-  const srcEl = this._drag.srcEl;
-  const offsetX = this._drag.offsetX;
-  const offsetY = this._drag.offsetY;
-  
-  document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
-  
-  if (!moved) { 
-    this._cancelDrag(); 
-    return; 
+  /* ===== 拖拽 ===== */
+  _onDown(e, uid, el) {
+    if (e.button !== undefined && e.button > 0) return;
+    e.preventDefault(); 
+    const rect = el.getBoundingClientRect();
+    this._drag = { 
+      uid, 
+      startX: e.clientX, 
+      startY: e.clientY, 
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      moved: false, 
+      ghost: null, 
+      srcEl: el,
+      pointerId: e.pointerId
+    };
+    if (el.setPointerCapture && e.pointerId !== undefined) {
+      try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    }
   }
 
-  this._didDrag = true;
-  
-  const px = e.clientX;
-  const py = e.clientY;
-  this._cancelDrag();
-  
-  // ★ 防止 pointercancel 触发的 undefined 坐标
-  if (px === undefined || py === undefined) {
-    if (srcEl) srcEl.style.opacity = 1;
-    return;
-  }
-  
-  const tgt = document.elementFromPoint(px, py);
-  if (!tgt) { if (srcEl) srcEl.style.opacity = 1; return; }
-  
-  const wrap = tgt.closest('.bagui-grid-wrap');
-  if (wrap) {
-    const containerName = wrap.dataset.container;
-    const rect = wrap.getBoundingClientRect();
-    
-    const ghostLeft = px - offsetX;
-    const ghostTop = py - offsetY;
-    
-    let gx = Math.round((ghostLeft - rect.left) / CELL);
-    let gy = Math.round((ghostTop - rect.top) / CELL);
+  _onMove(e) {
+    if (!this._drag) return;
+    if (this._drag.pointerId !== undefined && e.pointerId !== this._drag.pointerId) return;
 
-    const item = this.inv.items.get(uid);
-    let targetGrid = null;
-    if (containerName.startsWith('inner:')) {
-      const host = this.inv.items.get(containerName.slice(6));
-      if (host) targetGrid = host.innerGrid;
-    } else {
-      targetGrid = this.inv.containers[containerName];
+    if (!this._drag.moved) {
+      const dx = e.clientX - this._drag.startX, dy = e.clientY - this._drag.startY;
+      if (dx * dx + dy * dy < 25) return;
+      this._drag.moved = true;
+      
+      const ghost = this._drag.srcEl.cloneNode(true);
+      ghost.classList.add('ghost');
+      ghost.classList.remove('has-item');
+      ghost.style.width = this._drag.srcEl.offsetWidth + 'px';
+      ghost.style.height = this._drag.srcEl.offsetHeight + 'px';
+      ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
+      ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
+      document.body.appendChild(ghost);
+      
+      this._drag.ghost = ghost;
+      if (this._drag.srcEl) this._drag.srcEl.style.opacity = 0.3;
     }
     
-    if (targetGrid) {
-      // ★ 关键修复：如果是放回原容器且坐标没变，直接静默取消，不刷新 UI
-      const currentParent = this.inv.parentOf.get(uid);
-      const isSameContainer = (currentParent === containerName || (currentParent === 'c:' + containerName));
-      const oldPos = targetGrid.items.get(uid);
-      
-      if (isSameContainer && oldPos && oldPos.x === gx && oldPos.y === gy) {
-        return; // 静默退出，srcEl 已经在 _cancelDrag 中恢复不透明
-      }
+    if (this._drag.ghost) {
+      this._drag.ghost.style.left = (e.clientX - this._drag.offsetX) + 'px';
+      this._drag.ghost.style.top = (e.clientY - this._drag.offsetY) + 'px';
+    }
 
-      let ok = this._placeAt(containerName, targetGrid, uid, gx, gy, item.rotated).ok;
-      if (!ok) {
-        // 尝试翻转
-        ok = this._placeAt(containerName, targetGrid, uid, gx, gy, !item.rotated).ok;
+    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
+    const tgt = document.elementFromPoint(e.clientX, e.clientY);
+    if (tgt) {
+      const wrap = tgt.closest('.bagui-grid-wrap');
+      if (wrap) wrap.style.boxShadow = '0 0 10px #7bf5a8 inset';
+    }
+  }
+
+  _onUp(e) {
+    if (!this._drag) return;
+    if (this._drag.pointerId !== undefined && e.pointerId !== this._drag.pointerId) return;
+
+    const moved = this._drag.moved;
+    const uid = this._drag.uid;
+    const srcEl = this._drag.srcEl;
+    const offsetX = this._drag.offsetX;
+    const offsetY = this._drag.offsetY;
+    
+    document.querySelectorAll('.bagui-grid-wrap').forEach(x => x.style.boxShadow = 'none');
+    
+    if (!moved) { 
+      this._cancelDrag(); 
+      return; 
+    }
+
+    this._didDrag = true;
+    
+    const px = e.clientX;
+    const py = e.clientY;
+    this._cancelDrag();
+    
+    if (px === undefined || py === undefined) {
+      if (srcEl) srcEl.style.opacity = 1;
+      return;
+    }
+    
+    const tgt = document.elementFromPoint(px, py);
+    if (!tgt) { 
+      if (srcEl) srcEl.style.opacity = 1; 
+      // 丢到界面外 → 丢弃到地上
+      if (this.engine.app && this.engine.app.world && this.engine.app.world.running) {
+        if (this.engine.app.world._dropItemToGround(uid)) {
+          this.refresh();
+          return;
+        }
       }
-      if (!ok) {
-        // 尝试自动寻找空位
-        ok = this.inv.addToContainer(containerName, uid).ok;
+      return; 
+    }
+    
+    const wrap = tgt.closest('.bagui-grid-wrap');
+    if (wrap) {
+      const containerName = wrap.dataset.container;
+      const rect = wrap.getBoundingClientRect();
+      
+      const ghostLeft = px - offsetX;
+      const ghostTop = py - offsetY;
+      
+      let gx = Math.round((ghostLeft - rect.left) / CELL);
+      let gy = Math.round((ghostTop - rect.top) / CELL);
+
+      const item = this.inv.items.get(uid);
+      let targetGrid = null;
+      if (containerName.startsWith('inner:')) {
+        const host = this.inv.items.get(containerName.slice(6));
+        if (host) targetGrid = host.innerGrid;
+      } else {
+        targetGrid = this.inv.containers[containerName];
       }
       
-      if (ok) {
-        this.refresh();
+      if (targetGrid) {
+        const currentParent = this.inv.parentOf.get(uid);
+        const isSameContainer = (currentParent === containerName || (currentParent === 'c:' + containerName));
+        const oldPos = targetGrid.items.get(uid);
+        
+        if (isSameContainer && oldPos && oldPos.x === gx && oldPos.y === gy) {
+          return;
+        }
+
+        let ok = this._placeAt(containerName, targetGrid, uid, gx, gy, item.rotated).ok;
+        if (!ok) {
+          ok = this._placeAt(containerName, targetGrid, uid, gx, gy, !item.rotated).ok;
+        }
+        if (!ok) {
+          ok = this.inv.addToContainer(containerName, uid).ok;
+        }
+        
+        if (ok) {
+          this.refresh();
+        } else {
+          if (srcEl) srcEl.style.opacity = 1;
+        }
       } else {
-        // 放不下，直接恢复原状
         if (srcEl) srcEl.style.opacity = 1;
       }
     } else {
-      if (srcEl) srcEl.style.opacity = 1;
-    }
-  } else {
-  const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
-  if (equip) {
-    const slot = equip.dataset.srcSlot;
-    const currentParent = this.inv.parentOf.get(uid);
-    if (currentParent !== 'eq:' + slot) {
-      // 记录原位置（用于回滚或安置被换下的装备）
-      const originalParent = this.inv.parentOf.get(uid);
-      const origPos = originalParent && originalParent.startsWith('c:') ? this.inv.containers[originalParent.slice(2)].items.get(uid) : null;
+      const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
+      if (equip) {
+        const slot = equip.dataset.srcSlot;
+        const currentParent = this.inv.parentOf.get(uid);
+        if (currentParent !== 'eq:' + slot) {
+          const originalParent = this.inv.parentOf.get(uid);
+          const origPos = originalParent && originalParent.startsWith('c:') ? this.inv.containers[originalParent.slice(2)].items.get(uid) : null;
 
-      this.inv._detach(uid);
-      const r = this.inv.equip(slot, uid);
-      
-      if (r.ok) {
-        // ★ 修复：如果换下了老装备，必须给它找个归宿
-        if (r.swapped) {
-          let placed = false;
-          // 1. 尝试放回拖拽物品原本所在的容器格
-          if (originalParent && originalParent.startsWith('c:')) {
-            const cName = originalParent.slice(2);
-            const grid = this.inv.containers[cName];
-            if (grid) {
-              if (origPos) {
-                // 强制放回原格子
-                if (this.inv._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
+          this.inv._detach(uid);
+          const r = this.inv.equip(slot, uid);
+          
+          if (r.ok) {
+            if (r.swapped) {
+              let placed = false;
+              if (originalParent && originalParent.startsWith('c:')) {
+                const cName = originalParent.slice(2);
+                const grid = this.inv.containers[cName];
+                if (grid) {
+                  if (origPos) {
+                    if (this._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
+                  }
+                  if (!placed) {
+                    if (this.inv.addToContainer(cName, r.swapped).ok) placed = true;
+                  }
+                }
               }
               if (!placed) {
-                // 原格子放不下，就自动找空位
-                if (this.inv.addToContainer(cName, r.swapped).ok) placed = true;
+                for (const t of ['bag', 'chest', 'stash']) {
+                  if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+                }
+              }
+              if (!placed) {
+                this.inv.unequip(slot);
+                this.inv._detach(uid);
+                this.inv.equip(slot, r.swapped);
+                if (originalParent) this._restoreTo(uid, originalParent);
+                this.refresh();
+                return;
               }
             }
-          }
-          // 2. 如果原容器放不下，塞入背包或仓库
-          if (!placed) {
-            for (const t of ['bag', 'chest', 'stash']) {
-              if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
-            }
-          }
-          // 3. 如果实在放不下，退回装备槽并取消本次操作
-          if (!placed) {
-            this.inv.unequip(slot);
-            this.inv._detach(uid);
-            // 复原老装备
-            this.inv.equip(slot, r.swapped);
-            // 复原当前装备
-            if (originalParent) this._restoreTo(uid, originalParent);
             this.refresh();
-            return;
+          } else {
+            if (srcEl) srcEl.style.opacity = 1;
           }
+        } else {
+          if (srcEl) srcEl.style.opacity = 1;
         }
-        this.refresh();
       } else {
         if (srcEl) srcEl.style.opacity = 1;
       }
-    } else {
-      if (srcEl) srcEl.style.opacity = 1;
     }
-  } else {
-    // ★ 修复：丢到界面外 → 丢弃到地上
-    if (this.engine.app && this.engine.app.world && this.engine.app.world.running) {
-      if (this.engine.app.world._dropItemToGround(uid)) {
-        this.refresh();
-        return;
-      }
-    }
-    if (srcEl) srcEl.style.opacity = 1;
   }
-  }
-}
 
   _placeAt(containerName, grid, uid, gx, gy, rotated) {
     const item = this.inv.items.get(uid);
@@ -1026,14 +976,12 @@ _onUp(e) {
     const w = rotated ? item.h : item.w;
     const h = rotated ? item.w : item.h;
     
-    // 边缘自动贴边
     if (gx < 0) gx = 0;
     if (gy < 0) gy = 0;
     if (gx + w > grid.w) gx = grid.w - w;
     if (gy + h > grid.h) gy = grid.h - h;
     if (gx < 0 || gy < 0) return { ok: false };
     
-    // 检查区域是否为空（忽略自己）
     for (let dy = 0; dy < h; dy++) {
       for (let dx = 0; dx < w; dx++) {
         const occ = grid.slots.get((gx + dx) + ',' + (gy + dy));
@@ -1046,6 +994,20 @@ _onUp(e) {
     item.rotated = rotated;
     this.inv.parentOf.set(uid, containerName.startsWith('inner:') ? containerName : 'c:' + containerName);
     return { ok: true };
+  }
+
+  _restoreTo(uid, parent) {
+    if (!parent) { this.inv.addToContainer('stash', uid); return; }
+    if (parent.startsWith('eq:')) { this.inv.equip(parent.slice(3), uid); return; }
+    if (parent.startsWith('c:')) { this.inv.addToContainer(parent.slice(2), uid); return; }
+    const p = this.inv.items.get(parent);
+    if (p && p.attachments) {
+      for (const k in p.attachments) if (!p.attachments[k]) if (this.inv.attachTo(parent, k, uid).ok) return;
+    }
+    if (p && p.subSlots) {
+      for (const k in p.subSlots) if (!p.subSlots[k]) if (this.inv.attachToSubSlot(parent, k, uid).ok) return;
+    }
+    this.inv.addToContainer('stash', uid);
   }
 
   _cancelDrag() {
@@ -1078,11 +1040,15 @@ _onUp(e) {
     renderer.setSize(w, h, false);
     renderer.setClearColor(0x000000, 0);
     this._charPreviewRenderer = renderer;
+    this._charPreviewCamera = null;
+    this._charPreviewW = w;
+    this._charPreviewH = h;
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 100);
-    camera.position.set(0, 1.2, 6.5); // 相机拉远
-    camera.lookAt(0, 1.0, 0);         // 焦点下移
+    camera.position.set(0, 1.2, 6.5);
+    camera.lookAt(0, 1.0, 0);
+    this._charPreviewCamera = camera;
 
     scene.add(new THREE.AmbientLight(0xffffff, 1.2));
     const key = new THREE.DirectionalLight(0xfff4e0, 1.4); key.position.set(3, 6, 4); scene.add(key);
@@ -1108,5 +1074,55 @@ _onUp(e) {
     nameEl.style.cssText = 'position:absolute;bottom:8px;left:8px;right:8px;text-align:center;font-size:11px;color:#a8d8ff;letter-spacing:2px;text-shadow:0 1px 3px #000';
     nameEl.textContent = this.engine.i18n.t(spec.name);
     host.appendChild(nameEl);
+  }
+
+  _renderBagStatus() {
+    const el = document.getElementById('bagui-status-float');
+    if (!el) return;
+    const p = this.engine.app.world.player;
+    if (!p || !p.status) return;
+
+    const partCoords3D = {
+      head: 2.1,
+      thorax: 1.6,
+      abdomen: 1.15,
+      larm: 1.55,
+      legs: 0.5
+    };
+    
+    if (!this._charPreviewCamera || !this._charPreviewW) {
+       el.innerHTML = '';
+       return;
+    }
+
+    const partNames = { head: '头', thorax: '胸', abdomen: '腹', larm: '臂', legs: '腿' };
+    let html = '';
+
+    for (const pt in partCoords3D) {
+      const d = p.status.parts[pt];
+      if (!d) continue;
+
+      const y3D = partCoords3D[pt];
+      const v = new THREE.Vector3(0, y3D, 0);
+      v.project(this._charPreviewCamera);
+      
+      const x = (v.x * 0.5 + 0.5) * this._charPreviewW;
+      const y = (-v.y * 0.5 + 0.5) * this._charPreviewH;
+
+      let pColor = '#5fd47a';
+      if (d.hp <= 0) pColor = '#ff3030';
+      else if (d.hp < d.maxHp * 0.5) pColor = '#ff8b7b';
+      else if (d.hp < d.maxHp * 0.8) pColor = '#ffd93d';
+      
+      let wStr = '';
+      if (d.fracture === 2) wStr = ' [粉碎骨折]';
+      else if (d.fracture === 1) wStr = ' [骨折]';
+      else if (d.wound > 0) wStr = ` [${['轻','中','重','致命'][d.wound-1]}伤]`;
+
+      html += `<div style="position:absolute;left:${x}px;top:${y}px;transform:translate(10px, -50%);background:rgba(10,18,30,0.9);padding:2px 8px;border-radius:4px;border-left:3px solid ${pColor};color:${pColor};font-size:11px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
+        ${partNames[pt]}${wStr}
+      </div>`;
+    }
+    el.innerHTML = html;
   }
 }
