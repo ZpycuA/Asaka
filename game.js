@@ -1759,15 +1759,23 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   }
   }
 
- update(dt){
+  update(dt){
   if (!this.running || this.paused) return;
   this.time += dt;
 
   this.tasks.tickSurvive(dt);
+
+  // ★ 1. 状态机更新（受伤、流血、状态倒计时）
   if (this.player && this.player.status) this.player.status.tick(dt);
-for (const e of this.enemies) { if (e.alive && e.status) e.status.tick(dt); }
-this._updatePlayer(dt);
+  for (const e of this.enemies) { if (e.alive && e.status) e.status.tick(dt); }
+
+  // ★ 2. 玩家更新（只跑一次）
   this._updatePlayer(dt);
+
+  // ★ 3. 状态弹窗检测
+  this._checkPlayerEffects(dt);
+
+  // ★ 4. 其他逻辑更新
   this.actionProcess.update(dt);
   this._updateEnemies(dt);
   this._updateExtracts(dt);
@@ -1776,11 +1784,12 @@ this._updatePlayer(dt);
   this._updateMobileButtons();
   this._updateSearchHint();
 
+  // ★ 5. 物理同步与渲染
   this.physics.step(dt);
-this._syncMeshes(dt);
-this._updateGlowState(this.player, dt);
+  this._syncMeshes(dt);
+  this._updateGlowState(this.player, dt);
 
-    // ★ 玩家存活 → 常规跟随；玩家死亡 → 死亡相机接管
+  // ★ 6. 相机跟随（活/死互斥）
   if (this.player && this.player.alive) {
     const footY = this.player.body.position.y - this.player.body.halfH;
     this.engine.cameraCtl.follow(
@@ -1791,8 +1800,9 @@ this._updateGlowState(this.player, dt);
   } else {
     this._updateDeathCamera(dt);
   }
-this.hud.update();
+  this.hud.update();
 
+  // ★ 7. 时间限制
   if (this.timeLimit > 0 && this.time >= this.timeLimit) {
     this._log('时间耗尽', 'r');
     this._end(false);
