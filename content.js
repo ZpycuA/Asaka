@@ -5,18 +5,6 @@
    本文件是"所有游戏内容的注册入口"。引擎不认识这里的东西，
    只是把数据存到 ContentRegistry 里，由 game.js 取用。
    
-   每个内容表结构约定：
-     ammo:        { name, massG, v0, tier }
-     weapons:     { name, ammoType, rpm, mag, reload, range, spread, auto, pellets, color? }
-     armor:       { name, red, maxDur }
-     enemies:     { name, hp, speed, acc, faction, weapon, color, radius }
-     characters:  { name, tag, hp, speed, radius, weapon, sidearm,
-                    prazer, A, color, skills?, heavyArmor? }
-     maps:        { name, desc, size, obstacleCount, enemyCount }
-     skills:      { name, kind, cd, cost, ... }
-     tasks:       { name, desc, source, trigger: {kind, filter?},
-                    goal, onComplete: [{kind, ...}] }
-   
    所有 name/desc 字段是 i18n key，由 locale 文件提供翻译。
    外部可用 window.LAIASAKA_CONTENT 覆盖/扩展。
    ============================================================ */
@@ -37,11 +25,12 @@ export function registerDefaultContent(engine) {
    ⚠ 这两者独立：tier 高不代表穿透高，反之亦然
    ========================================================== */
 const AMMO = {
-  '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    w: 1, h: 1, massG: 8.0,  v0: 360, tier: 0, pen: 0, value: 15, rarity: 'L0', stackLimit: 999 },
-  '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    w: 1, h: 1, massG: 4.0,  v0: 940, tier: 2, pen: 3, value: 60, rarity: 'L1', stackLimit: 999 },
-  '7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, massG: 8.0,  v0: 730, tier: 2, pen: 5, value: 80, rarity: 'L2', stackLimit: 999 },
-  '.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, massG: 14.9, v0: 290, tier: 0, pen: 1, value: 25, rarity: 'L0', stackLimit: 999 },
-  '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   w: 1, h: 1, massG: 3.5,  v0: 410, tier: 0, pen: 0, value: 40, rarity: 'L0', stackLimit: 999 },
+  '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    w: 1, h: 1, caliber: '9mm', massG: 8.0,  v0: 360, tier: 0, pen: 0, value: 15, rarity: 'L0', stackLimit: 999 },
+  '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    w: 1, h: 1, caliber: '5.56', massG: 4.0,  v0: 940, tier: 2, pen: 3, value: 60, rarity: 'L1', stackLimit: 999 },
+  '5.56_ap':{ name: '5.56 穿甲弹', desc: '高硬度钢芯弹，穿透力极强。', w: 1, h: 1, caliber: '5.56', massG: 4.2, v0: 920, tier: 3, pen: 5, value: 120, rarity: 'L2', stackLimit: 999 },
+  '7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, caliber: '7.62', massG: 8.0,  v0: 730, tier: 2, pen: 5, value: 80, rarity: 'L2', stackLimit: 999 },
+  '.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, caliber: '.45acp', massG: 14.9, v0: 290, tier: 0, pen: 1, value: 25, rarity: 'L0', stackLimit: 999 },
+  '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   w: 1, h: 1, caliber: '12ga', massG: 3.5,  v0: 410, tier: 0, pen: 0, value: 40, rarity: 'L0', stackLimit: 999 },
 };
   c.registerAll('ammo', AMMO);
 
