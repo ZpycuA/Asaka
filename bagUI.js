@@ -315,21 +315,73 @@ _renderRight() {
     this.openedBagUid = null;
   }
 
-  if (isInMatch) {
-    el.style.display = '';
-    el.innerHTML =
-      '<div class="bagui-preview" id="bagui-preview"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
-      '<div class="bagui-status" id="bagui-status">状态栏（预留）</div>';
-    this._renderCharPreview();
-    return;
-  }
-
+  ifif (isInMatch) {
+  el.style.display = '';
+  el.innerHTML =
+    '<div class="bagui-preview" id="bagui-preview" style="flex:0 0 220px;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px">角色状态</div></div>' +
+    '<div class="bagui-status" id="bagui-status" style="flex:1;overflow-y:auto;padding:10px;text-align:left;font-size:11px;line-height:1.6;"></div>';
+  this._renderCharPreview();
+  this._renderBagStatus(); // ★ 新增：渲染背包内的状态
+  return;
+}
   el.style.display = '';
   let html = this._gridContainerHtml('stash', '仓库');
   el.innerHTML = html;
   this._bindItemEvents(el);
 }
 
+  _renderBagStatus() {
+  const el = document.getElementById('bagui-status');
+  if (!el) return;
+  const p = this.engine.app.world.player;
+  if (!p || !p.status) { el.innerHTML = '状态未知'; return; }
+
+  const hq = p.status.healthQuality;
+  const hText = p.status.getHealthText();
+  let hColor = '#5fd47a';
+  if (hq <= 15) hColor = '#ff3030';
+  else if (hq <= 35) hColor = '#ff8b7b';
+  else if (hq <= 60) hColor = '#ffd93d';
+  else if (hq <= 85) hColor = '#a8e05a';
+
+  let html = `<div style="font-size:14px;color:#a8d8ff;margin-bottom:8px;font-weight:700;">综合状态: <span style="color:${hColor}">${hText}</span></div>`;
+  
+  // 部位列表
+  const partNames = { head: '头部', thorax: '胸部', abdomen: '腹部', larm: '左臂', rarm: '右臂', legs: '腿部' };
+  const parts = ['head', 'thorax', 'abdomen', 'larm', 'rarm', 'legs'];
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;">';
+  for (const pt of parts) {
+    const d = p.status.parts[pt];
+    if (!d) continue;
+    let pColor = '#5fd47a';
+    if (d.hp <= 0) pColor = '#ff3030';
+    else if (d.hp < d.maxHp * 0.5) pColor = '#ff8b7b';
+    else if (d.hp < d.maxHp * 0.8) pColor = '#ffd93d';
+    
+    let wStr = '';
+    if (d.fracture === 2) wStr = ' <span style="color:#ff3030">[粉碎性骨折]</span>';
+    else if (d.fracture === 1) wStr = ' <span style="color:#ff8b7b">[骨折]</span>';
+    else if (d.wound > 0) wStr = ` <span style="color:#ffd93d">[${['轻','中','重','致命'][d.wound-1]}伤]</span>`;
+
+    html += `<div>${partNames[pt]}: <span style="color:${pColor}">${Math.round(d.hp)}/${d.maxHp}</span>${wStr}</div>`;
+  }
+  html += '</div>';
+
+  // 异常状态列表
+  if (p.status.effects.size > 0) {
+    html += '<div style="color:#8fb0c8;margin-bottom:4px;">当前异常:</div>';
+    for (const [id, eff] of p.status.effects) {
+      const def = this.engine.content.get('effects', id);
+      if (def) {
+        html += `<div style="color:#ff8b7b;margin-bottom:2px;">${def.icon} ${def.name} (强度:${eff.strength})</div>`;
+      }
+    }
+  } else {
+    html += '<div style="color:#5fd47a;">无异常状态</div>';
+  }
+  el.innerHTML = html;
+}
+   
   _gridContainerHtml(name, label) {
     const c = this.inv.containers[name];
     if (!c || !c.isActive) return '';
