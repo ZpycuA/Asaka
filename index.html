@@ -6,7 +6,7 @@
 <title>LaiAsaka Engine · Asaka Straight Project</title>
 <style>
 /* ============================================================
-   LaiAsaka Engine v3.1.0 · 全局样式
+   LaiAsaka Engine v3.2.0 · 全局样式 (重构版)
    ============================================================ */
 :root{
   --bg:#05070a;--bg2:#0a1018;
@@ -17,440 +17,270 @@
   --mono:ui-monospace,Menlo,Consolas,monospace;
   --font:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
 }
-
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
-html, body { 
-  width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);
-  touch-action: none; /* 禁用浏览器默认的滑动和缩放 */
-  -webkit-user-select: none;
-}
+html, body { width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);touch-action:none;-webkit-user-select:none;}
 canvas{display:block;position:absolute;inset:0;touch-action:none}
-
 .screen{position:absolute;inset:0;display:none;z-index:10}
 .screen.on{display:flex;align-items:center;justify-content:center;flex-direction:column}
 
 /* ---------- Boot ---------- */
 #boot-screen{background:radial-gradient(circle at 50% 30%,#101a26 0%,#05070a 78%);z-index:100}
-.boot-content{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px;text-align:center;max-width:520px}
-.boot-logo{width:110px;height:110px;border-radius:24px;background:linear-gradient(135deg,#1a2a3f,#0a1420);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:900;letter-spacing:-2px;background-clip:text;color:transparent;box-shadow:0 0 60px rgba(120,180,255,.2);position:relative}
-.boot-logo::before{content:'LA';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;background-clip:text;color:transparent}
-.boot-title{font-size:32px;font-weight:900;letter-spacing:8px;background:linear-gradient(90deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;background-clip:text;color:transparent}
+.boot-content{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px;text-align:center}
+.boot-logo{width:110px;height:110px;border-radius:24px;background:linear-gradient(135deg,#1a2a3f,#0a1420);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:900;color:transparent;position:relative;box-shadow:0 0 60px rgba(120,180,255,.2)}
+.boot-logo::before{content:'LA';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;color:transparent}
+.boot-title{font-size:32px;font-weight:900;letter-spacing:8px;background:linear-gradient(90deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;color:transparent}
 .boot-sub{font-size:11px;letter-spacing:6px;color:var(--dim2)}
-.boot-progress{width:100%;max-width:420px;height:3px;background:rgba(80,140,200,.15);border-radius:2px;overflow:hidden}
-.boot-progress > div{height:100%;width:0%;background:linear-gradient(90deg,#3fa8ff,#8ee7ff,#b98cff);box-shadow:0 0 14px rgba(120,200,255,.6);transition:width .2s}
+.boot-progress{width:420px;max-width:100%;height:3px;background:rgba(80,140,200,.15);border-radius:2px;overflow:hidden}
+.boot-progress > div{height:100%;width:0%;background:linear-gradient(90deg,#3fa8ff,#8ee7ff,#b98cff);transition:width .2s}
 .boot-status{font-size:10.5px;color:var(--dim);letter-spacing:2px;font-family:var(--mono);min-height:16px}
-.boot-copyright{font-size:10px;color:var(--dim2);letter-spacing:1px;line-height:1.9;font-family:var(--mono)}
-.boot-copyright b{color:var(--accent)}
-#boot-error{max-width:min(92vw,780px);text-align:left;font-family:var(--mono);font-size:11px;line-height:1.7;color:#ff8b8b;padding:14px;border:1px solid rgba(255,100,100,.35);border-radius:8px;background:rgba(80,20,20,.35);display:none;white-space:pre-wrap;word-break:break-word;user-select:text;-webkit-user-select:text}
-#boot-error.on{display:block}
-#boot-error b{color:var(--gold)}
-#boot-error pre,#boot-error pre *{user-select:text;-webkit-user-select:text;cursor:text}
 
-/* ---------- Menu ---------- */
-#menu-screen{background:radial-gradient(circle at 50% 20%,#0f1a28 0%,#05070a 78%);overflow-y:auto;z-index:50;align-items:stretch;justify-content:flex-start}
-.menu-content{max-width:860px;width:100%;margin:0 auto;padding:28px 18px 60px;position:relative}
-.menu-top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.lang-selector{display:flex;gap:6px}
-.lang-btn{padding:5px 12px;border-radius:6px;background:rgba(20,35,55,.7);border:1px solid var(--line2);color:var(--dim);font-size:11px;letter-spacing:1px;cursor:pointer;font-family:inherit;transition:.15s}
-.lang-btn.on{background:rgba(60,120,185,.5);border-color:rgba(120,190,255,.7);color:#e0f0ff}
-.lang-btn:hover{border-color:var(--line)}
-.menu-title{text-align:center;font-size:26px;font-weight:900;letter-spacing:6px;background:linear-gradient(90deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;background-clip:text;color:transparent}
-.menu-sub{text-align:center;font-size:10px;color:var(--dim2);letter-spacing:4px;margin-top:6px;margin-bottom:22px}
-.section{margin:16px 0 8px}
-.section-label{font-size:11px;letter-spacing:3px;color:var(--accent);border-bottom:1px solid var(--line2);padding-bottom:6px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:baseline}
-.section-label .hint{font-size:9px;color:var(--dim2);letter-spacing:1px;font-weight:400}
-.options{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
-.option{padding:11px 12px;border-radius:10px;background:var(--panel);border:1.5px solid var(--line2);cursor:pointer;transition:.15s;text-align:center}
-.option:hover{border-color:var(--line)}
-.option.on{background:rgba(60,120,185,.28);border-color:rgba(120,190,255,.7);box-shadow:0 0 22px rgba(90,160,240,.15) inset}
-.option .opt-title{font-size:12.5px;font-weight:700;letter-spacing:1px;color:#e0f0ff}
-.option .opt-sub{font-size:9.5px;color:var(--dim2);margin-top:3px;letter-spacing:1px}
-.option .opt-tag{font-size:8.5px;color:var(--gold);margin-top:4px;letter-spacing:2px}
-.btn{display:block;width:100%;padding:13px;margin-top:10px;border-radius:10px;background:linear-gradient(180deg,rgba(40,70,105,.55),rgba(20,35,55,.75));border:1px solid var(--line);color:#cfe4f8;font-size:14px;font-weight:600;letter-spacing:3px;cursor:pointer;font-family:inherit;transition:.15s}
-.btn:hover{background:linear-gradient(180deg,rgba(55,95,140,.65),rgba(25,45,70,.8))}
-.btn.primary{background:linear-gradient(180deg,rgba(140,110,40,.6),rgba(70,50,15,.8));border-color:rgba(255,210,90,.55);color:#ffe8a8}
-.btn:active{transform:scale(.985)}
-.btn.ghost{background:rgba(20,32,46,.5);border-color:var(--line2);color:var(--dim);font-size:12px;padding:10px}
+/* ---------- Menu Layout ---------- */
+#menu-screen{background:radial-gradient(circle at 50% 20%,#0f1a28 0%,#05070a 78%);z-index:50;align-items:stretch;justify-content:flex-start;overflow-y:auto}
+.menu-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:rgba(10,18,28,.8);border-bottom:1px solid var(--line2)}
+.menu-tabs{display:flex;gap:12px}
+.menu-tab{padding:8px 24px;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--dim);cursor:pointer;border-radius:8px;transition:.2s;background:rgba(0,0,0,.3);border:1px solid transparent}
+.menu-tab.on{color:var(--accent);background:rgba(60,120,185,.3);border-color:rgba(120,190,255,.5)}
+.menu-tab:hover{background:rgba(60,120,185,.2)}
+.menu-top-actions{display:flex;gap:10px}
+.icon-btn{padding:8px 16px;font-size:12px;background:rgba(20,35,55,.7);border:1px solid var(--line2);color:var(--dim);border-radius:6px;cursor:pointer;font-family:inherit;transition:.15s}
+.icon-btn:hover{color:#fff;border-color:var(--accent)}
+
+.menu-content{max-width:1000px;width:100%;margin:0 auto;padding:20px}
+.tab-content{display:none;flex-direction:column;gap:16px;animation:fadeIn .3s}
+.tab-content.on{display:flex}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+.section-label{font-size:12px;letter-spacing:3px;color:var(--accent);border-bottom:1px solid var(--line2);padding-bottom:6px;margin-bottom:10px;font-weight:700}
+.options{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.option{padding:12px;border-radius:10px;background:var(--panel);border:1.5px solid var(--line2);cursor:pointer;transition:.15s;text-align:center}
+.option:hover{border-color:var(--line);background:rgba(30,50,75,.8)}
+.option.on{background:rgba(60,120,185,.3);border-color:rgba(120,190,255,.8);box-shadow:0 0 20px rgba(90,160,240,.15) inset}
+.option .opt-title{font-size:14px;font-weight:700;color:#e0f0ff;letter-spacing:1px}
+.option .opt-sub{font-size:11px;color:var(--dim2);margin-top:4px}
+
+/* 底部操作区 */
+.action-bar{display:flex;flex-direction:column;gap:12px;margin-top:20px}
+.btn-row{display:flex;gap:12px}
+.btn{flex:1;padding:14px;border-radius:10px;background:linear-gradient(180deg,rgba(40,70,105,.6),rgba(20,35,55,.8));border:1px solid var(--line);color:#cfe4f8;font-size:15px;font-weight:700;letter-spacing:3px;cursor:pointer;font-family:inherit;transition:.15s}
+.btn:hover{background:linear-gradient(180deg,rgba(55,95,140,.7),rgba(25,45,70,.9))}
+.btn.primary{background:linear-gradient(180deg,rgba(140,110,40,.7),rgba(70,50,15,.9));border-color:rgba(255,210,90,.6);color:#ffe8a8}
+.btn.ghost{background:rgba(20,32,46,.5);border-color:var(--line2);color:var(--dim);font-size:13px;padding:10px}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+
+/* ---------- Modal (设置 & 市场) ---------- */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.on{display:flex}
+.modal-box{width:100%;max-width:600px;max-height:85vh;background:var(--panel2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.8);overflow:hidden}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center;background:rgba(20,35,55,.8)}
+.modal-head h3{font-size:16px;color:var(--accent);letter-spacing:2px}
+.modal-close{background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer}
+.modal-body{padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.settings-group{background:rgba(10,18,28,.5);padding:12px;border-radius:8px;border:1px solid var(--line2)}
+.settings-group h4{font-size:12px;color:var(--dim);margin-bottom:10px}
+.settings-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;}
+.settings-row input[type="checkbox"]{width:18px;height:18px;cursor:pointer}
+
+/* 市场列表 */
+.market-item{display:flex;justify-content:space-between;align-items:center;padding:10px;background:rgba(20,32,46,.6);border-radius:6px;margin-bottom:6px;border:1px solid rgba(255,255,255,.05)}
+.market-info{display:flex;flex-direction:column}
+.market-name{font-size:14px;font-weight:700;color:#e0f0ff}
+.market-price{font-size:12px;color:var(--gold);margin-top:2px}
+.market-buy{padding:6px 16px;background:rgba(60,120,185,.6);border:1px solid rgba(120,190,255,.6);color:#fff;border-radius:6px;cursor:pointer;font-size:12px}
+.market-buy:disabled{opacity:.3;cursor:not-allowed}
 
 /* ---------- Game UI ---------- */
 #game-screen{z-index:20;display:none}
 #game-screen.on{display:block}
-#game-canvas{position:absolute;inset:0}
 #hud{position:absolute;inset:0;pointer-events:none;z-index:30}
 
-/* 特效层 */
-#fx-filter { position:absolute; inset:0; pointer-events:none; z-index:10; transition:opacity 0.3s; }
-#fx-vignette { position:absolute; inset:0; pointer-events:none; z-index:11; opacity:0; background:radial-gradient(ellipse at center, transparent 50%, rgba(120,0,0,0.55) 95%, rgba(40,0,0,0.9) 100%); transition:opacity 0.3s; }
-#fx-coupling { position:absolute; inset:0; pointer-events:none; z-index:12; box-shadow:none; transition:box-shadow 0.3s, background 0.3s; }
-#fx-hit-flash { position:absolute; inset:0; pointer-events:none; z-index:13; background:rgba(255,0,0,0.15); opacity:0; transition:opacity 0.1s; }
-/* 伤害方向指示器 */
-#dmg-indicator { position:absolute; inset:0; pointer-events:none; z-index:15; }
-
-/* 准星 */
-#crosshair { position:absolute; left:50%; top:50%; width:24px; height:24px; transform:translate(-50%,-50%); pointer-events:none; z-index:20; }
-#crosshair .line-h { position:absolute; top:11px; width:6px; height:2px; background:#fff; box-shadow:0 0 2px #000; }
-#crosshair .line-v { position:absolute; left:11px; width:2px; height:6px; background:#fff; box-shadow:0 0 2px #000; }
-#hit-marker { position:absolute; inset:0; opacity:0; transition:opacity 0.1s; }
-
-/* 小地图 */
-#minimap-container { position:absolute; right:12px; top:64px; width:150px; height:150px; border-radius:8px; overflow:hidden; border:2px solid rgba(100,160,220,.5); background:rgba(230,236,244,.92); z-index:25; box-shadow:0 4px 10px rgba(0,0,0,0.5); display:none; }
-#minimap { width:100%; height:100%; }
-
-/* 击杀播报 */
-#kill-feed { position:absolute; right:16px; bottom:120px; display:flex; flex-direction:column; align-items:flex-end; gap:4px; z-index:25; pointer-events:none; font-size:12px; color:#fff; text-shadow:0 1px 3px #000; }
-@keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-
-/* 左上任务面板 */
+#fx-filter,#fx-vignette,#fx-coupling,#fx-hit-flash{position:absolute;inset:0;pointer-events:none;transition:opacity 0.3s}
+#fx-filter{z-index:10}#fx-vignette{z-index:11;opacity:0;background:radial-gradient(ellipse at center, transparent 50%, rgba(120,0,0,0.55) 95%, rgba(40,0,0,0.9) 100%)}
+#fx-coupling{z-index:12;box-shadow:none}#fx-hit-flash{z-index:13;background:rgba(255,0,0,0.15);opacity:0}
+#dmg-indicator{position:absolute;inset:0;pointer-events:none;z-index:15}
+#crosshair{position:absolute;left:50%;top:50%;width:24px;height:24px;transform:translate(-50%,-50%);pointer-events:none;z-index:20}
+#crosshair .line-h{position:absolute;top:11px;width:6px;height:2px;background:#fff;box-shadow:0 0 2px #000}
+#crosshair .line-v{position:absolute;left:11px;width:2px;height:6px;background:#fff;box-shadow:0 0 2px #000}
+#hit-marker{position:absolute;inset:0;opacity:0;transition:opacity 0.1s}
+#minimap-container{position:absolute;right:12px;top:64px;width:150px;height:150px;border-radius:8px;overflow:hidden;border:2px solid rgba(100,160,220,.5);background:rgba(230,236,244,.92);z-index:25;display:none}
+#kill-feed{position:absolute;right:16px;bottom:120px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;z-index:25;pointer-events:none;font-size:12px;color:#fff;text-shadow:0 1px 3px #000}
 #top-left{position:absolute;left:12px;top:12px;pointer-events:auto}
-.task-panel{padding:10px 14px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);min-width:220px;max-width:300px}
-.panel-title{font-size:10.5px;color:var(--accent);letter-spacing:3px;margin-bottom:6px;font-weight:700}
-.task-item{font-size:10.5px;line-height:1.7;color:#cfe4f8}
-.task-item.done{color:var(--green);text-decoration:line-through;opacity:.7}
-.task-item .prog{color:var(--gold)}
-
-
-/* 左下玩家面板 */
+.task-panel{padding:10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);min-width:220px}
+.panel-title{font-size:10px;color:var(--accent);letter-spacing:2px;margin-bottom:6px}
+.task-item{font-size:11px;line-height:1.6;color:#cfe4f8}
 #bottom-left{position:absolute;left:12px;bottom:12px;pointer-events:auto}
-.player-panel{padding:10px 14px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);min-width:240px}
-.player-name{font-size:12px;font-weight:700;color:#cfe6ff;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
-.player-name .tag{font-size:9px;color:var(--accent);background:rgba(60,110,170,.4);padding:2px 6px;border-radius:4px}
-.stat-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:10px;color:var(--dim)}
-.stat-row > span:first-child{width:36px}
-.bar{flex:1;height:11px;border-radius:5px;background:rgba(0,0,0,.6);overflow:hidden;position:relative;border:1px solid rgba(255,255,255,.08)}
-.bar > div{height:100%;width:100%;transition:width .1s;background:linear-gradient(90deg,#d94a4a,#ff8b7b)}
-.bar.cp > div{background:linear-gradient(90deg,#3fa8ff,#8ee7ff)}
-.bar > span{position:absolute;inset:0;text-align:center;font-size:8.5px;line-height:11px;color:#fff;font-weight:600;text-shadow:0 1px 2px #000}
-/* ---------- 护甲耐久格 ---------- */
-.armor-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(105,170,235,.15);
-}
-.armor-cell {
-  position: relative;
-  padding: 3px 2px 2px;
-  background: rgba(10,18,28,.7);
-  border-radius: 4px;
-  border: 1px solid rgba(80,125,175,.2);
-  text-align: center;
-  transition: .15s;
-}
-.armor-cell.empty {
-  opacity: .32;
-  background: rgba(20,26,36,.4);
-}
-.armor-cell.broken {
-  background: rgba(80,20,20,.5);
-  border-color: rgba(255,80,80,.6);
-  animation: armorBlink 1.2s ease-in-out infinite;
-}
-@keyframes armorBlink {
-  0%,100% { box-shadow: inset 0 0 0 rgba(255,80,80,0); }
-  50%     { box-shadow: inset 0 0 8px rgba(255,80,80,.55); }
-}
-.armor-icon {
-  font-size: 14px;
-  line-height: 1;
-  margin-bottom: 3px;
-  opacity: .9;
-}
-.armor-bar {
-  height: 3px;
-  background: rgba(0,0,0,.7);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 2px;
-}
-.armor-bar > i {
-  display: block;
-  height: 100%;
-  width: 100%;
-  background: linear-gradient(90deg,#6fe07a,#a8e05a);
-  transition: width .15s, background .2s;
-}
-.armor-lv {
-  font-size: 8px;
-  color: #8fb0cc;
-  letter-spacing: .5px;
-  line-height: 1;
-}
-.armor-cell.broken .armor-lv {
-  color: #ff6b6b;
-  font-weight: 700;
-}
-
-/* 右下武器区 */
-#bottom-right{position:absolute;right:16px;bottom:16px;text-align:right;text-shadow:0 2px 8px #000;pointer-events:none}
-.weapon-name{font-size:11px;color:var(--dim);letter-spacing:2px}
-.ammo-text{font-size:32px;font-weight:800;font-family:var(--mono);color:#eaf4ff;line-height:1;margin-top:2px}
-.ammo-text > span:last-child{font-size:16px;color:var(--dim2);font-weight:500}
-
-/* 防护按钮 */
-#protect-group{position:absolute;left:12px;bottom:180px;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
-.protect-btn{width:60px;padding:8px 2px;border-radius:8px;text-align:center;font-size:11px;font-weight:700;border:1.5px solid;background:rgba(0,0,0,.5);cursor:pointer;font-family:inherit;transition:.12s;color:#fff}
-.protect-btn .lv{font-size:12px;letter-spacing:1px}
-.protect-btn .desc{font-size:7.5px;font-weight:400;opacity:.75;margin-top:2px;letter-spacing:1px}
-.protect-btn.l1{border-color:rgba(80,230,140,.6);color:#7bffb4}
-.protect-btn.l2{border-color:rgba(80,170,255,.6);color:#8ccaff}
-.protect-btn.l3{border-color:rgba(200,120,255,.6);color:#d9a8ff}
+.player-panel{padding:12px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);min-width:240px}
+.player-name{font-size:13px;font-weight:700;color:#cfe6ff;display:flex;justify-content:space-between;margin-bottom:8px}
+.stat-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:var(--dim)}
+.bar{flex:1;height:12px;border-radius:6px;background:rgba(0,0,0,.6);position:relative;overflow:hidden}
+.bar>div{height:100%;transition:width .1s}
+.bar>span{position:absolute;inset:0;text-align:center;font-size:9px;line-height:12px;font-weight:700;color:#fff}
+.armor-row{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(105,170,235,.15)}
+.armor-cell{padding:4px 2px;background:rgba(10,18,28,.7);border-radius:4px;text-align:center;border:1px solid rgba(80,125,175,.2)}
+.armor-icon{font-size:14px;margin-bottom:2px}
+.armor-bar{height:3px;background:rgba(0,0,0,.7);border-radius:2px;overflow:hidden}
+.armor-bar>i{display:block;height:100%;background:#6fe07a}
+.armor-lv{font-size:8px;color:#8fb0cc;margin-top:2px}
+#bottom-right{position:absolute;right:16px;bottom:16px;text-align:right;pointer-events:none}
+.weapon-name{font-size:12px;color:var(--dim)}
+.ammo-text{font-size:32px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
+#protect-group{position:absolute;left:12px;bottom:260px;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
+.protect-btn{width:60px;padding:8px 2px;border-radius:8px;font-size:11px;font-weight:700;border:1.5px solid;background:rgba(0,0,0,.5);cursor:pointer;color:#fff}
 .protect-btn.active{background:rgba(255,255,255,.22);box-shadow:0 0 16px currentColor}
-.protect-btn.dead{opacity:.22;pointer-events:none}
-
-/* 搜索提示 */
-#search-hint{position:absolute;left:50%;top:58%;transform:translateX(-50%);padding:7px 18px;border-radius:8px;background:rgba(20,32,46,.88);border:1px solid rgba(255,210,80,.55);color:#ffe8a8;font-size:12px;letter-spacing:1px;display:none;pointer-events:none;z-index:25}
-#search-hint.on{display:block}
-#search-hint b{color:#ffd93d}
-@media(max-width:768px){#search-hint{display:none!important}}
-
-/* 动作进程进度条 */
 #action-progress{position:absolute;left:50%;top:57%;transform:translateX(-50%);width:180px;display:none;text-align:center;pointer-events:none;z-index:22}
 #action-progress.on{display:block}
-#action-progress-label{font-size:11px;color:#ffe8a8;letter-spacing:2px;margin-bottom:4px;text-shadow:0 1px 3px #000}
 #action-progress-bar{height:6px;background:rgba(0,0,0,.6);border-radius:3px;overflow:hidden;border:1px solid rgba(255,200,80,.4)}
-#action-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd93d,#ffe880);transition:width .05s linear}
-#action-progress-time{font-size:10px;color:#cfe8ff;margin-top:3px;font-family:ui-monospace,monospace;letter-spacing:1px}
-#action-progress-cancel{margin-top:4px;padding:2px 10px;font-size:10px;border-radius:3px;border:1px solid rgba(255,150,150,.4);background:rgba(80,30,30,.6);color:#ffb0b0;cursor:pointer;font-family:inherit;pointer-events:auto}
-#action-progress-cancel:hover{background:rgba(120,40,40,.75)}
-
-/* 搜索面板 */
-#search-panel{position:absolute;inset:0;z-index:45;display:none;align-items:center;justify-content:center;background:rgba(4,8,14,.5);pointer-events:auto}
-#search-panel.on{display:flex}
-.search-box{width:90%;max-width:380px;max-height:72vh;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:10px;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.7)}
-.search-header{padding:10px 14px;border-bottom:1px solid rgba(105,170,235,.25);display:flex;justify-content:space-between;align-items:center;color:#a8d8ff;font-size:13px;letter-spacing:2px;font-weight:700}
-.search-header button{width:26px;height:26px;border-radius:5px;background:rgba(60,100,150,.5);border:1px solid rgba(110,180,255,.4);color:#cfe8ff;cursor:pointer;font-size:13px;font-family:inherit}
-.search-body{flex:1;overflow-y:auto;padding:8px;min-height:100px;max-height:48vh}
-.search-empty{text-align:center;color:#5c82a8;padding:20px;font-size:12px}
-.search-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:4px;background:rgba(20,32,46,.7);border-radius:5px;font-size:12px;color:#cfe4f8;animation:searchItemIn .3s ease-out}
-@keyframes searchItemIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
-.search-item-take{padding:4px 12px;border-radius:4px;background:rgba(60,120,185,.5);border:1px solid rgba(120,190,255,.5);color:#e0f0ff;font-size:11px;cursor:pointer;font-family:inherit}
-.search-item-take:hover{background:rgba(80,150,220,.6)}
-.search-footer{padding:8px 14px;border-top:1px solid rgba(105,170,235,.25);display:flex;justify-content:flex-end}
-.search-footer button{padding:6px 18px;border-radius:5px;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;font-size:12px;cursor:pointer;font-family:inherit}
-.search-footer button:disabled{opacity:.4;cursor:default}
-
-/* 撤离进度 */
+#action-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd93d,#ffe880);transition:width .05s}
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
-.progress-label{font-size:13px;letter-spacing:6px;color:#8fe8ff;margin-bottom:6px;text-shadow:0 2px 8px #000}
-.progress-bar{width:260px;height:8px;background:rgba(0,0,0,.7);border-radius:4px;overflow:hidden;border:1px solid rgba(120,220,255,.4)}
 #extract-fill{height:100%;width:0%;background:linear-gradient(90deg,#3fd0ff,#a2f0ff);transition:width .1s}
 
-<!-- 10.5 搜索提示 -->
-<div id="search-hint">按 <b>G</b> 搜索物资</div>
-   
-/* 暂停按钮 */
-/* #pause-btn 的定位由内联 style 处理，CSS 只保留 hover 效果 */
-#pause-btn:hover{color:var(--accent);background:rgba(30,50,80,.95) !important;border-color:var(--accent) !important}
-
-/* ---------- Overlay ---------- */
+/* Overlay */
 .overlay{position:absolute;inset:0;background:rgba(4,8,14,.9);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:60;padding:24px;text-align:center}
 .overlay.on{display:flex}
-.overlay h2{font-size:26px;letter-spacing:10px;margin-bottom:20px;color:var(--accent)}
-.overlay h2.success{color:var(--green)}
-.overlay h2.fail{color:var(--danger)}
-.overlay .stat{font-size:12px;line-height:2.1;color:var(--dim);margin-bottom:22px;max-width:520px}
-.overlay .stat b{color:var(--text)}
-.overlay .row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
-.overlay button{padding:12px 28px;border-radius:10px;background:rgba(40,80,130,.6);border:1px solid rgba(110,180,255,.45);color:#cfe8ff;font-size:13px;letter-spacing:2px;cursor:pointer;font-family:inherit;transition:.15s}
-.overlay button:hover{background:rgba(50,100,160,.7)}
-.overlay button.gold{background:rgba(140,110,40,.6);border-color:rgba(255,210,90,.55);color:#ffe8a8}
-.overlay button.danger{background:rgba(120,40,40,.6);border-color:rgba(255,100,100,.5);color:#ff9f9f}
+.overlay h2{font-size:28px;letter-spacing:10px;margin-bottom:20px;color:var(--accent)}
+.overlay .stat{font-size:13px;line-height:2;color:var(--dim);margin-bottom:22px;max-width:520px}
 
-/* ---------- Dev Console ---------- */
-#dev-console{position:fixed;left:0;right:0;bottom:0;height:300px;background:rgba(4,8,14,.97);border-top:2px solid rgba(120,200,255,.55);z-index:1000;display:none;flex-direction:column;font-family:var(--mono);font-size:12px;color:#cfe8ff}
-#dev-console.on{display:flex}
-.dc-head{display:flex;justify-content:space-between;align-items:center;padding:6px 12px;background:rgba(20,40,65,.7);border-bottom:1px solid var(--line);letter-spacing:3px;font-size:11px;color:var(--accent);font-weight:700}
-.dc-head button{width:24px;height:24px;border-radius:4px;background:rgba(60,100,150,.5);border:1px solid var(--line);color:#cfe8ff;font-size:14px;cursor:pointer}
-.dc-out{flex:1;overflow-y:auto;padding:8px 12px;line-height:1.6}
-.dc-out .line{padding:1px 0;white-space:pre-wrap;word-break:break-word}
-.dc-out .line.cmd{color:var(--accent)}
-.dc-out .line.err{color:var(--danger)}
-.dc-out .line.ok{color:var(--green)}
-.dc-out .line.warn{color:var(--gold)}
-.dc-in-row{display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid var(--line);background:rgba(10,18,30,.9)}
-.dc-prompt{color:var(--accent);font-weight:700;font-size:14px}
-#dc-input{flex:1;background:transparent;border:none;outline:none;color:#e8f4ff;font-family:inherit;font-size:13px;padding:4px 0;user-select:text}
-
-.copyright-bar{position:fixed;right:10px;bottom:8px;font-size:9px;color:rgba(92,130,168,.45);letter-spacing:1.5px;font-family:var(--mono);z-index:200;pointer-events:none;text-align:right;line-height:1.5}
-.copyright-bar b{color:rgba(127,208,255,.55)}
-
-@media(max-width:640px){
-  .boot-title{font-size:24px;letter-spacing:5px}
-  .menu-title{font-size:20px;letter-spacing:4px}
-  .ammo-text{font-size:26px}
-  .player-panel{min-width:200px}
-  #protect-group{bottom:160px}
-  .protect-btn{width:52px}
-  #minimap-container{width:100px;height:100px;top:58px}
-}
+.copyright-bar{position:fixed;right:10px;bottom:8px;font-size:9px;color:rgba(92,130,168,.45);font-family:var(--mono);z-index:200;pointer-events:none}
 </style>
 </head>
 <body>
 
-<!-- ============================================================
-     Boot · 启动 / 加载 / 版权
-     ============================================================ -->
+<!-- Boot Screen -->
 <div id="boot-screen" class="screen on">
   <div class="boot-content">
     <div class="boot-logo"></div>
-    <h1 class="boot-title" data-i18n="engine.title">LaiAsaka</h1>
-    <p class="boot-sub" data-i18n="engine.subtitle">ENGINE</p>
+    <h1 class="boot-title">LaiAsaka</h1>
+    <p class="boot-sub">ENGINE</p>
     <div class="boot-progress"><div id="boot-bar"></div></div>
-    <p id="boot-status" class="boot-status" data-i18n="ui.boot.loading">正在初始化引擎…</p>
-    <div id="boot-error"></div>
-    <div class="boot-copyright" data-i18n-html="engine.copyright">
-      © 2026 <b>ZpycuA</b> · Licensed under <b>CC BY-NC 4.0</b>
-    </div>
+    <p id="boot-status" class="boot-status">正在初始化引擎…</p>
+    <div id="boot-error" style="display:none;color:#ff8b8b;font-size:11px;max-height:50vh;overflow-y:auto;white-space:pre-wrap;text-align:left;padding:10px;border:1px solid rgba(255,100,100,.3);background:rgba(80,20,20,.3);margin-top:10px;user-select:text;"></div>
   </div>
 </div>
 
-<!-- ============================================================
-     Menu · 主菜单
-     ============================================================ -->
+<!-- Menu Screen -->
 <div id="menu-screen" class="screen">
+  <div class="menu-header">
+    <div class="menu-tabs">
+      <div class="menu-tab on" data-tab="straight">Straight 模式</div>
+      <div class="menu-tab" data-tab="asaka">Asaka 剧情</div>
+    </div>
+    <div class="menu-top-actions">
+      <button class="icon-btn" id="btn-market">市场</button>
+      <button class="icon-btn" id="btn-settings">设置</button>
+      <button class="icon-btn" id="btn-dev-console">DEV</button>
+    </div>
+  </div>
+
   <div class="menu-content">
-    <div class="menu-top-bar">
-      <div class="lang-selector" id="lang-selector">
-        <button class="lang-btn on" data-lang="zh-CN">中文</button>
-        <button class="lang-btn" data-lang="en-US">EN</button>
+    <!-- Straight Tab -->
+    <div class="tab-content on" id="tab-straight">
+      <div>
+        <div class="section-label">选择地图</div>
+        <div class="options" id="map-options"></div>
       </div>
-      <button class="lang-btn" id="btn-dev-console" style="font-size:10px">DEV</button>
-    </div>
-
-    <h1 class="menu-title" data-i18n="ui.menu.title">Asaka Straight Project</h1>
-    <p class="menu-sub" data-i18n="ui.menu.subtitle">LaiAsaka Engine</p>
-
-    <!-- 操作模式 -->
-    <div class="section">
-      <div class="section-label">操作模式</div>
-      <div class="options" id="platform-options">
-        <div class="option on" data-value="auto"><div class="opt-title">自动识别</div></div>
-        <div class="option" data-value="pc"><div class="opt-title">PC端 (键鼠)</div></div>
-        <div class="option" data-value="mobile"><div class="opt-title">移动端 (触屏)</div></div>
+      <div>
+        <div class="section-label">选择角色</div>
+        <div class="options" id="char-options"></div>
       </div>
-    </div>
-
-    <!-- 模式 -->
-    <div class="section">
-      <div class="section-label"><span data-i18n="ui.menu.section_mode">模式</span><span class="hint" id="mode-hint"></span></div>
-      <div class="options" id="mode-options"></div>
-    </div>
-     <div class="section">
-  <div class="section-label">
-    <span>计划树 (Asaka)</span>
-    <span class="hint">未解锁</span>
-  </div>
-  <button class="btn ghost" id="btn-plan-tree" style="opacity:0.5">查看计划树（开发中）</button>
-     </div>
-
-    <!-- 地图 -->
-    <div class="section">
-      <div class="section-label"><span data-i18n="ui.menu.section_map">地图</span></div>
-      <div class="options" id="map-options"></div>
-    </div>
-
-    <!-- 难度 -->
-    <div class="section">
-      <div class="section-label"><span data-i18n="ui.menu.section_difficulty">难度</span></div>
-      <div class="options" id="diff-options"></div>
-    </div>
-
-    <!-- 角色 -->
-    <div class="section">
-      <div class="section-label"><span data-i18n="ui.menu.section_character">角色</span></div>
-      <div class="options" id="char-options"></div>
-    </div>
-
-    <!-- 玩法预设 -->
-    <div class="section">
-      <div class="section-label">
-        <span data-i18n="ui.menu.section_profile">玩法预设</span>
-        <span class="hint" data-i18n="ui.menu.profile_hint">仿真 ↔ 游戏性</span>
+      <div>
+        <div class="section-label">玩法预设</div>
+        <div class="options" id="profile-options"></div>
       </div>
-      <div class="options" id="profile-options"></div>
-    </div>
-
-    <!-- 实时难度显示 -->
-    <div id="difficulty-display" style="margin:12px 0;padding:12px 16px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center;min-height:52px">
-      <span style="color:var(--dim)">—</span>
-    </div>
-
-    <!-- 自定义细节 -->
-<div class="section">
-  <div class="section-label"><span>自定义细节</span></div>
-  <div id="custom-settings" style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:4px;"></div>
-</div>
-
-<!-- 制式券 -->
-<div class="section">
-  <div class="section-label">
-    <span>制式券</span>
-    <span class="hint">按当前角色重新配装（仓库保留）</span>
-  </div>
-  <button class="btn ghost" id="btn-loadout-ticket">领 取 制 式 券</button>
-</div>
-
-<!-- 仓库 -->
-<div class="section">
-  <div class="section-label">
-    <span>仓库</span>
-    <span class="hint">快捷键 B · 拖拽配装 · 双击快速装备</span>
-  </div>
-  <button class="btn ghost" id="btn-stash">打 开 仓 库 / 配 装</button>
-</div>
-
-<!-- 陀螺仪设置 -->
-    <div class="section">
-      <div class="section-label">
-        <span>陀螺仪设置</span>
-        <span class="hint">仅移动端生效</span>
+      <div id="difficulty-display" style="margin-top:10px;padding:12px;background:var(--panel2);border-radius:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="color:var(--dim)">—</span>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;padding:8px;background:var(--panel);border-radius:10px;border:1px solid var(--line2);">
-        <div class="opt" id="btn-gyro-toggle" style="padding:10px 14px;text-align:left;display:flex;justify-content:space-between;align-items:center;cursor:pointer;">
-          <span>启用陀螺仪视角</span>
-          <span id="gyro-status" style="color:var(--dim2);font-size:11px;">未开启</span>
+      <div class="action-bar">
+        <div class="btn-row">
+          <button class="btn ghost" id="btn-loadout-ticket">领取制式券</button>
+          <button class="btn ghost" id="btn-stash">打开仓库 / 配装</button>
         </div>
-        <div style="display:flex;align-items:center;gap:12px;padding:0 14px;">
-          <span style="font-size:11px;color:var(--dim);">灵敏度</span>
-          <input type="range" id="gyro-sensitivity" min="0.1" max="3.0" step="0.1" value="1.0" style="flex:1;cursor:pointer;">
-          <span id="gyro-sens-val" style="font-size:11px;color:var(--accent);width:26px;text-align:right;">1.0</span>
+        <div class="btn-row">
+          <button class="btn primary" id="btn-start">进 入 战 区</button>
+          <button class="btn" id="btn-train">训 练 场</button>
         </div>
       </div>
     </div>
 
-    <button class="btn primary" id="btn-start" data-i18n="ui.menu.start">进 入 战 区</button>
-    <button class="btn ghost" id="btn-train" data-i18n="ui.menu.train">训 练 场</button>
+    <!-- Asaka Tab -->
+    <div class="tab-content" id="tab-asaka">
+      <div style="text-align:center;padding:60px 20px;color:var(--dim2);font-size:16px;letter-spacing:4px">
+        <div style="font-size:48px;margin-bottom:20px">🌳</div>
+        Asaka 剧情模式 开发中
+        <br><br>
+        <button class="btn ghost" style="max-width:200px;margin:0 auto">查看计划树</button>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- ============================================================
-     Game · 对局
-     ============================================================ -->
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>设置</h3>
+      <button class="modal-close" data-close="settings-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-group">
+        <h4>操作模式</h4>
+        <div class="options" id="platform-options" style="grid-template-columns:repeat(3,1fr)">
+          <div class="option on" data-value="auto"><div class="opt-title">自动识别</div></div>
+          <div class="option" data-value="pc"><div class="opt-title">PC (键鼠)</div></div>
+          <div class="option" data-value="mobile"><div class="opt-title">移动端</div></div>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h4>自定义细节</h4>
+        <div id="custom-settings" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+      </div>
+      <div class="settings-group">
+        <h4>陀螺仪设置 (移动端)</h4>
+        <div class="settings-row">
+          <span>启用陀螺仪</span>
+          <button class="icon-btn" id="btn-gyro-toggle"><span id="gyro-status">未开启</span></button>
+        </div>
+        <div class="settings-row">
+          <span>灵敏度</span>
+          <input type="range" id="gyro-sensitivity" min="0.1" max="3.0" step="0.1" value="1.0" style="width:150px">
+          <span id="gyro-sens-val">1.0</span>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h4>语言</h4>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="icon-btn lang-btn on" data-lang="zh-CN">中文</button>
+          <button class="icon-btn lang-btn" data-lang="en-US">English</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Market Modal -->
+<div class="modal-overlay" id="market-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>黑市 · 交易中心</h3>
+      <button class="modal-close" data-close="market-modal">✕</button>
+    </div>
+    <div class="modal-body" id="market-list">
+      <!-- JS 动态注入 -->
+    </div>
+  </div>
+</div>
+
+<!-- Game Screen -->
 <div id="game-screen" class="screen">
   <canvas id="game-canvas"></canvas>
-  
   <div id="hud">
-    <!-- 1. 全屏特效层 -->
-    <div id="fx-filter"></div>
-    <div id="fx-vignette"></div>
-    <div id="fx-coupling"></div>
-    <div id="fx-hit-flash"></div>
-
-    <!-- 2. 伤害指示器 -->
+    <div id="fx-filter"></div><div id="fx-vignette"></div><div id="fx-coupling"></div><div id="fx-hit-flash"></div>
     <canvas id="dmg-indicator"></canvas>
-
-     <!-- 360度 声纹雷达 -->
-<canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16;"></canvas>
-
-    <!-- 3. 准星 -->
+    <canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16"></canvas>
+    
     <div id="crosshair">
-      <div class="line-h" style="left:0;"></div>
-      <div class="line-h" style="right:0;"></div>
-      <div class="line-v" style="top:0;"></div>
-      <div class="line-v" style="bottom:0;"></div>
+      <div class="line-h" style="left:0"></div><div class="line-h" style="right:0"></div>
+      <div class="line-v" style="top:0"></div><div class="line-v" style="bottom:0"></div>
       <svg id="hit-marker" width="24" height="24" viewBox="0 0 24 24">
         <line x1="4" y1="4" x2="8" y2="8" stroke="#ffdd44" stroke-width="2" />
         <line x1="20" y1="4" x2="16" y2="8" stroke="#ffdd44" stroke-width="2" />
@@ -458,458 +288,137 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
         <line x1="20" y1="20" x2="16" y2="16" stroke="#ffdd44" stroke-width="2" />
       </svg>
     </div>
-
-    <!-- 4. 小地图 -->
-    <div id="minimap-container">
-      <canvas id="minimap" width="150" height="150"></canvas>
-    </div>
-
-    <!-- 5. 击杀播报 -->
+    
+    <div id="minimap-container"><canvas id="minimap" width="150" height="150"></canvas></div>
     <div id="kill-feed"></div>
-
-    <!-- 6. 任务面板 -->
+    
     <div id="top-left">
-      <div class="task-panel">
-        <div class="panel-title" data-i18n="ui.game.task_title">📋 任务</div>
-        <div id="task-list"></div>
-      </div>
+      <div class="task-panel"><div class="panel-title">📋 任务</div><div id="task-list"></div></div>
     </div>
-
-    <!-- 7. 玩家状态 -->
-     <div id="effect-popups" style="position:absolute; left:50%; bottom:220px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; z-index:60;"></div>
+    
     <div id="bottom-left">
       <div class="player-panel">
-        <div class="player-name">
-          <span id="player-name">—</span>
-          <span class="tag" id="player-tag">—</span>
-        </div>
+        <div class="player-name"><span id="player-name">—</span><span id="player-tag" style="color:var(--accent)">—</span></div>
         <div class="stat-row">
-  <span>状态</span>
-  <div class="bar"><div id="hp-bar" style="background:#5fd47a;width:100%"></div><span id="hp-text" style="font-weight:700;font-size:12px;letter-spacing:2px">健康</span></div>
-</div>
-<div id="effect-bar" style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;min-height:20px;"></div>
-        <div class="stat-row" style="margin-top:4px">
-          <span style="color:#ffd93d">体力</span>
-          <div class="bar" style="height:8px"><div id="stamina-bar" style="background:linear-gradient(90deg,#ffd93d,#fff08a);width:100%"></div></div>
+          <span>状态</span>
+          <div class="bar"><div id="hp-bar" style="background:#5fd47a;width:100%"></div><span id="hp-text">健康</span></div>
         </div>
-        <div class="stat-row" id="cp-row">
-          <span data-i18n="ui.game.cp">耦合</span>
-          <div class="bar cp"><div id="cp-bar"></div><span id="cp-text">100%</span></div>
+        <div id="effect-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px"></div>
+        <div class="stat-row"><span style="color:#ffd93d">体力</span><div class="bar" style="height:6px"><div id="stamina-bar" style="background:#ffd93d;width:100%"></div></div></div>
+        <div class="stat-row" id="cp-row"><span>耦合</span><div class="bar"><div id="cp-bar" style="background:#3fa8ff"></div><span id="cp-text">100%</span></div></div>
+        <div class="armor-row" id="armor-row">
+          <div class="armor-cell" data-slot="shell"><div class="armor-icon">⛑</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+          <div class="armor-cell" data-slot="visor"><div class="armor-icon">🕶</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+          <div class="armor-cell" data-slot="fiber"><div class="armor-icon">🦺</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+          <div class="armor-cell" data-slot="plate"><div class="armor-icon">🛡</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
         </div>
-         <div class="armor-row" id="armor-row">
-  <div class="armor-cell" data-slot="shell" title="头盔壳">
-    <div class="armor-icon">⛑</div>
-    <div class="armor-bar"><i></i></div>
-    <div class="armor-lv">—</div>
-  </div>
-  <div class="armor-cell" data-slot="visor" title="面罩">
-    <div class="armor-icon">🕶</div>
-    <div class="armor-bar"><i></i></div>
-    <div class="armor-lv">—</div>
-  </div>
-  <div class="armor-cell" data-slot="fiber" title="纤维">
-    <div class="armor-icon">🦺</div>
-    <div class="armor-bar"><i></i></div>
-    <div class="armor-lv">—</div>
-  </div>
-  <div class="armor-cell" data-slot="plate" title="插板">
-    <div class="armor-icon">🛡</div>
-    <div class="armor-bar"><i></i></div>
-    <div class="armor-lv">—</div>
-  </div>
-         </div>
       </div>
     </div>
+    
+    <div id="bottom-right">
+      <div class="weapon-name" id="weapon-name"></div>
+      <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
+      <div style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
+    </div>
 
-    <!-- 8. 武器区 -->
-<div id="bottom-right">
-  <div class="weapon-name" id="weapon-name"></div>
-  <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
-  <div style="font-size:10px;color:var(--dim2);margin-top:4px;letter-spacing:1px">携带 <span id="carry-value" style="color:var(--gold);font-weight:700">0</span> cp</div>
-</div>
-
-    <!-- 9. 防护按钮 -->
     <div id="protect-group">
-      <button class="protect-btn l1" data-level="L1"><div class="lv">L1</div><div class="desc" data-i18n="ui.game.protect_l1">冷兵器</div></button>
-      <button class="protect-btn l2" data-level="L2"><div class="lv">L2</div><div class="desc" data-i18n="ui.game.protect_l2">+热兵器</div></button>
-      <button class="protect-btn l3" data-level="L3"><div class="lv">L3</div><div class="desc" data-i18n="ui.game.protect_l3">全防护</div></button>
+      <button class="protect-btn l1" data-level="L1"><div>L1</div><div style="font-size:8px;font-weight:400">冷兵器</div></button>
+      <button class="protect-btn l2" data-level="L2"><div>L2</div><div style="font-size:8px;font-weight:400">+热兵器</div></button>
+      <button class="protect-btn l3" data-level="L3"><div>L3</div><div style="font-size:8px;font-weight:400">全防护</div></button>
     </div>
 
-    <!-- 10. 撤离进度 -->
     <div id="extract-progress">
-      <div class="progress-label" data-i18n="ui.game.extract_progress">撤 离 中</div>
-      <div class="progress-bar"><div id="extract-fill"></div></div>
+      <div style="font-size:13px;letter-spacing:6px;color:#8fe8ff;margin-bottom:6px">撤 离 中</div>
+      <div style="width:260px;height:8px;background:rgba(0,0,0,.7);border-radius:4px;overflow:hidden;border:1px solid rgba(120,220,255,.4)"><div id="extract-fill"></div></div>
     </div>
 
-     <!-- 10.5 搜索提示 -->
-<div id="search-hint">按 <b>G</b> 搜索物资</div>
-
-<!-- 10.6 动作进程进度条 -->
-<div id="action-progress">
-  <div id="action-progress-label">换弹</div>
-  <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
-  <div id="action-progress-time">0.0s</div>
-  <button id="action-progress-cancel">取消</button>
-</div>
-
+    <div id="action-progress">
+      <div id="action-progress-label" style="font-size:11px;color:#ffe8a8;margin-bottom:4px">换弹</div>
+      <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
+      <div id="action-progress-time" style="font-size:10px;color:#cfe8ff;margin-top:3px">0.0s</div>
+      <button id="action-progress-cancel" style="margin-top:4px;padding:2px 10px;font-size:10px;border-radius:3px;border:1px solid rgba(255,150,150,.4);background:rgba(80,30,30,.6);color:#ffb0b0;cursor:pointer">取消</button>
+    </div>
   </div>
 
-<!-- 暂停按钮 · 直接作为 game-screen 子元素，内联 style 不依赖 <style> 块 -->
-<button id="pause-btn" style="position:absolute;right:12px;top:12px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.92);border:1px solid rgba(105,170,235,.5);color:#cfe8ff;font-size:16px;z-index:60;cursor:pointer;pointer-events:auto;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.5);font-family:inherit">❚❚</button>
+  <button id="pause-btn" style="position:absolute;right:12px;top:12px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.92);border:1px solid rgba(105,170,235,.5);color:#cfe8ff;font-size:16px;z-index:60;cursor:pointer;display:flex;align-items:center;justify-content:center">❚❚</button>
 
-<!-- 暂停浮层 -->
-<div class="overlay" id="pause-screen">
-    <h2 data-i18n="ui.pause.title">暂 停</h2>
+  <div class="overlay" id="pause-screen">
+    <h2>暂 停</h2>
     <div class="stat" id="pause-stats"></div>
-    <div class="row">
-      <button id="btn-resume" data-i18n="ui.pause.resume">继续</button>
-      <button id="btn-quit" class="danger" data-i18n="ui.pause.quit">放弃并返回</button>
+    <div style="display:flex;gap:12px">
+      <button class="btn" id="btn-resume" style="padding:10px 30px">继续</button>
+      <button class="btn ghost" id="btn-quit" style="padding:10px 30px">放弃并返回</button>
     </div>
   </div>
 
-  <!-- 结算浮层 -->
   <div class="overlay" id="result-screen">
-  <h2 id="result-title">—</h2>
-  <div class="stat" id="result-stats"></div>
-
-  <!-- 搜索面板 -->
-<div id="search-panel">
-  <div class="search-box">
-    <div class="search-header">
-      <span>物资容器</span>
-      <button id="search-close">✕</button>
-    </div>
-    <div class="search-body" id="search-body">
-      <div class="search-empty">搜索中…</div>
-    </div>
-    <div class="search-footer">
-      <button id="search-take-all" disabled>全部拾取</button>
+    <h2 id="result-title">—</h2>
+    <div class="stat" id="result-stats"></div>
+    <div style="display:flex;gap:12px">
+      <button class="btn" id="btn-again" style="padding:10px 30px">再来一次</button>
+      <button class="btn primary" id="btn-menu" style="padding:10px 30px">返回菜单</button>
     </div>
   </div>
 </div>
-     
-  <!-- 伤害日志（死亡回放） -->
-  <div id="damage-log-container" style="display:none; width:100%; max-width:600px; max-height:40vh; overflow-y:auto; margin-bottom:16px; background:rgba(0,0,0,0.5); padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.1); text-align:left; font-size:12px;">
-    <div style="color:var(--accent); margin-bottom:8px; font-weight:bold;">交战记录 (最近 50 条)</div>
-    <div id="damage-log-list" style="display:flex; flex-direction:column; gap:4px;"></div>
-  </div>
 
-  <div class="row" id="result-actions">
-    <button id="btn-again" data-i18n="ui.result.again">再来一次</button>
-    <button id="btn-menu" class="gold" data-i18n="ui.result.menu">返回菜单</button>
+<!-- Dev Console -->
+<div id="dev-console" style="position:fixed;left:0;right:0;bottom:0;height:300px;background:rgba(4,8,14,.97);border-top:2px solid rgba(120,200,255,.55);z-index:1000;display:none;flex-direction:column;font-family:var(--mono);font-size:12px;color:#cfe8ff">
+  <div style="display:flex;justify-content:space-between;padding:6px 12px;background:rgba(20,40,65,.7);border-bottom:1px solid var(--line)">
+    <span>DEV CONSOLE</span><button id="dc-close" style="background:none;border:none;color:#fff;cursor:pointer">×</button>
   </div>
-  </div>
-
-<!-- ============================================================
-     Dev Console · 调试控制台
-     ============================================================ -->
-<div id="dev-console">
-  <div class="dc-head">
-    <span data-i18n="ui.console.title">DEV CONSOLE · 输入 help 查看命令</span>
-    <button id="dc-close">×</button>
-  </div>
-  <div class="dc-out" id="dc-out"></div>
-  <div class="dc-in-row">
-    <span class="dc-prompt">›</span>
-    <input id="dc-input" type="text" autocomplete="off" spellcheck="false" placeholder="help" data-i18n-placeholder="ui.console.placeholder"/>
+  <div class="dc-out" id="dc-out" style="flex:1;overflow-y:auto;padding:8px 12px"></div>
+  <div style="display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line)">
+    <span>›</span><input id="dc-input" type="text" style="flex:1;background:transparent;border:none;outline:none;color:#e8f4ff">
   </div>
 </div>
 
-<div class="copyright-bar">
-  <b>LaiAsaka Engine</b> · v3.1.0<br>
-  © 2026 ZpycuA · CC BY-NC 4.0
-</div>
+<div class="copyright-bar">LaiAsaka Engine · v3.2.0<br>© 2026 ZpycuA · CC BY-NC 4.0</div>
 
-<!-- ============================================================
-     模块加载
-     ============================================================ -->
 <script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
-}
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
 </script>
 
 <script type="module">
-(function () {
+// 简化的 Bootloader
+(async function boot() {
   const statusEl = document.getElementById('boot-status');
-  const errorEl = document.getElementById('boot-error');
   const barEl = document.getElementById('boot-bar');
+  const errEl = document.getElementById('boot-error');
+  
+  try {
+    const { Engine } = await import('./engine.js');
+    const zhCN = (await import('./locale.zh-CN.js')).default;
+    const enUS = (await import('./locale.en-US.js')).default;
+    const { registerDefaultContent } = await import('./content.js');
+    const { registerModes } = await import('./modes.js');
+    const { GameApp } = await import('./game.js');
 
-  const bootTrace = [];
-  let currentStep = '启动';
-  let currentFile = 'index.html';
-
-  function markStep(name, file) {
-    currentStep = name;
-    if (file) currentFile = file;
-    bootTrace.push(name);
+    statusEl.textContent = '初始化引擎…'; barEl.style.width = '80%';
+    const engine = new Engine();
+    await engine.init({ canvas: document.getElementById('game-canvas'), locale: { 'zh-CN': zhCN, 'en-US': enUS }, defaultLocale: 'zh-CN' });
+    
+    registerDefaultContent(engine);
+    registerModes(engine);
+    
+    const app = new GameApp(engine);
+    engine.app = app;
+    
+    // 绑定启动按钮
+    document.getElementById('btn-start').onclick = () => app.startMatch('normal');
+    document.getElementById('btn-train').onclick = () => app.startMatch('training');
+    
+    app.boot();
+    
+    setTimeout(() => {
+      document.getElementById('boot-screen').classList.remove('on');
+      document.getElementById('menu-screen').classList.add('on');
+      engine.start();
+    }, 300);
+  } catch (err) {
+    statusEl.textContent = '启动失败';
+    errEl.style.display = 'block';
+    errEl.textContent = err.stack || err.message;
   }
-
-  function setStatus(text, pct) {
-    if (statusEl) statusEl.textContent = text;
-    if (barEl && pct !== undefined) barEl.style.width = pct + '%';
-  }
-
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
-  /* 从 stack 中提取所有 "file.js:行:列" 形式的定位 */
-  function extractLocations(stack) {
-    if (!stack) return [];
-    const results = [];
-    const seen = new Set();
-    for (const line of String(stack).split('\n')) {
-      const m = line.match(/([^\s()]+\.js(?:\?[^\s():]+)?):(\d+)(?::(\d+))?/);
-      if (m) {
-        const key = m[1] + ':' + m[2];
-        if (seen.has(key)) continue;
-        seen.add(key);
-        results.push({
-          file: m[1].replace(/^.*\//, '').replace(/\?.*$/, ''),
-          fullFile: m[1],
-          line: m[2],
-          col: m[3] || '',
-        });
-      }
-    }
-    return results;
-  }
-
-  function formatError(title, err) {
-    const lines = [];
-    lines.push('⚠ ' + title);
-    lines.push('');
-    lines.push('▸ 出错步骤：' + currentStep);
-    lines.push('▸ 涉及文件：' + currentFile);
-    lines.push('▸ 错误类型：' + (err && err.name ? err.name : 'Error'));
-    lines.push('▸ 错误信息：' + (err && err.message ? err.message : String(err)));
-
-    const locations = extractLocations(err && err.stack);
-    if (locations.length) {
-      const primary = locations[0];
-      lines.push('▸ 出错位置：' + primary.file + ':' + primary.line + (primary.col ? ':' + primary.col : ''));
-    } else {
-      lines.push('▸ 出错位置：（堆栈中无文件行号信息）');
-    }
-
-    if (err && err.name === 'SyntaxError') {
-      const file = locations[0] ? locations[0].file : (currentFile || 'game.js');
-      lines.push('▸ 提示：语法错误。运行 node --check ' + file + ' 可精确定位行号。');
-    }
-    if (err && err.message && /dynamically imported module|Cannot find module|Failed to fetch/i.test(err.message)) {
-      lines.push('▸ 提示：模块加载失败——文件不存在、路径写错，或被 import 的文件内部有语法错误（语法错误会导致整个模块加载失败）。');
-      const m = err.message.match(/(https?:\/\/\S+?\.js[^\s)]*)/);
-      if (m) lines.push('       失败 URL：' + m[1]);
-      lines.push('       请检查 Network 面板里该 .js 返回 404 还是 200。返回 200 就是文件本身语法错误。');
-    }
-
-    lines.push('');
-    lines.push('▸ 步骤历史：');
-    for (let i = 0; i < bootTrace.length; i++) {
-      const prefix = (i === bootTrace.length - 1) ? '  ▶ ' : '    ';
-      lines.push(prefix + bootTrace[i]);
-    }
-
-    if (locations.length > 1) {
-      lines.push('');
-      lines.push('▸ 堆栈中所有定位：');
-      for (const loc of locations) {
-        lines.push('    ' + loc.file + ':' + loc.line + (loc.col ? ':' + loc.col : ''));
-      }
-    }
-
-    lines.push('');
-    lines.push('▸ 原始堆栈：');
-    lines.push((err && err.stack) ? err.stack : '（无堆栈信息）');
-
-    return lines.join('\n');
-  }
-
-  function fallbackCopy(text, done) {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      if (done) done();
-    } catch (e) { console.warn('复制失败:', e); }
-  }
-
-  function showError(title, err) {
-    const text = formatError(title, err);
-
-    if (errorEl) {
-      errorEl.classList.add('on');
-      errorEl.innerHTML =
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">' +
-          '<b style="color:#ff8b8b">' + escapeHtml(title) + '</b>' +
-          '<button id="boot-error-copy" style="padding:4px 12px;background:rgba(60,100,150,.6);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:4px;font-size:11px;cursor:pointer;font-family:inherit;user-select:none">复制全部</button>' +
-        '</div>' +
-        '<pre id="boot-error-text" style="user-select:text;-webkit-user-select:text;white-space:pre-wrap;word-break:break-word;margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.7;color:#ffb0b0;max-height:60vh;overflow-y:auto">' +
-          escapeHtml(text) +
-        '</pre>';
-
-      const copyBtn = document.getElementById('boot-error-copy');
-      const textEl = document.getElementById('boot-error-text');
-      if (copyBtn && textEl) {
-        copyBtn.addEventListener('click', () => {
-          const content = textEl.textContent;
-          const done = () => {
-            copyBtn.textContent = '✓ 已复制';
-            setTimeout(() => { copyBtn.textContent = '复制全部'; }, 1500);
-          };
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(content).then(done).catch(() => fallbackCopy(content, done));
-          } else {
-            fallbackCopy(content, done);
-          }
-        });
-      }
-    }
-
-    if (statusEl) {
-      statusEl.textContent = '⚠ ' + title;
-      statusEl.style.color = '#ff8b8b';
-    }
-    if (barEl) barEl.style.background = 'linear-gradient(90deg,#ff5b5b,#ff9a6a)';
-
-    console.error('[LaiAsaka] Boot failed @ ' + currentStep + ':\n' + text);
-  }
-
-  /* 兜底：捕获 boot 之后才发生的运行时错误 */
-  window.addEventListener('error', (ev) => {
-    if (!errorEl || errorEl.classList.contains('on')) return;
-    if (!ev.filename) return;
-    const fakeErr = new Error(ev.message || 'Script error');
-    fakeErr.stack = ev.filename + ':' + (ev.lineno || '?') + ':' + (ev.colno || '?')
-      + '\n' + (ev.error && ev.error.stack ? ev.error.stack : '');
-    showError('运行时错误', fakeErr);
-  });
-  window.addEventListener('unhandledrejection', (ev) => {
-    if (!errorEl || errorEl.classList.contains('on')) return;
-    const reason = ev.reason instanceof Error ? ev.reason : new Error(String(ev.reason));
-    showError('未处理的 Promise 拒绝', reason);
-  });
-
-  (async function boot() {
-    try {
-      markStep('加载 engine.js', 'engine.js');
-      setStatus('正在加载引擎核心…', 10);
-      const { Engine } = await import('./engine.js');
-
-      markStep('加载 locale.zh-CN.js', 'locale.zh-CN.js');
-      setStatus('正在加载语言包…', 25);
-      const zhCN = (await import('./locale.zh-CN.js')).default;
-
-      markStep('加载 locale.en-US.js', 'locale.en-US.js');
-      const enUS = (await import('./locale.en-US.js')).default;
-
-      markStep('加载 content.js', 'content.js');
-      setStatus('正在加载内容表…', 40);
-      const { registerDefaultContent } = await import('./content.js');
-
-      markStep('加载 modes.js', 'modes.js');
-      setStatus('正在加载模式…', 55);
-      const { registerModes } = await import('./modes.js');
-
-      markStep('加载 game.js', 'game.js');
-      setStatus('正在加载应用层…', 70);
-      const { GameApp } = await import('./game.js');
-
-      markStep('初始化引擎', 'engine.js');
-      setStatus('正在初始化引擎…', 85);
-      const engine = new Engine();
-      await engine.init({
-        canvas: document.getElementById('game-canvas'),
-        locale: { 'zh-CN': zhCN, 'en-US': enUS },
-        defaultLocale: 'zh-CN',
-      });
-
-      markStep('注册内容', 'content.js');
-      registerDefaultContent(engine);
-
-      markStep('注册模式', 'modes.js');
-      registerModes(engine);
-
-      markStep('初始化应用层', 'game.js');
-      const app = new GameApp(engine);
-      engine.app = app;
-
-      markStep('绑定入口按钮', 'index.html');
-      const btnStart = document.getElementById('btn-start');
-      const btnTrain = document.getElementById('btn-train');
-
-      if (btnStart) {
-        btnStart.onclick = (e) => {
-          e.preventDefault();
-          try {
-            app.startMatch('normal');
-          } catch (err) {
-            console.error('进入战区失败', err);
-            alert('进入战区失败：\n' + (err.stack || err.message || String(err)));
-          }
-        };
-      }
-
-      if (btnTrain) {
-        btnTrain.onclick = (e) => {
-          e.preventDefault();
-          try {
-            app.startMatch('training');
-          } catch (err) {
-            console.error('进入训练场失败', err);
-            alert('进入训练场失败：\n' + (err.stack || err.message || String(err)));
-          }
-        };
-      }
-
-      markStep('渲染菜单', 'game.js');
-      app.boot();
-
-      setStatus('就绪', 100);
-      setTimeout(() => {
-        const boot = document.getElementById('boot-screen');
-        const menu = document.getElementById('menu-screen');
-        if (boot) boot.classList.remove('on');
-        if (menu) menu.classList.add('on');
-        engine.start();
-      }, 300);
-
-      markStep('绑定语言切换', 'index.html');
-      const langSelector = document.getElementById('lang-selector');
-      if (langSelector) {
-        langSelector.addEventListener('click', (ev) => {
-          const btn = ev.target.closest('[data-lang]');
-          if (!btn) return;
-          const lang = btn.dataset.lang;
-          langSelector.querySelectorAll('[data-lang]').forEach(b => b.classList.toggle('on', b === btn));
-          try {
-            app.setLanguage(lang);
-          } catch (e) {
-            console.error('[Lang] switch failed:', e);
-          }
-        });
-      }
-
-      markStep('绑定 DEV 按钮', 'index.html');
-      const devBtn = document.getElementById('btn-dev-console');
-      if (devBtn) {
-        devBtn.addEventListener('click', () => {
-          if (engine.devConsole) engine.devConsole.toggle();
-        });
-      }
-    } catch (err) {
-      showError('启动失败 @ ' + currentStep, err);
-    }
-  })();
 })();
 </script>
 </body>
