@@ -147,27 +147,32 @@ export class Inventory {
       innerGrid: null,
     };
 
-    if (table === 'weapons') {
-      item.attachments = {};
-      for (const k of WEAPON_ATTACH_SLOTS) item.attachments[k] = null;
+   if (table === 'weapons') {
+  item.attachments = {};
+  for (const k of WEAPON_ATTACH_SLOTS) item.attachments[k] = null;
 
-      if (extras.attachments && typeof extras.attachments === 'object') {
-        for (const k in extras.attachments) {
-          if (k in item.attachments && extras.attachments[k]) {
-            item.attachments[k] = extras.attachments[k];
-          }
-        }
+  if (extras.attachments && typeof extras.attachments === 'object') {
+    for (const k in extras.attachments) {
+      if (k in item.attachments && extras.attachments[k]) {
+        item.attachments[k] = extras.attachments[k];
       }
-
-      const ammoType = def.ammoType || null;
-      const magCap = def.mag || 0;
-      let loadedQty = 0;
-      if (extras.loadedQty !== undefined) {
-        const n = extras.loadedQty | 0;
-        loadedQty = Math.max(0, Math.min(magCap, n));
-      }
-      item.loaded = { ammoType, qty: loadedQty };
     }
+  }
+
+  const ammoType = def.ammoType || null;
+  const magCap = def.mag || 0;
+  let loadedQty = 0;
+  if (extras.loadedQty !== undefined) {
+    const n = extras.loadedQty | 0;
+    loadedQty = Math.max(0, Math.min(magCap, n));
+  }
+  
+  // ★ 彩虹子弹：初始化装填队列
+  item.loaded = { ammoType, qty: loadedQty, queue: [] };
+  if (loadedQty > 0) {
+    for (let i = 0; i < loadedQty; i++) item.loaded.queue.push(ammoType);
+  }
+}
 
     // ★ 容器类物品初始化 innerGrid
     if (table === 'backpack' || table === 'chestRig') {
