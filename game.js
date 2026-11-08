@@ -3577,21 +3577,30 @@ _updateMobileButtons(){
 
   const inv = this.engine.app.inventory;
   if (!c.grid) {
-    c.grid = new GridContainer(8, 6);
-    inv.containers.loot = c.grid;
-    const items = c.revealed || c.loot || [];
-    for (const spec of items) {
-      const extras = { searched: false, qty: spec.qty || 1 };
-      if (spec.extras) Object.assign(extras, spec.extras);
-      if (spec.dur !== undefined) extras.dur = spec.dur;
-      if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
-      const uid = inv.createItem(spec.table, spec.defId, extras);
-      if (uid) inv.addToContainer('loot', uid);
-    }
-    c.loot = [];
-    c.revealed = [];
-    c.searched = true;
+  c.grid = new GridContainer(8, 6);
+  inv.containers.loot = c.grid;
+  let items = c.revealed || c.loot || [];
+  
+  // ★ 如果啥都没有，给点保底物资
+  if (items.length === 0) {
+    items = [
+      { table: 'ammo', defId: '9mm', qty: 30 },
+      { table: 'ammo', defId: '5.56', qty: 30 }
+    ];
   }
+
+  for (const spec of items) {
+    const extras = { searched: false, qty: spec.qty || 1 };
+    if (spec.extras) Object.assign(extras, spec.extras);
+    if (spec.dur !== undefined) extras.dur = spec.dur;
+    if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+    const uid = inv.createItem(spec.table, spec.defId, extras);
+    if (uid) inv.addToContainer('loot', uid);
+  }
+  c.loot = [];
+  c.revealed = [];
+  c.searched = true;
+}
 
   inv.containers.loot = c.grid;
   for (const uid of c.grid.items.keys()) {
@@ -3965,12 +3974,11 @@ _updateGlowState(entity, dt) {
     entity._glowTimer = 0;
     return;
   }
-  // 判据：本帧耦合能比上一帧低 → 正在消耗
   const consuming = cur < last - 0.0001;
   entity._lastCoupling = cur;
 
   if (consuming) {
-    entity._glowTimer = 0.2;
+    entity._glowTimer = 0.2; // 粘滞 0.2s
   } else if (entity._glowTimer > 0) {
     entity._glowTimer -= dt;
     if (entity._glowTimer < 0) entity._glowTimer = 0;
