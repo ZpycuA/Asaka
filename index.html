@@ -442,13 +442,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
     <!-- 2. 伤害指示器 -->
     <canvas id="dmg-indicator"></canvas>
 
-     <!-- 声纹指示器 -->
-<div id="sound-radar" style="position:absolute;inset:0;pointer-events:none;z-index:16;">
-  <div class="sound-indicator" id="si-top" style="position:absolute;left:50%;top:10%;transform:translateX(-50%);width:150px;height:30px;border-top:2px solid transparent;border-radius:50% 50% 0 0;opacity:0;transition:opacity 0.2s;"></div>
-  <div class="sound-indicator" id="si-bottom" style="position:absolute;left:50%;bottom:10%;transform:translateX(-50%);width:150px;height:30px;border-bottom:2px solid transparent;border-radius:0 0 50% 50%;opacity:0;transition:opacity 0.2s;"></div>
-  <div class="sound-indicator" id="si-left" style="position:absolute;left:10%;top:50%;transform:translateY(-50%);width:30px;height:150px;border-left:2px solid transparent;border-radius:50% 0 0 50%;opacity:0;transition:opacity 0.2s;"></div>
-  <div class="sound-indicator" id="si-right" style="position:absolute;right:10%;top:50%;transform:translateY(-50%);width:30px;height:150px;border-right:2px solid transparent;border-radius:0 50% 50% 0;opacity:0;transition:opacity 0.2s;"></div>
-</div>
+     <!-- 360度 声纹雷达 -->
+<canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16;"></canvas>
 
     <!-- 3. 准星 -->
     <div id="crosshair">
