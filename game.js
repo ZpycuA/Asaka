@@ -423,13 +423,13 @@ class EntityStatus {
 
 
 /* ============================================================
-   [2] AI 系统
+   [2] AI 系统 (战术重构版)
    ============================================================ */
 const AISystem = {
   update(world, enemy, dt){
     if (!enemy.alive || enemy.trainingDummy) return;
 
-    // ★ 击倒状态下，停止一切战斗 AI，只能等死或缓慢爬行
+    // 击倒等死
     if (enemy.status && enemy.status.isDowned()) {
       enemy.body.velocity.x *= 0.9;
       enemy.body.velocity.z *= 0.9;
@@ -437,13 +437,14 @@ const AISystem = {
     }
 
     const p = world.player;
-    const canSee = this._canSeePlayer(world, enemy, p);
+    const ai = enemy.spec.ai || { aggression: 0.5, composure: 0.5, perception: 0.5, opportunism: 0.5 };
+    const canSee = this._canSeePlayer(world, enemy, p, ai.perception);
     const dist = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
 
     // --- 感知逻辑 ---
     if (canSee) {
-      // 距离越近，察觉越快。
-      const rate = 2.5 / (dist * 0.1 + 1);
+      // 敏感度越高，察觉越快
+      const rate = (1.0 + ai.perception * 2) / (dist * 0.1 + 1);
       enemy.awareness = Math.min(1.2, enemy.awareness + dt * rate);
     } else {
       enemy.awareness = Math.max(0, enemy.awareness - dt * 0.15);
@@ -452,7 +453,9 @@ const AISystem = {
     // --- 状态机切换 ---
     if (enemy.awareness >= 1.0 && enemy.state !== 'combat' && enemy.state !== 'flee') {
       enemy.state = 'combat';
-      enemy.reactionTimer = 0.6 + Math.random() * 0.4; // 发现即交战的反应前摇
+      // 冷静度决定反应前摇（0.3秒 ~ 1.5秒）
+      const baseReact = 1.5 - ai.composure * 1.2;
+      enemy.reactionTimer = baseReact + Math.random() * 0.3; 
       enemy.stateT = 0;
     } else if (enemy.awareness < 0.7 && enemy.state === 'combat') {
       enemy.state = 'investigate';
@@ -460,17 +463,20 @@ const AISystem = {
       enemy.targetPos = { x: p.body.position.x, z: p.body.position.z };
     }
 
-    // 血量极低，进入跑路
-    if (enemy.status.healthQuality < 30 && enemy.state !== 'flee') {
+    // 重伤跑路判定（战斗欲望低，或被打残）
+    const healthPct = enemy.status.healthQuality;
+    if (healthPct < 30 && ai.aggression < 0.7 && enemy.state !== 'flee') {
       enemy.state = 'flee';
       enemy.stateT = 0;
+      // 机会主义决定是否找掩体
+      enemy.targetPos = (ai.opportunism > 0.4) ? this._findCover(world, enemy, p) : null;
     }
 
     switch (enemy.state) {
       case 'patrol': this._patrol(world, enemy, dt); break;
       case 'investigate': this._investigate(world, enemy, dt); break;
-      case 'combat': this._combat(world, enemy, dt, dist, canSee); break;
-      case 'flee': this._flee(world, enemy, dt); break;
+      case 'combat': this._combat(world, enemy, dt, dist, canSee, ai); break;
+      case 'flee': this._flee(world, enemy, dt, p, ai); break;
     }
 
     const half = world.mapSpec.size / 2 - 2;
@@ -480,29 +486,62 @@ const AISystem = {
     if (enemy.hitFlash > 0) enemy.hitFlash -= dt;
   },
 
-  _canSeePlayer(world, enemy, player) {
+  _canSeePlayer(world, enemy, player, perception) {
     if (!player || !player.alive) return false;
     const dx = player.body.position.x - enemy.body.position.x;
     const dz = player.body.position.z - enemy.body.position.z;
     const dist = Math.hypot(dx, dz);
 
-    // 视距限制
-    if (dist > 80) return false;
+    // 感知距离：30米基础 + 最高50米
+    const maxDist = 30 + perception * 50;
+    if (dist > maxDist) return false;
 
-    // 视锥限制（前方 120 度）
+    // 视锥限制：基础 90度，高感知可达 150度
     const angleToPlayer = Math.atan2(dz, dx);
     let angleDiff = Math.abs(angleToPlayer - enemy.angle);
     if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
-    if (angleDiff > Math.PI / 3) return false;
+    const fov = (Math.PI / 2) + (perception * (Math.PI / 3));
+    if (angleDiff > fov / 2) return false;
 
     return this._checkLOS(world, enemy, player);
   },
 
-  _patrol(world, enemy, dt){
-    // 恢复站立
-    enemy.isCrouching = false;
-    enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+  _findCover(world, enemy, player) {
+    // 简易掩体搜索：找离自己 10-20 米，且在玩家视线反方向的障碍物
+    let bestCover = null;
+    let bestDist = Infinity;
+    const px = player.body.position.x;
+    const pz = player.body.position.z;
 
+    for (const obs of world.obstacles) {
+      const ox = obs.body.position.x;
+      const oz = obs.body.position.z;
+      const odx = ox - enemy.body.position.x;
+      const odz = oz - enemy.body.position.z;
+      const d = Math.hypot(odx, odz);
+      if (d > 20 || d < 5) continue;
+
+      // 必须远离玩家
+      const pdx = ox - px;
+      const pdz = oz - pz;
+      const pDist = Math.hypot(pdx, pdz);
+      if (pDist < 10) continue; 
+
+      if (d < bestDist) {
+        bestDist = d;
+        // 目标点：障碍物背离玩家的侧面
+        const angleFromPlayer = Math.atan2(oz - pz, ox - px);
+        bestCover = {
+          x: ox + Math.cos(angleFromPlayer) * 2.0,
+          z: oz + Math.sin(angleFromPlayer) * 2.0
+        };
+      }
+    }
+    return bestCover;
+  },
+
+  _patrol(world, enemy, dt){
+    enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
     enemy.wanderT -= dt;
     if (enemy.wanderT <= 0) {
       enemy.wanderT = 1.5 + Math.random() * 1.5;
@@ -514,8 +553,8 @@ const AISystem = {
   },
 
   _investigate(world, enemy, dt){
+    enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
     enemy.stateT += dt;
-    // 向目标位置移动
     if (enemy.targetPos) {
       const dx = enemy.targetPos.x - enemy.body.position.x;
       const dz = enemy.targetPos.z - enemy.body.position.z;
@@ -536,45 +575,41 @@ const AISystem = {
     }
   },
 
-  _combat(world, enemy, dt, dist, canSee){
+  _combat(world, enemy, dt, dist, canSee, ai){
     const p = world.player;
     
     if (!canSee) {
-      // 丢失目标视野，转向去查看
       enemy.state = 'investigate';
       enemy.targetPos = { x: p.body.position.x, z: p.body.position.z };
       return;
     }
 
-    // 面向玩家
     const dx = p.body.position.x - enemy.body.position.x;
     const dz = p.body.position.z - enemy.body.position.z;
     enemy.angle = Math.atan2(dz, dx);
 
-    // 战术动作：如果距离近，蹲下射击
-    if (dist < 25 && dist > 8 && enemy.status.healthQuality > 50) {
+    // 战术动作：机会主义决定是否蹲下/走位
+    const isOpportunist = ai.opportunism > 0.6;
+    if (isOpportunist && dist < 30 && dist > 10) {
       enemy.isCrouching = true;
       enemy.body.height = 1.6; enemy.body.halfH = 0.8;
+      enemy.body.velocity.x = Math.cos(enemy.angle + Math.PI/2) * enemy.spec.speed * 0.4;
+      enemy.body.velocity.z = Math.sin(enemy.angle + Math.PI/2) * enemy.spec.speed * 0.4;
+    } else if (ai.aggression > 0.7 && dist > 10) {
+      // 战斗欲望高，直接冲脸
+      enemy.isCrouching = false;
+      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+      enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed;
+      enemy.body.velocity.z = Math.sin(enemy.angle) * enemy.spec.speed;
+    } else {
       enemy.body.velocity.x = 0;
       enemy.body.velocity.z = 0;
-    } else if (dist <= 8) {
-      // 太近了，边打边退
-      enemy.body.velocity.x = -Math.cos(enemy.angle) * enemy.spec.speed * 0.5;
-      enemy.body.velocity.z = -Math.sin(enemy.angle) * enemy.spec.speed * 0.5;
-      enemy.isCrouching = false;
-      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
-    } else {
-      // 中远距离靠近
-      enemy.isCrouching = false;
-      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
-      enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed * 0.5;
-      enemy.body.velocity.z = Math.sin(enemy.angle) * enemy.spec.speed * 0.5;
     }
 
     // 反应前摇
     if (enemy.reactionTimer > 0) {
       enemy.reactionTimer -= dt;
-      return; // 没有瞄准完不能开火
+      return;
     }
 
     // 开火逻辑（点射）
@@ -588,11 +623,11 @@ const AISystem = {
       world.enemyFire(enemy, p);
       enemy.burstCount++;
       
-      // 每次射击 3~5 发后停顿
-      const maxBurst = 3 + Math.floor(Math.random() * 3);
+      // 爆发连射数受战斗欲望影响
+      const maxBurst = 2 + Math.floor(ai.aggression * 4);
       if (enemy.burstCount >= maxBurst) {
         enemy.burstCount = 0;
-        enemy.burstCooldown = 0.5 + Math.random() * 0.6; 
+        enemy.burstCooldown = 0.5 + Math.random() * 0.8; 
       }
     }
 
@@ -613,18 +648,57 @@ const AISystem = {
     }
   },
 
-  _flee(world, enemy, dt){
-    const p = world.player;
-    const dx = p.body.position.x - enemy.body.position.x;
-    const dz = p.body.position.z - enemy.body.position.z;
-    const ang = Math.atan2(dz, dx);
-    
-    // 背向玩家跑
-    enemy.angle = ang + Math.PI; 
-    enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed;
-    enemy.body.velocity.z = Math.sin(enemy.angle) * enemy.spec.speed;
-    enemy.isCrouching = false;
-    enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+  _flee(world, enemy, dt, p, ai){
+    enemy.stateT += dt;
+    enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+
+    let moveX = 0, moveZ = 0;
+    if (enemy.targetPos) {
+      // 跑向掩体
+      const dx = enemy.targetPos.x - enemy.body.position.x;
+      const dz = enemy.targetPos.z - enemy.body.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 1.5) {
+        enemy.angle = Math.atan2(dz, dx);
+        moveX = Math.cos(enemy.angle) * enemy.spec.speed;
+        moveZ = Math.sin(enemy.angle) * enemy.spec.speed;
+      } else {
+        // 到达掩体，缩着
+        enemy.isCrouching = true;
+        enemy.body.height = 1.6; enemy.body.halfH = 0.8;
+      }
+    } else {
+      // 无掩体，背向玩家狂奔
+      const dx = p.body.position.x - enemy.body.position.x;
+      const dz = p.body.position.z - enemy.body.position.z;
+      enemy.angle = Math.atan2(dz, dx) + Math.PI; 
+      moveX = Math.cos(enemy.angle) * enemy.spec.speed;
+      moveZ = Math.sin(enemy.angle) * enemy.spec.speed;
+    }
+
+    // ★ 打带跑：边跑边回头盲射压制（需高机会主义或高战斗欲望）
+    if (ai.opportunism > 0.5 || ai.aggression > 0.6) {
+      const distToPlayer = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
+      if (distToPlayer < 20 && enemy.weapon && enemy.weapon.loaded.qty > 0) {
+        if (enemy.fireCd > 0) enemy.fireCd -= dt;
+        if (enemy.fireCd <= 0) {
+          // 强行扭转身体朝向玩家开一枪
+          const origAngle = enemy.angle;
+          enemy.angle = Math.atan2(p.body.position.z - enemy.body.position.z, p.body.position.x - enemy.body.position.x);
+          
+          // 临时加大 AI 散布（盲射极不准）
+          enemy._blindFire = true; 
+          world.enemyFire(enemy, p);
+          enemy._blindFire = false;
+          
+          enemy.angle = origAngle;
+          enemy.fireCd = 0.3 + Math.random() * 0.4; // 压制射击间隔
+        }
+      }
+    }
+
+    enemy.body.velocity.x = moveX;
+    enemy.body.velocity.z = moveZ;
   },
 
   _checkLOS(world, a, b){
@@ -642,6 +716,8 @@ const AISystem = {
     return !hit;
   }
 };
+
+
 /* ============================================================
    [3] 任务系统
    ============================================================ */
@@ -2380,9 +2456,19 @@ if (isPlayer) {
   if (owner.isCrouching) spread *= 0.6; 
   if (owner.status && owner.status.hasEffect('pain')) spread *= 1.2;
 } else {
-  const acc = owner.spec ? owner.spec.acc : 0.5;
-  spread = baseSpread * (1.5 - acc);
+  // ★ AI 散布
+  const ai = owner.spec.ai || { composure: 0.5 };
+  // 冷静度越高，基础散布越小
+  const composureMul = 1.5 - (ai.composure || 0.5); 
+  spread = baseSpread * composureMul;
+  
   if (owner.isCrouching) spread *= 0.6;
+  
+  // ★ 如果处于边跑边盲射状态，散布极大
+  if (owner._blindFire) spread *= 3.0;
+  
+  // 如果刚受到攻击，未恢复冷静，散布增加（痛觉惊吓）
+  if (owner.hitFlash > 0 && ai.composure < 0.6) spread *= 1.5;
 }
 
 const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
@@ -2629,14 +2715,17 @@ this.combatLog.push({
 });
 
   if (enemy.status.isDead() && enemy.alive) {
-    const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
-    this._killEnemy(enemy, remaining, dist);
+  const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
+  this._killEnemy(enemy, remaining, dist);
 } else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
   enemy.isDownedState = true;
   enemy.mesh.rotation.z = Math.PI / 2; // 视觉倒地
   enemy.body.height = 0.5;             // 物理体变矮
   enemy.body.halfH = 0.25;             // ★ 核心：必须同步 halfH，否则判定框还是原高度
   enemy.body.position.y = 0.25;
+} else if (enemy.alive) {
+  // ★ 未死未倒，触发受击响应
+  AISystem.onHit(this, enemy, hitPart, this.player.body.position.x, this.player.body.position.z);
 }
 }
 
