@@ -384,7 +384,14 @@ class EntityStatus {
    ============================================================ */
 const AISystem = {
   update(world, enemy, dt){
-    if (!enemy.alive || enemy.trainingDummy) return;
+  if (!enemy.alive || enemy.trainingDummy) return;
+  
+  // ★ 击倒状态下，停止一切战斗 AI，只能等死或缓慢爬行
+  if (enemy.status && enemy.status.isDowned()) {
+    enemy.body.velocity.x *= 0.9;
+    enemy.body.velocity.z *= 0.9;
+    return; 
+  }
 
     const p = world.player;
     const dx = p.body.position.x - enemy.body.position.x;
@@ -1883,7 +1890,11 @@ if (!this._searching) {
   moveZ = rightZ * mv.x + forwardZ * -mv.z;
 }
 
-const finalSpeed = speed * exhaustionMul * statusSpeedMul;
+// ★ 击倒爬行极慢
+let downedSpeedMul = 1;
+if (p.status && p.status.isDowned()) downedSpeedMul = 0.15;
+
+const finalSpeed = speed * exhaustionMul * statusSpeedMul * downedSpeedMul;
 p.body.velocity.x = moveX * finalSpeed;
 p.body.velocity.z = moveZ * finalSpeed;
 if (isMoving && !this._searching) p.body.wake();
