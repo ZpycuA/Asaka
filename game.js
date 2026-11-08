@@ -3507,19 +3507,17 @@ _applySkillEffect(p, def){
   _showEffectPopup(name, icon, isPositive) {
   let container = document.getElementById('effect-popups');
   if (!container) {
-    // 如果 index.html 里没加载到，动态生成一个兜底
     container = document.createElement('div');
     container.id = 'effect-popups';
     container.style.cssText = 'position:absolute; left:50%; bottom:220px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; z-index:60;';
     const hud = document.getElementById('hud');
-    if (hud) hud.appendChild(container);
-    else document.body.appendChild(container);
+    if (hud) { hud.appendChild(container); } else { document.body.appendChild(container); }
   }
   
   const el = document.createElement('div');
   const bg = isPositive ? 'rgba(80,200,120,.9)' : 'rgba(200,50,50,.9)';
   const border = isPositive ? 'rgba(120,255,160,.8)' : 'rgba(255,100,100,.8)';
-  el.style.cssText = `padding:6px 16px; background:${bg}; border:1px solid ${border}; border-radius:6px; color:#fff; font-size:13px; font-weight:700; letter-spacing:1px; box-shadow:0 4px 12px rgba(0,0,0,.5); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform:translateY(20px) scale(0.9); display:flex; align-items:center; gap:6px;`;
+  el.style.cssText = 'padding:6px 16px; background:' + bg + '; border:1px solid ' + border + '; border-radius:6px; color:#fff; font-size:13px; font-weight:700; letter-spacing:1px; box-shadow:0 4px 12px rgba(0,0,0,.5); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform:translateY(20px) scale(0.9); display:flex; align-items:center; gap:6px;';
   el.innerHTML = `<span>${icon}</span><span>${name}</span>`;
   container.appendChild(el);
   
@@ -3530,26 +3528,9 @@ _applySkillEffect(p, def){
   setTimeout(() => {
     el.style.opacity = '0';
     el.style.transform = 'translateY(-20px) scale(0.9)';
-    setTimeout(() => el.remove(), 300);
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
   }, 2500);
 }
-  const el = document.createElement('div');
-  const bg = isPositive ? 'rgba(80,200,120,.9)' : 'rgba(200,50,50,.9)';
-  const border = isPositive ? 'rgba(120,255,160,.8)' : 'rgba(255,100,100,.8)';
-  el.style.cssText = `padding:6px 16px; background:${bg}; border:1px solid ${border}; border-radius:6px; color:#fff; font-size:13px; font-weight:700; letter-spacing:1px; box-shadow:0 4px 12px rgba(0,0,0,.5); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform:translateY(20px) scale(0.9); display:flex; align-items:center; gap:6px;`;
-  el.innerHTML = `<span>${icon}</span><span>${name}</span>`;
-  container.appendChild(el);
-  
-  requestAnimationFrame(() => {
-    el.style.opacity = '1';
-    el.style.transform = 'translateY(0) scale(1)';
-  });
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(-20px) scale(0.9)';
-    setTimeout(() => el.remove(), 300);
-  }, 2000);
-  }
 
   _processModeHook(hookName, ...args){
     const hooks = this.modeConfig && this.modeConfig.hooks;
