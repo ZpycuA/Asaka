@@ -210,7 +210,7 @@ const CombatSystem = {
   armorItem.dur = Math.max(0, armorItem.dur - wear);
 
   return { absorbed, remaining, wear, pierced: penDiff >= 3 };
-}
+},
 
   applyCoupling(player, energy, type){
     if (!player.charSpec.prazer) return { absorbed: 0, remaining: energy, cost: 0 };
