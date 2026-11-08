@@ -2442,21 +2442,27 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
 
   this._hitMarker(hitPart === 'head');
 
-  this.combatLog.push({
-    type: 'damage_dealt',
-    t: this.time,
-    target: { name: this.engine.i18n.t(enemy.spec.name), isBoss: false, isElite: false },
-    amount: Math.round(remaining),
-    part: hitPart,
-    weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
-    headshot: hitPart === 'head',
-    pierced: pen >= 3,
-    armor: armorSnapshot,
-    coupling: couplingSnapshot,
-    targetHpBefore: hpBefore,
-    targetHpAfter: Math.round(enemy.status.healthQuality),
-    targetMaxHp: 100,
-  });
+  // ★ 获取目标当前状态列表
+const targetEffs = Array.from(enemy.status.effects.keys()).map(k => {
+  const d = this.engine.content.get('effects', k);
+  return d ? d.name : k;
+});
+
+this.combatLog.push({
+  type: 'damage_dealt',
+  t: this.time,
+  target: { name: this.engine.i18n.t(enemy.spec.name), isBoss: false, isElite: false, effects: targetEffs },
+  amount: Math.round(remaining), // ★ 保留动能数值
+  part: hitPart,
+  weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
+  headshot: hitPart === 'head',
+  pierced: pen >= 3,
+  armor: armorSnapshot,
+  coupling: couplingSnapshot,
+  targetHpBefore: hpBefore,
+  targetHpAfter: Math.round(enemy.status.healthQuality),
+  targetMaxHp: 100,
+});
 
   if (enemy.status.isDead() && enemy.alive) {
     const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
@@ -2528,20 +2534,26 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
   player.taken += remaining;
 
   const sourceWeapon = sourceEnt && sourceEnt.weapon && sourceEnt.weapon.def ? { name: this.engine.i18n.t(sourceEnt.weapon.def.name) } : null;
-  this.combatLog.push({
-    type: 'damage_taken',
-    t: this.time,
-    source: sourceEnt ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon } : { name: '未知' },
-    amount: Math.round(remaining),
-    part: part,
-    pierced: pen >= 3,
-    armor: armorSnapshot,
-    coupling: couplingSnapshot,
-    hpBefore: hpBefore,
-    hpAfter: Math.round(player.status.healthQuality),
-    maxHp: 100,
-    bleeding: player.status.hasEffect('bleeding'),
-  });
+  const selfEffs = Array.from(player.status.effects.keys()).map(k => {
+  const d = this.engine.content.get('effects', k);
+  return d ? d.name : k;
+});
+
+this.combatLog.push({
+  type: 'damage_taken',
+  t: this.time,
+  source: sourceEnt ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon, effects: [] } : { name: '未知', effects: [] },
+  amount: Math.round(remaining), // ★ 保留动能数值
+  part: part,
+  pierced: pen >= 3,
+  armor: armorSnapshot,
+  coupling: couplingSnapshot,
+  hpBefore: hpBefore,
+  hpAfter: Math.round(player.status.healthQuality),
+  maxHp: 100,
+  bleeding: player.status.hasEffect('bleeding'),
+  effects: selfEffs, // ★ 当前自身状态列表
+});
 
   this._spawnDamageNumber(player.body.position.x, player.body.position.z, Math.round(remaining), 'player');
   this._hurtFX();
