@@ -185,28 +185,32 @@ const CombatSystem = {
   },
 
   applyArmor(armorItem, energy, pen){
-    if (!armorItem || armorItem.dur <= 0 || !armorItem.lv) {
-      return { absorbed: 0, remaining: energy, wear: 0, pierced: pen >= 3 };
-    }
-    const spec = { 1: 0.22, 2: 0.38, 3: 0.52, 4: 0.64, 5: 0.74 };
-    const lv = armorItem.lv;
-    const penDiff = pen - lv;
+  if (!armorItem || armorItem.dur <= 0 || !armorItem.lv) {
+    return { absorbed: 0, remaining: energy, wear: 0, pierced: pen >= 3 };
+  }
+  // 真实防弹：高等级护甲吸收率极高
+  // Lv3 可挡 5.56(1700J)，吸收 70%；Lv4 吸收 85%；Lv5 吸收 95%
+  const baseSpec = { 1: 0.1, 2: 0.3, 3: 0.70, 4: 0.85, 5: 0.95 };
+  const lv = armorItem.lv;
+  const penDiff = pen - lv;
 
-    let effRed = spec[lv] || 0;
-    if (penDiff >= 3) effRed *= 0.22;
-    else if (penDiff >= 1) effRed *= (1 - penDiff * 0.2);
-    else if (penDiff <= -2) effRed = Math.min(0.95, effRed * 1.35);
+  let effRed = baseSpec[lv] || 0;
+  if (penDiff >= 3) effRed *= 0.22; // 穿甲弹直接击穿
+  else if (penDiff >= 1) effRed *= (1 - penDiff * 0.25);
+  else if (penDiff <= -2) effRed = Math.min(0.99, effRed * 1.1);
 
-    const durRatio = Math.max(0, Math.min(1, armorItem.dur / armorItem.max));
-    effRed *= (0.35 + 0.65 * durRatio);
+  // 耐久惩罚：护甲磨损越多，吸收越差
+  const durRatio = Math.max(0, Math.min(1, armorItem.dur / armorItem.max));
+  effRed *= (0.2 + 0.8 * durRatio);
 
-    const absorbed = energy * effRed;
-    const remaining = energy - absorbed;
-    const wear = Math.min(armorItem.dur, absorbed / 20);
-    armorItem.dur = Math.max(0, armorItem.dur - wear);
+  const absorbed = energy * effRed;
+  const remaining = energy - absorbed;
+  // 吸收 100J 扣除 4 点耐久（一块插板能抗约 2500J 累计伤害）
+  const wear = Math.min(armorItem.dur, absorbed / 25);
+  armorItem.dur = Math.max(0, armorItem.dur - wear);
 
-    return { absorbed, remaining, wear, pierced: penDiff >= 3 };
-  },
+  return { absorbed, remaining, wear, pierced: penDiff >= 3 };
+}
 
   applyCoupling(player, energy, type){
     if (!player.charSpec.prazer) return { absorbed: 0, remaining: energy, cost: 0 };
@@ -234,23 +238,25 @@ const CombatSystem = {
 
 
 /* ============================================================
-   [1.5] 实体健康与状态系统 (EntityStatus)
+   [1.5] 实体健康与状态系统 (EntityStatus) - 仿真核心
    ============================================================ */
+// 部位承受极限（单位：焦耳 J）。代表该部位肌肉骨骼被彻底摧毁的阈值。
 const PART_MAX_HP = {
-  head: 35,
-  thorax: 100,  // 胸部（核心），加高一点防秒杀
-  abdomen: 80,  // 腹部
-  larm: 120,    // 手臂（合并左右）
-  legs: 130     // 腿部（合并左右）
+  head: 60,     // 头部极脆：9mm(500J)擦边即死，5.56(1700J)直接爆头
+  thorax: 800,  // 胸部核心：5.56(1700J)一枪打穿，9mm(500J)两枪死
+  abdomen: 600, // 腹部：内脏较多
+  larm: 400,    // 手臂：骨骼+肌肉
+  legs: 500     // 腿部：更粗壮
 };
 
-const WOUND_ENERGY_THRESHOLD = [0, 100, 350, 700, 1200]; // 无，轻，中，重，致命
+// 单次动能对应的伤口等级
+const WOUND_ENERGY_THRESHOLD = [0, 100, 350, 700, 1200];
 
 class EntityStatus {
   constructor(entity, isPrazer) {
     this.entity = entity;
     this.isPrazer = isPrazer;
-    this.maxBlood = isPrazer ? 6000 : 5000;
+    this.maxBlood = isPrazer ? 6000 : 5000; // 血量单位：毫升(ml)
     this.blood = this.maxBlood;
     
     this.parts = {};
@@ -258,7 +264,7 @@ class EntityStatus {
       this.parts[p] = { hp: PART_MAX_HP[p], maxHp: PART_MAX_HP[p], wound: 0, fracture: 0 };
     }
     
-    this.effects = new Map(); // id -> { duration, strength, awareness }
+    this.effects = new Map();
     this.healthQuality = 100;
   }
 
@@ -272,27 +278,24 @@ class EntityStatus {
     }
   }
 
-  removeEffect(id) {
-    this.effects.delete(id);
-  }
-
-  hasEffect(id) {
-    return this.effects.has(id);
-  }
+  removeEffect(id) { this.effects.delete(id); }
+  hasEffect(id) { return this.effects.has(id); }
 
   takeDamage(part, energy, pen) {
     if (!this.parts[part]) part = 'thorax';
-    // ★ 核心修复 1：严格合并部位，不产生永远满血的隐藏部位
     if (part === 'rarm') part = 'larm'; 
     if (part === 'lleg' || part === 'rleg') part = 'legs';
 
     const p = this.parts[part];
     if (!p) return;
 
-    // 动能转部位伤害（每点能量约等于 0.02 ~ 0.03 部位血量）
-    const dmg = energy / (this.isPrazer ? 48 : 34);
-    p.hp = Math.max(-p.maxHp * 2, p.hp - dmg);
+    // ★ 核心仿真：直接用动能扣除部位血量
+    p.hp = Math.max(-p.maxHp * 2, p.hp - energy);
     
+    // 瞬时空腔效应造成的失血：每受 100 焦耳伤害，瞬间失血 40ml
+    const instantBleed = energy * 0.4;
+    this.blood = Math.max(0, this.blood - instantBleed);
+
     // 伤口等级判定
     let newWound = 0;
     for (let i = 1; i < WOUND_ENERGY_THRESHOLD.length; i++) {
@@ -301,7 +304,7 @@ class EntityStatus {
     p.wound = Math.max(p.wound, newWound);
     
     if (p.wound > 0) {
-      // 受伤必流血，强度等于伤口等级
+      // 持续流血：每秒流 5ml * 伤口等级（致命伤流得极快）
       this.addEffect('bleeding', 30, Math.max(p.wound, this.effects.get('bleeding')?.strength || 0));
       this.addEffect('pain', 10, 1);
     }
@@ -310,11 +313,9 @@ class EntityStatus {
     if (p.hp <= 0 && p.fracture === 0) {
       p.fracture = 1; // 骨折
       this.addEffect('fracture', 999, 1);
-      this.addEffect('bleeding', 30, Math.min(4, (this.effects.get('bleeding')?.strength || 0) + 1));
     } else if (p.hp <= -p.maxHp && p.fracture === 1) {
       p.fracture = 2; // 粉碎性骨折
       this.addEffect('fracture', 999, 2);
-      this.addEffect('bleeding', 30, Math.min(4, (this.effects.get('bleeding')?.strength || 0) + 2));
     }
 
     this.updateOverallHealth();
@@ -324,7 +325,7 @@ class EntityStatus {
   tick(dt) {
     let bleedRate = 0;
     for (const [id, eff] of this.effects) {
-      if (id === 'bleeding') bleedRate += eff.strength * 1.5; // 每秒流 1.5 * 强度
+      if (id === 'bleeding') bleedRate += eff.strength * 5; // 每秒流 5ml 血
       eff.duration -= dt;
       if (eff.duration <= 0) this.effects.delete(id);
     }
@@ -332,7 +333,7 @@ class EntityStatus {
     this.blood = Math.max(0, this.blood - bleedRate * dt);
     
     if (this.blood < this.maxBlood * 0.5) {
-      this.addEffect('hypovolemia', 999, 1);
+      this.addEffect('hypovolemia', 999, 1); // 失血过半触发效果
     } else {
       this.removeEffect('hypovolemia');
     }
@@ -341,12 +342,10 @@ class EntityStatus {
   }
 
   updateOverallHealth() {
-    // ★ 核心修复 2：只计算 头、胸、腹 这三个核心部位。四肢破损不再拉高整体健康百分比。
+    // 只计算决定性部位：头40%、胸40%、腹20%
     const headRatio = Math.max(0, this.parts.head.hp) / this.parts.head.maxHp;
     const thoraxRatio = Math.max(0, this.parts.thorax.hp) / this.parts.thorax.maxHp;
     const abdomenRatio = Math.max(0, this.parts.abdomen.hp) / this.parts.abdomen.maxHp;
-    
-    // 头部权重 40%，胸部 40%，腹部 20%
     this.healthQuality = Math.max(0, (headRatio * 0.4 + thoraxRatio * 0.4 + abdomenRatio * 0.2) * 100);
   }
 
@@ -363,7 +362,7 @@ class EntityStatus {
   getMoveSpeedMul() {
     let mul = 1;
     if (this.effects.has('hypovolemia')) mul *= 0.75;
-    if (this.parts.legs.fracture > 0) mul *= 0.5; // 腿部骨折
+    if (this.parts.legs.fracture > 0) mul *= 0.5;
     if (this.effects.has('pain')) mul *= 0.9;
     if (this.effects.has('moving_speed_up')) mul *= 1.2;
     return mul;
@@ -378,17 +377,18 @@ class EntityStatus {
 
   isDead() {
     if (this.blood <= 0) return true;
-    if (this.parts.head.hp <= -this.parts.head.maxHp * 0.5) return true; // 头部受创极重（爆头）
-    if (this.parts.thorax.hp <= -this.parts.thorax.maxHp * 0.5) return true; // 穿心
+    if (this.parts.head.hp <= 0) return true; // 头部承伤 60J 即死
     return false;
   }
 
   isDowned() {
     if (this.isDead()) return false;
-    // 胸部被打空，或者失血极低，进入击倒
+    // 胸部被打穿，或失血极低，进入倒地等死状态
     return this.parts.thorax.hp <= 0 || this.blood < this.maxBlood * 0.2;
   }
 }
+
+
 /* ============================================================
    [2] AI 系统
    ============================================================ */
@@ -2404,22 +2404,6 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
     return null;
   };
 
-  if (hitPart === 'head') {
-    const s1 = applyOne(entity.armor.shell, '头盔壳');
-    const s2 = applyOne(entity.armor.visor, '面罩');
-    if (s1) snapshot = s1;
-    else if (s2) snapshot = s2;
-  } else if (hitPart === 'thorax' || hitPart === 'abdomen') {
-    const s1 = applyOne(entity.armor.plate, '插板');
-    const s2 = applyOne(entity.armor.fiber, '纤维');
-    if (s1) snapshot = s1;
-    else if (s2) snapshot = s2;
-  } else {
-    // 四肢：仅 fiber 覆盖
-    const s1 = applyOne(entity.armor.fiber, '纤维');
-    if (s1) snapshot = s1;
-  }
-
   return { remaining, snapshot };
 }
    
@@ -2447,14 +2431,6 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax'){
   const armorRes = this._applyArmorLayers(enemy, remaining, pen, hitPart);
   remaining = armorRes.remaining;
   armorSnapshot = armorRes.snapshot;
-
-  if (hitPart === 'head') {
-    remaining *= COMBAT.HEAD_MULT;
-    if (profile.get('combat.headshotInstantKill', false)) {
-      const lethalEnergy = enemy.status.parts.head.maxHp * COMBAT.BODY_COEFF_HUMAN + 500; // 模拟一枪穿头
-      if (remaining >= lethalEnergy) remaining = lethalEnergy;
-    }
-  }
 
   const res = enemy.status.takeDamage(hitPart, remaining, pen);
   enemy.hitFlash = 0.15;
@@ -2488,12 +2464,13 @@ this.combatLog.push({
   if (enemy.status.isDead() && enemy.alive) {
     const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
     this._killEnemy(enemy, remaining, dist);
-  } else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
-    enemy.isDownedState = true;
-    enemy.mesh.rotation.z = Math.PI / 2; // 倒地
-    enemy.body.height = 0.5; // 变矮
-    enemy.body.position.y = 0.25;
-  }
+} else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
+  enemy.isDownedState = true;
+  enemy.mesh.rotation.z = Math.PI / 2; // 视觉倒地
+  enemy.body.height = 0.5;             // 物理体变矮
+  enemy.body.halfH = 0.25;             // ★ 核心：必须同步 halfH，否则判定框还是原高度
+  enemy.body.position.y = 0.25;
+}
 }
 
 _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null){
