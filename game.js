@@ -66,18 +66,16 @@ const ACTION_MAP = {
     label: '搜索',
     mobile: { right: '90px', bottom: '180px', size: 55, color: 'rgba(255,210,80,.35)', border: 'rgba(255,210,80,.7)', mode: 'click' },
   },
+    switchWeapon: {
+  keys: ['f'],
+  label: '切枪',
+  mobile: { right: '160px', bottom: '180px', size: 55, color: 'rgba(160,120,255,.35)', border: 'rgba(180,140,255,.7)', mode: 'click' },
+},
   bag: {
     keys: ['b'],
     label: '背包',
-    mobile: { right: '20px', bottom: '260px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
+    mobile: { right: '90px', bottom: '280px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
   },
-  switchWeapon: {
-  keys: ['f'],
-  label: '切枪',
-  mobile: { right: '90px', bottom: '260px', size: 55, color: 'rgba(160,120,255,.35)', border: 'rgba(180,140,255,.7)', mode: 'click' },
-},
-  skill1:       { keys: ['q'], label: '技能1' },
-  skill2:       { keys: ['e'], label: '技能2' },
   protectL1:    { keys: ['1'], label: '防护 L1' },
   protectL2:    { keys: ['2'], label: '防护 L2' },
   protectL3:    { keys: ['3'], label: '防护 L3' },
@@ -88,6 +86,36 @@ const ACTION_MAP = {
     actionId: 'fire',
     mobile: { left: '30px', bottom: '150px', size: 70, color: 'rgba(255,80,80,.3)', border: 'rgba(255,100,100,.6)', mode: 'hold', rotate: true },
   },
+   crouch: {
+  keys: ['c'],
+  label: '蹲',
+  mobile: { right: '120px', bottom: '120px', size: 55, color: 'rgba(150,150,150,.3)', border: 'rgba(255,255,255,.5)', mode: 'hold' },
+},
+ads: {
+  mouse: 'right',
+  label: '开镜',
+  mobile: { right: '20px', bottom: '280px', size: 55, color: 'rgba(50,150,255,.3)', border: 'rgba(100,180,255,.6)', mode: 'hold' },
+},
+lean_left: {
+  keys: ['z'],
+  label: '左倾',
+  mobile: { left: '30px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold' },
+},
+lean_right: {
+  keys: ['x'],
+  label: '右倾',
+  mobile: { left: '85px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold' },
+},
+skill1: {
+  keys: ['q'],
+  label: '技能1',
+  mobile: { left: '30px', bottom: '300px', size: 45, color: 'rgba(160,120,255,.3)', border: 'rgba(180,140,255,.6)', mode: 'click' },
+},
+skill2: {
+  keys: ['e'],
+  label: '技能2',
+  mobile: { left: '85px', bottom: '300px', size: 45, color: 'rgba(160,120,255,.3)', border: 'rgba(180,140,255,.6)', mode: 'click' },
+},
 };
 
 /* ============================================================
@@ -204,12 +232,17 @@ const CombatSystem = {
   effRed *= (0.2 + 0.8 * durRatio);
 
   const absorbed = energy * effRed;
-  const remaining = energy - absorbed;
-  // 吸收 100J 扣除 4 点耐久（一块插板能抗约 2500J 累计伤害）
-  const wear = Math.min(armorItem.dur, absorbed / 25);
-  armorItem.dur = Math.max(0, armorItem.dur - wear);
+const pierced = penDiff >= 3;
+const afterArmor = energy - absorbed;
 
-  return { absorbed, remaining, wear, pierced: penDiff >= 3 };
+// ★ 核心：如果没有被直接穿透，只有 30% 的剩余动能转化为钝击伤
+const finalDamage = pierced ? afterArmor : afterArmor * 0.3;
+
+// 吸收 100J 扣除 4 点耐久（一块插板能抗约 2500J 累计伤害）
+const wear = Math.min(armorItem.dur, absorbed / 25);
+armorItem.dur = Math.max(0, armorItem.dur - wear);
+
+return { absorbed, remaining: finalDamage, wear, pierced };
 },
 
   applyCoupling(player, energy, type){
@@ -394,35 +427,50 @@ class EntityStatus {
    ============================================================ */
 const AISystem = {
   update(world, enemy, dt){
-  if (!enemy.alive || enemy.trainingDummy) return;
-  
-  // ★ 击倒状态下，停止一切战斗 AI，只能等死或缓慢爬行
-  if (enemy.status && enemy.status.isDowned()) {
-    enemy.body.velocity.x *= 0.9;
-    enemy.body.velocity.z *= 0.9;
-    return; 
-  }
+    if (!enemy.alive || enemy.trainingDummy) return;
+
+    // ★ 击倒状态下，停止一切战斗 AI，只能等死或缓慢爬行
+    if (enemy.status && enemy.status.isDowned()) {
+      enemy.body.velocity.x *= 0.9;
+      enemy.body.velocity.z *= 0.9;
+      return; 
+    }
 
     const p = world.player;
-    const dx = p.body.position.x - enemy.body.position.x;
-    const dz = p.body.position.z - enemy.body.position.z;
-    const distToPlayer = Math.hypot(dx, dz);
-    const hasLOS = distToPlayer < 40 && this._checkLOS(world, enemy, p);
+    const canSee = this._canSeePlayer(world, enemy, p);
+    const dist = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
 
-    if (hasLOS) enemy.awareness = Math.min(1, enemy.awareness + dt * 2.5);
-    else enemy.awareness = Math.max(0, enemy.awareness - dt * 0.5);
+    // --- 感知逻辑 ---
+    if (canSee) {
+      // 距离越近，察觉越快。
+      const rate = 2.5 / (dist * 0.1 + 1);
+      enemy.awareness = Math.min(1.2, enemy.awareness + dt * rate);
+    } else {
+      enemy.awareness = Math.max(0, enemy.awareness - dt * 0.15);
+    }
 
-    if (enemy.awareness > 0.7 && enemy.state !== 'combat') {
+    // --- 状态机切换 ---
+    if (enemy.awareness >= 1.0 && enemy.state !== 'combat' && enemy.state !== 'flee') {
       enemy.state = 'combat';
-    } else if (enemy.awareness < 0.2 && enemy.state === 'combat') {
-      enemy.state = 'search';
+      enemy.reactionTimer = 0.6 + Math.random() * 0.4; // 发现即交战的反应前摇
+      enemy.stateT = 0;
+    } else if (enemy.awareness < 0.7 && enemy.state === 'combat') {
+      enemy.state = 'investigate';
+      enemy.stateT = 0;
+      enemy.targetPos = { x: p.body.position.x, z: p.body.position.z };
+    }
+
+    // 血量极低，进入跑路
+    if (enemy.status.healthQuality < 30 && enemy.state !== 'flee') {
+      enemy.state = 'flee';
       enemy.stateT = 0;
     }
 
     switch (enemy.state) {
       case 'patrol': this._patrol(world, enemy, dt); break;
-      case 'combat': this._combat(world, enemy, dt, distToPlayer); break;
-      case 'search': this._search(world, enemy, dt); break;
+      case 'investigate': this._investigate(world, enemy, dt); break;
+      case 'combat': this._combat(world, enemy, dt, dist, canSee); break;
+      case 'flee': this._flee(world, enemy, dt); break;
     }
 
     const half = world.mapSpec.size / 2 - 2;
@@ -432,7 +480,29 @@ const AISystem = {
     if (enemy.hitFlash > 0) enemy.hitFlash -= dt;
   },
 
+  _canSeePlayer(world, enemy, player) {
+    if (!player || !player.alive) return false;
+    const dx = player.body.position.x - enemy.body.position.x;
+    const dz = player.body.position.z - enemy.body.position.z;
+    const dist = Math.hypot(dx, dz);
+
+    // 视距限制
+    if (dist > 80) return false;
+
+    // 视锥限制（前方 120 度）
+    const angleToPlayer = Math.atan2(dz, dx);
+    let angleDiff = Math.abs(angleToPlayer - enemy.angle);
+    if (angleDiff > Math.PI) angleDiff = Math.PI * 2 - angleDiff;
+    if (angleDiff > Math.PI / 3) return false;
+
+    return this._checkLOS(world, enemy, player);
+  },
+
   _patrol(world, enemy, dt){
+    // 恢复站立
+    enemy.isCrouching = false;
+    enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+
     enemy.wanderT -= dt;
     if (enemy.wanderT <= 0) {
       enemy.wanderT = 1.5 + Math.random() * 1.5;
@@ -443,78 +513,135 @@ const AISystem = {
     enemy.body.velocity.z = Math.sin(enemy.wanderDir) * enemy.spec.speed * 0.4;
   },
 
-  _combat(world, enemy, dt, dist){
-  const p = world.player;
-  const dx = p.body.position.x - enemy.body.position.x;
-  const dz = p.body.position.z - enemy.body.position.z;
-  const ang = Math.atan2(dz, dx);
-  enemy.angle = ang;
-
-  let moveAng;
-  if (dist > 15) moveAng = ang;
-  else if (dist < 8) moveAng = ang + Math.PI;
-  else moveAng = ang + Math.PI / 2 * enemy.strafeDir;
-
-  enemy.body.velocity.x = Math.cos(moveAng) * enemy.spec.speed;
-  enemy.body.velocity.z = Math.sin(moveAng) * enemy.spec.speed;
-
-  if (enemy.fireCd > 0) enemy.fireCd -= dt;
-
-  // ★ 弹药检查 + 自动换弹（打空后原地换弹 2.5s）
-  const w = enemy.weapon;
-  const hasAmmo = !!(w && w.loaded && w.loaded.qty > 0);
-  if (w && !hasAmmo && w.reserve > 0) {
-    if (enemy._reloadTimer === undefined) enemy._reloadTimer = 2.5;
-    enemy._reloadTimer -= dt;
-    if (enemy._reloadTimer <= 0) {
-      const need = w.magCap - w.loaded.qty;
-      const take = Math.min(need, w.reserve);
-      w.loaded.qty += take;
-      w.reserve -= take;
-      enemy._reloadTimer = 2.5;
-    }
-  } else if (w) {
-    enemy._reloadTimer = 2.5;
-  }
-
-  if (enemy.fireCd <= 0 && hasAmmo && this._checkLOS(world, enemy, p)) {
-    world.enemyFire(enemy, p);
-  }
-
-  enemy.strafeT -= dt;
-  if (enemy.strafeT <= 0) {
-    enemy.strafeDir *= -1;
-    enemy.strafeT = 0.7 + Math.random() * 1.2;
-  }
-},
-
-  _search(world, enemy, dt){
+  _investigate(world, enemy, dt){
     enemy.stateT += dt;
-    if (enemy.stateT > 4) {
+    // 向目标位置移动
+    if (enemy.targetPos) {
+      const dx = enemy.targetPos.x - enemy.body.position.x;
+      const dz = enemy.targetPos.z - enemy.body.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 2) {
+        const ang = Math.atan2(dz, dx);
+        enemy.angle = ang;
+        enemy.body.velocity.x = Math.cos(ang) * enemy.spec.speed * 0.8;
+        enemy.body.velocity.z = Math.sin(ang) * enemy.spec.speed * 0.8;
+      } else {
+        enemy.body.velocity.x = 0;
+        enemy.body.velocity.z = 0;
+      }
+    }
+    if (enemy.stateT > 8) {
       enemy.state = 'patrol';
       enemy.awareness = 0;
     }
-    enemy.angle += dt * 1.5;
-    enemy.body.velocity.x *= 0.9;
-    enemy.body.velocity.z *= 0.9;
+  },
+
+  _combat(world, enemy, dt, dist, canSee){
+    const p = world.player;
+    
+    if (!canSee) {
+      // 丢失目标视野，转向去查看
+      enemy.state = 'investigate';
+      enemy.targetPos = { x: p.body.position.x, z: p.body.position.z };
+      return;
+    }
+
+    // 面向玩家
+    const dx = p.body.position.x - enemy.body.position.x;
+    const dz = p.body.position.z - enemy.body.position.z;
+    enemy.angle = Math.atan2(dz, dx);
+
+    // 战术动作：如果距离近，蹲下射击
+    if (dist < 25 && dist > 8 && enemy.status.healthQuality > 50) {
+      enemy.isCrouching = true;
+      enemy.body.height = 1.6; enemy.body.halfH = 0.8;
+      enemy.body.velocity.x = 0;
+      enemy.body.velocity.z = 0;
+    } else if (dist <= 8) {
+      // 太近了，边打边退
+      enemy.body.velocity.x = -Math.cos(enemy.angle) * enemy.spec.speed * 0.5;
+      enemy.body.velocity.z = -Math.sin(enemy.angle) * enemy.spec.speed * 0.5;
+      enemy.isCrouching = false;
+      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+    } else {
+      // 中远距离靠近
+      enemy.isCrouching = false;
+      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+      enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed * 0.5;
+      enemy.body.velocity.z = Math.sin(enemy.angle) * enemy.spec.speed * 0.5;
+    }
+
+    // 反应前摇
+    if (enemy.reactionTimer > 0) {
+      enemy.reactionTimer -= dt;
+      return; // 没有瞄准完不能开火
+    }
+
+    // 开火逻辑（点射）
+    if (enemy.fireCd > 0) enemy.fireCd -= dt;
+    if (enemy.burstCount === undefined) enemy.burstCount = 0;
+    if (enemy.burstCooldown === undefined) enemy.burstCooldown = 0;
+
+    if (enemy.burstCooldown > 0) {
+      enemy.burstCooldown -= dt;
+    } else if (enemy.fireCd <= 0 && enemy.weapon && enemy.weapon.loaded.qty > 0) {
+      world.enemyFire(enemy, p);
+      enemy.burstCount++;
+      
+      // 每次射击 3~5 发后停顿
+      const maxBurst = 3 + Math.floor(Math.random() * 3);
+      if (enemy.burstCount >= maxBurst) {
+        enemy.burstCount = 0;
+        enemy.burstCooldown = 0.5 + Math.random() * 0.6; 
+      }
+    }
+
+    // 自动换弹
+    const w = enemy.weapon;
+    if (w && w.loaded.qty <= 0 && w.reserve > 0) {
+      if (enemy._reloadTimer === undefined) enemy._reloadTimer = 2.5;
+      enemy._reloadTimer -= dt;
+      if (enemy._reloadTimer <= 0) {
+        const need = w.magCap - w.loaded.qty;
+        const take = Math.min(need, w.reserve);
+        w.loaded.qty += take;
+        w.reserve -= take;
+        enemy._reloadTimer = 2.5;
+      }
+    } else if (w) {
+      enemy._reloadTimer = 2.5;
+    }
+  },
+
+  _flee(world, enemy, dt){
+    const p = world.player;
+    const dx = p.body.position.x - enemy.body.position.x;
+    const dz = p.body.position.z - enemy.body.position.z;
+    const ang = Math.atan2(dz, dx);
+    
+    // 背向玩家跑
+    enemy.angle = ang + Math.PI; 
+    enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed;
+    enemy.body.velocity.z = Math.sin(enemy.angle) * enemy.spec.speed;
+    enemy.isCrouching = false;
+    enemy.body.height = 2.4; enemy.body.halfH = 1.2;
   },
 
   _checkLOS(world, a, b){
-  const ax = a.body.position.x, ay = a.body.position.y, az = a.body.position.z;
-  const bx = b.body.position.x, by = b.body.position.y, bz = b.body.position.z;
-  const dx = bx - ax, dy = by - ay, dz = bz - az;
-  const len = Math.hypot(dx, dy, dz) || 1;
-  if (len < 0.1) return true;
-  const hit = world.physics.raycast(
-    ax, ay, az,
-    dx, dy, dz,
-    len,
-    body => body.userData && body.userData.type === 'obstacle'
-  );
-  return !hit;
-},
+    const ax = a.body.position.x, ay = a.body.position.y, az = a.body.position.z;
+    const bx = b.body.position.x, by = b.body.position.y, bz = b.body.position.z;
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    if (len < 0.1) return true;
+    const hit = world.physics.raycast(
+      ax, ay, az,
+      dx, dy, dz,
+      len,
+      body => body.userData && body.userData.type === 'obstacle'
+    );
+    return !hit;
+  }
 };
-
 /* ============================================================
    [3] 任务系统
    ============================================================ */
@@ -1801,16 +1928,20 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   this._updateGlowState(this.player, dt);
 
   // ★ 6. 相机跟随（活/死互斥）
-  if (this.player && this.player.alive) {
-    const footY = this.player.body.position.y - this.player.body.halfH;
-    this.engine.cameraCtl.follow(
-      this.player.body.position.x,
-      footY + 1.55,
-      this.player.body.position.z
-    );
-  } else {
-    this._updateDeathCamera(dt);
-  }
+ if (this.player && this.player.alive) {
+  const p = this.player;
+  const footY = p.body.position.y - p.body.halfH;
+  // 侧身偏移计算
+  const leanOff = p.leanOffset || 0;
+  const rightX = Math.cos(this.engine.cameraCtl.yaw);
+  const rightZ = Math.sin(this.engine.cameraCtl.yaw);
+  const camX = p.body.position.x + rightX * leanOff;
+  const camZ = p.body.position.z + rightZ * leanOff;
+
+  this.engine.cameraCtl.follow(camX, footY + (p.camHeight || 1.55), camZ);
+} else {
+  this._updateDeathCamera(dt);
+}
   this.hud.update();
 
   // ★ 7. 时间限制
@@ -1927,6 +2058,39 @@ if (jumpPressed && p.body.grounded && p.body.velocity.y <= 0.1) {
   p.body.wake();
 }
 
+// ★ 战术动作：蹲下
+const crouchPressed = e.input.isActive('crouch') || e.input.keys.has('c');
+if (crouchPressed && !p.isCrouching && p.body.grounded) {
+  p.isCrouching = true;
+  p.body.height = 1.6;
+  p.body.halfH = 0.8;
+} else if (!crouchPressed && p.isCrouching) {
+  p.isCrouching = false;
+  p.body.height = 2.4;
+  p.body.halfH = 1.2;
+}
+
+// ★ 战术动作：侧身
+let leanTarget = 0;
+if (e.input.isActive('lean_left')) leanTarget = -1;
+else if (e.input.isActive('lean_right')) leanTarget = 1;
+p.leanAmount = (p.leanAmount || 0) + (leanTarget - (p.leanAmount || 0)) * Math.min(1, dt * 10);
+p.leanOffset = p.leanAmount * 0.5;
+
+// ★ 战术动作：开镜 ADS
+p.ads = e.input.isActive('ads');
+const targetFov = p.ads ? 45 : 60;
+const fovDiff = targetFov - e.renderer.camera.fov;
+if (Math.abs(fovDiff) > 0.05 && !p._isDeadCam) {
+  e.renderer.camera.fov += fovDiff * Math.min(1, dt * 15);
+  e.renderer.camera.updateProjectionMatrix();
+}
+
+// 记录相机基础高度（供 update 主循环读取）
+p.camHeight = p.isCrouching ? 1.05 : 1.55;
+
+// ★ 5. 角色朝向始终跟随相机前方
+   
   // ★ 5. 角色朝向始终跟随相机前方
   p.angle = e.cameraCtl.yaw;
 
@@ -2200,94 +2364,97 @@ _updateProtection(dt){
   if (!ammo) return;
 
   if (isPlayer) owner.fireCd = 60 / def.rpm;
-  else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
-  
-  if (weapon.loaded) {
-    weapon.loaded.qty = Math.max(0, weapon.loaded.qty - 1);
-  } else if (typeof weapon.mag === 'number') {
-    weapon.mag--;
-  }
-  if (isPlayer) this.stats.shots++;
-  // 基础散布 + 据枪稳定影响
-let baseSpread = def.spread || 0.02;
-const stability = def.stability || 50;
-const handling = def.handling || 50;
-
-// 如果是在跑动或跳跃，散布加大
-const ownerStatus = owner.status;
-let statusSpreadMul = 1;
-if (ownerStatus && ownerStatus.hasEffect('pain')) statusSpreadMul *= 1.2;
-
-const acc = isPlayer ? 1.0 : (owner.spec ? owner.spec.acc : 0.5);
-const spread = (baseSpread * statusSpreadMul) * (isPlayer ? 1 : (1.5 - acc));
-
-// 后坐力表现（视角上抬 + 散布增加）
-if (isPlayer && this.engine.cameraCtl) {
-  const recoilAmt = (def.recoil || 20) * 0.00015;
-  this.engine.cameraCtl.pitch += recoilAmt;
+else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
+if (weapon.loaded) {
+  weapon.loaded.qty = Math.max(0, weapon.loaded.qty - 1);
+} else if (typeof weapon.mag === 'number') {
+  weapon.mag--;
 }
-  const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
-  const range = (def.range || 50) * 10;
-  const pellets = def.pellets || 1;
-  if (isPlayer) {
-    this.combatLog.push({
-      type: 'shot_fired', t: this.time,
-      weapon: this.engine.i18n.t(def.name),
-      pellets: pellets,
-      energy: baseEnergy,
-    });
-  }
+if (isPlayer) this.stats.shots++;
+
+// ★ 1. 动态散布计算（基于开镜、蹲下、状态）
+let baseSpread = def.spread || 0.02;
+let spread = baseSpread;
+if (isPlayer) {
+  if (owner.ads) spread *= 0.2; 
+  if (owner.isCrouching) spread *= 0.6; 
+  if (owner.status && owner.status.hasEffect('pain')) spread *= 1.2;
+} else {
+  const acc = owner.spec ? owner.spec.acc : 0.5;
+  spread = baseSpread * (1.5 - acc);
+  if (owner.isCrouching) spread *= 0.6;
+}
+
+const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
+const range = (def.range || 50) * 10;
+const pellets = def.pellets || 1;
+
+if (isPlayer) {
+  this.combatLog.push({
+    type: 'shot_fired', t: this.time,
+    weapon: this.engine.i18n.t(def.name),
+    pellets: pellets,
+    energy: baseEnergy,
+  });
+}
   
   if (isPlayer) {
-    // ★ 后坐力视觉表现：枪模后缩
-    if (owner.weaponGroup) {
-      owner.weaponGroup.position.z = -0.3; // 向后缩
-      setTimeout(() => {
-        if (owner.weaponGroup) owner.weaponGroup.position.z = -0.4; // 恢复
-      }, 50);
-    }
+  // ★ 2. 后坐力视觉表现：枪模后缩
+  if (owner.weaponGroup) {
+    const baseZ = owner.ads ? -0.2 : -0.4;
+    owner.weaponGroup.position.z = baseZ + 0.1; // 向后缩
+    setTimeout(() => {
+      if (owner.weaponGroup) owner.weaponGroup.position.z = baseZ; // 恢复
+    }, 50);
+  }
 
-    const cam = this.engine.renderer.camera;
-    const camPos = new THREE.Vector3();
-    cam.getWorldPosition(camPos);
-    const dir = new THREE.Vector3();
-    cam.getWorldDirection(dir);
-    
-    // 计算枪口的绝对世界坐标（基于相机偏移）
-    const muzzleOffset = new THREE.Vector3(0.25, -0.15, -0.8); // 相对相机的偏移
-    muzzleOffset.applyQuaternion(cam.quaternion);
-    const muzzlePos = camPos.clone().add(muzzleOffset);
+  // ★ 3. 视角上抬（后坐力）
+  if (this.engine.cameraCtl) {
+    const stability = def.stability || 50;
+    const recoilAmt = (def.recoil || 20) * 0.00015 * (100 / stability); 
+    this.engine.cameraCtl.pitch += recoilAmt;
+  }
 
-    // 构建相机方向的正交基（right / up），用于圆形散布采样
-    const dLen = Math.hypot(dir.x, dir.y, dir.z) || 1;
-    const nX = dir.x / dLen, nY = dir.y / dLen, nZ = dir.z / dLen;
-    const xzLen = Math.hypot(nX, nZ) || 1e-6;
-    const rightX = -nZ / xzLen, rightZ = nX / xzLen;
-    const upX = -nX * nY / xzLen;
-    const upY = xzLen;
-    const upZ = -nZ * nY / xzLen;
+  const cam = this.engine.renderer.camera;
+  const camPos = new THREE.Vector3();
+  cam.getWorldPosition(camPos);
+  const dir = new THREE.Vector3();
+  cam.getWorldDirection(dir);
+  
+  // 计算枪口的绝对世界坐标
+  const muzzleOffset = new THREE.Vector3(0.25, -0.15, -0.8); // 相对相机的偏移
+  muzzleOffset.applyQuaternion(cam.quaternion);
+  const muzzlePos = camPos.clone().add(muzzleOffset);
 
-    for (let i = 0; i < pellets; i++) {
-      // 圆盘均匀采样：角度均匀，半径按 sqrt 分布
-      const ang = Math.random() * Math.PI * 2;
-      const rad = Math.sqrt(Math.random()) * spread;
-      const sx = Math.cos(ang) * rad;
-      const sy = Math.sin(ang) * rad;
+  // 构建相机方向的正交基（right / up），用于圆形散布采样
+  const dLen = Math.hypot(dir.x, dir.y, dir.z) || 1;
+  const nX = dir.x / dLen, nY = dir.y / dLen, nZ = dir.z / dLen;
+  const xzLen = Math.hypot(nX, nZ) || 1e-6;
+  const rightX = -nZ / xzLen, rightZ = nX / xzLen;
+  const upX = -nX * nY / xzLen;
+  const upY = xzLen;
+  const upZ = -nZ * nY / xzLen;
 
-      const dX = nX + rightX * sx + upX * sy;
-      const dY = nY + upY * sy;
-      const dZ = nZ + rightZ * sx + upZ * sy;
-      const len = Math.hypot(dX, dY, dZ) || 1;
+  for (let i = 0; i < pellets; i++) {
+    // 圆盘均匀采样：角度均匀，半径按 sqrt 分布
+    const ang = Math.random() * Math.PI * 2;
+    const rad = Math.sqrt(Math.random()) * spread;
+    const sx = Math.cos(ang) * rad;
+    const sy = Math.sin(ang) * rad;
 
-      this._raycastBullet(owner, muzzlePos.x, muzzlePos.y, muzzlePos.z, dX / len, dY / len, dZ / len, baseEnergy, range, def, ammo, true);
-    }
-  } else {
+    const dX = nX + rightX * sx + upX * sy;
+    const dY = nY + upY * sy;
+    const dZ = nZ + rightZ * sx + upZ * sy;
+    const len = Math.hypot(dX, dY, dZ) || 1;
+
+    this._raycastBullet(owner, muzzlePos.x, muzzlePos.y, muzzlePos.z, dX / len, dY / len, dZ / len, baseEnergy, range, def, ammo, true);
+  }
+} else {
     // ★ 敌人射击：瞄准随机部位（头 10% / 胸 45% / 腹 20% / 腿 25%）
     const eyeY = owner.body.position.y + (owner.body.halfH || 0.9) * 0.75;
     const tgtBody = target && target.body ? target.body : null;
-    const hh = tgtBody ? (tgtBody.halfH || 1.2) : 1.2;
+    const hh = tgtBody ? (tgtBody.halfH || 0.9) : 0.9;
 
-    // 随机部位瞄准点
     const roll = Math.random();
     let aimYOffset = 0;
     if (roll < 0.10) aimYOffset = hh * 0.75;
