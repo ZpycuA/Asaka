@@ -39,7 +39,7 @@ const CSS = `
 @keyframes bagIncPulse{0%{box-shadow:0 0 6px rgba(200,200,230,.5) inset,0 0 4px rgba(180,180,220,.6)}100%{box-shadow:0 0 14px rgba(255,255,255,.9) inset,0 0 10px rgba(220,220,255,.85)}}
 
 .bagui-item.dragging{opacity:0.4}
-.bagui-item.ghost{position:fixed;z-index:9999;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 4px 12px rgba(0,0,0,.6);opacity:0.85}
+.bagui-item.ghost{position:fixed;z-index:9999;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.6);opacity:0.85}
 .bagui-item-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;pointer-events:none}
 .bagui-item-name{position:absolute;bottom:2px;left:2px;right:2px;font-size:10px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cfe4f8;pointer-events:none;text-shadow:0 1px 2px #000}
 .bagui-item-qty{position:absolute;top:2px;right:4px;font-size:11px;color:#ffd93d;font-weight:700;pointer-events:none;text-shadow:0 1px 2px #000}
@@ -269,16 +269,22 @@ export class BagUI {
     if (!el) return;
     
     if (this._lootTarget) {
-      el.style.display = '';
-      let html = '';
-      const chestC = this.inv.containers.chest;
-      if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', '胸挂');
-      const bagC = this.inv.containers.bag;
-      if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', '背包');
-      el.innerHTML = html || '<div class="bagui-empty">无携带容器</div>';
-      this._bindItemEvents(el);
-      return;
+  el.style.display = '';
+  let html = `<div class="bagui-sec"><h3>${this._lootTarget.label || '容器'}</h3>`;
+  html += `<div class="bagui-grid-wrap" style="width:${this._lootTarget.grid.w * CELL}px;height:${this._lootTarget.grid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="loot">`;
+  for (let y = 0; y < this._lootTarget.grid.h; y++) {
+    for (let x = 0; x < this._lootTarget.grid.w; x++) {
+      html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
     }
+  }
+  for (const [uid, pos] of this._lootTarget.grid.items) {
+    html += this._itemHtml(uid, pos, 'loot');
+  }
+  html += `</div></div>`;
+  el.innerHTML = html;
+  this._bindItemEvents(el);
+  return;
+}
 
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
 
@@ -547,19 +553,30 @@ export class BagUI {
       html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
     }
 
-    if (item.table === 'weapons') {
-      if (!item.loaded) {
-        const ammoType = def.ammoType || '9mm';
-        item.loaded = { ammoType, qty: 0, queue: [] };
-      }
-      const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
-      const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-      const magCap = def.mag || 0;
-      const isFull = item.loaded.qty >= magCap;
-      
-      const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
-      
-      html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${item.loaded.qty}/${magCap}</span><span style="display:flex;gap:4px">`;
+   if (item.table === 'weapons') {
+  if (!item.loaded) {
+    const ammoType = def.ammoType || '9mm';
+    item.loaded = { ammoType, qty: 0, queue: [] };
+  }
+  const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
+  const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+  const magCap = def.mag || 0;
+  
+  // ★ 实时同步数据（如果此枪正拿在手上）
+  let currentQty = item.loaded.qty;
+  const world = this.engine.app ? this.engine.app.world : null;
+  if (world && world.running) {
+    const w = world.currentWeapon;
+    if (w && w.item === item) {
+      currentQty = w.mag; // 实时获取
+    }
+  }
+  
+  const isFull = currentQty >= magCap;
+  
+  const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
+  
+  html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${currentQty}/${magCap}</span><span style="display:flex;gap:4px">`;
       if (isReloading) {
         html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
       } else {
@@ -970,11 +987,18 @@ export class BagUI {
     }
   }
 
-  _placeAt(containerName, grid, uid, gx, gy, rotated) {
-    const item = this.inv.items.get(uid);
-    if (!item) return { ok: false };
-    const w = rotated ? item.h : item.w;
-    const h = rotated ? item.w : item.h;
+ _placeAt(containerName, grid, uid, gx, gy, rotated) {
+  const item = this.inv.items.get(uid);
+  if (!item) return { ok: false };
+  
+  // ★ 新增：防止背包互相嵌套的死循环
+  const parentPath = containerName.startsWith('inner:') ? containerName : 'c:' + containerName;
+  if (this.inv.wouldCreateCycle(uid, parentPath)) {
+    return { ok: false };
+  }
+
+  const w = rotated ? item.h : item.w;
+  const h = rotated ? item.w : item.h;
     
     if (gx < 0) gx = 0;
     if (gy < 0) gy = 0;
