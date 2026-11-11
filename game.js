@@ -1072,7 +1072,7 @@ _updateHurtFX(hpPct) {
 _renderSoundRadar() {
   let canvas = document.getElementById('sound-radar-canvas');
   if (!canvas) return;
-  if (canvas.width !== window.innerWidth) {
+  if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
   }
@@ -1082,18 +1082,20 @@ _renderSoundRadar() {
   const p = this.world.player;
   if (!p || !p.alive) return;
 
-  // ★ 检查耳机装备
+  // 检查耳机装备
   const inv = this.engine.app.inventory;
   const hasHeadset = !!(inv && inv.equipped && inv.equipped.helmetEar);
   
   // 有耳机听 60 米，没耳机听 25 米
   const maxHearRange = hasHeadset ? 60 : 25;
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  const radius = Math.min(cx, cy) * 0.75; // 绘制半径在屏幕边缘靠内
+  const w = canvas.width;
+  const h = canvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const cam = this.engine.renderer.camera;
+  const now = performance.now() / 1000;
 
   for (const s of this.world.soundEvents) {
-    // ★ 不显示自己发出的声音，防止干扰
     if (s.source === 'player') continue;
 
     const dx = s.x - p.body.position.x;
@@ -1102,48 +1104,104 @@ _renderSoundRadar() {
 
     if (dist > maxHearRange || dist > s.maxRange) continue;
 
-    // 计算相对相机的角度
-    const worldAng = Math.atan2(dz, dx);
-    let relAng = worldAng - this.engine.cameraCtl.yaw;
-    // 归一化到 -PI 到 PI
-    while (relAng > Math.PI) relAng -= Math.PI * 2;
-    while (relAng < -Math.PI) relAng += Math.PI * 2;
-
-    // 距离衰减：越远越透明
-    const distRatio = 1 - (dist / s.maxRange);
-    let alpha = s.intensity * distRatio;
-    
-    // 无耳机时，整体透明度限制在一个很低的水平，且极难辨认
-    if (!hasHeadset) alpha *= 0.25;
+    let alpha = s.intensity * (1 - dist / s.maxRange);
+    if (!hasHeadset) alpha *= 0.3; // 无耳机极弱
     if (alpha < 0.05) continue;
 
-    // 转换为屏幕 Canvas 角度 (0 是右边，PI/2 是下边)
-    // 我们通常把视角正前方当作屏幕上方 (即 -PI/2)
-    // 相机 Yaw=0 时，世界 X 轴正方向对应屏幕右。所以需要在 canvas 里旋转 -PI/2
-    const canvasAng = relAng - Math.PI / 2;
-
-    // 绘制弧线
-    ctx.beginPath();
-    // 恶性是红色，良性是白色/淡蓝色
     const isMalignant = s.type === 'malignant';
     const color = isMalignant ? '255, 50, 50' : '200, 230, 255';
-    
-    ctx.strokeStyle = `rgba(${color}, ${alpha})`;
-    ctx.lineWidth = isMalignant ? 8 : 4;
-    
-    // 声音的宽度（恶性声音扩散更广）
-    const arcWidth = isMalignant ? 0.3 : 0.15;
-    
-    ctx.arc(cx, cy, radius, canvasAng - arcWidth, canvasAng + arcWidth);
-    ctx.stroke();
 
-    // 在弧线上加个高光点
-    ctx.beginPath();
-    const dotX = cx + Math.cos(canvasAng) * radius;
-    const dotY = cy + Math.sin(canvasAng) * radius;
-    ctx.fillStyle = `rgba(${color}, ${alpha})`;
-    ctx.arc(dotX, dotY, isMalignant ? 4 : 2, 0, Math.PI * 2);
-    ctx.fill();
+    // ★ 计算声源的 3D 投影位置
+    const vec = new THREE.Vector3(s.x, 1.0, s.z); // 假设声音在 1 米高
+    vec.project(cam);
+    const sx = (vec.x * 0.5 + 0.5) * w;
+    const sy = (-vec.y * 0.5 + 0.5) * h;
+
+    // 是否在视野内
+    const inView = vec.z < 1 && sx > 0 && sx < w && sy > 0 && sy < h;
+
+    if (hasHeadset) {
+      // ★ 戴耳机：波浪/声呐动图
+      const wave = (now % 1); // 0 -> 1 循环
+      const waveRadius = wave * 40 + 10;
+      const waveAlpha = alpha * (1 - wave);
+      
+      if (inView) {
+        // 在视野内：直接画同心圆声呐
+        ctx.beginPath();
+        ctx.arc(sx, sy, waveRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${color}, ${waveAlpha})`;
+        ctx.lineWidth = isMalignant ? 3 : 1.5;
+        ctx.stroke();
+
+        // 核心点
+        ctx.beginPath();
+        ctx.arc(sx, sy, isMalignant ? 4 : 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${color}, ${alpha})`;
+        ctx.fill();
+      } else {
+        // 在视野外：计算屏幕边缘交点
+        const worldAng = Math.atan2(dz, dx);
+        let relAng = worldAng - this.engine.cameraCtl.yaw;
+        while (relAng > Math.PI) relAng -= Math.PI * 2;
+        while (relAng < -Math.PI) relAng += Math.PI * 2;
+        
+        const dirX = Math.sin(relAng);
+        const dirY = -Math.cos(relAng);
+        
+        const rectW = w - 40; // 留点边距
+        const rectH = h - 40;
+        const scaleX = Math.abs(dirX) > 0.001 ? (rectW / 2) / Math.abs(dirX) : Infinity;
+        const scaleY = Math.abs(dirY) > 0.001 ? (rectH / 2) / Math.abs(dirY) : Infinity;
+        const scale = Math.min(scaleX, scaleY);
+        
+        const edgeX = cx + dirX * scale;
+        const edgeY = cy + dirY * scale;
+
+        // 画向内扩散的半圆波
+        const angleToCenter = Math.atan2(cy - edgeY, cx - edgeX);
+        ctx.beginPath();
+        ctx.arc(edgeX, edgeY, waveRadius, angleToCenter - Math.PI / 2, angleToCenter + Math.PI / 2);
+        ctx.strokeStyle = `rgba(${color}, ${waveAlpha})`;
+        ctx.lineWidth = isMalignant ? 4 : 2;
+        ctx.stroke();
+      }
+    } else {
+      // ★ 无耳机：四角/边缘的微弱阴影（不带波纹）
+      if (inView) {
+        // 在视野内：只显示一个微弱的红/白点
+        ctx.beginPath();
+        ctx.arc(sx, sy, isMalignant ? 3 : 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${color}, ${alpha})`;
+        ctx.fill();
+      } else {
+        // 在视野外：计算边缘交点，画光晕
+        const worldAng = Math.atan2(dz, dx);
+        let relAng = worldAng - this.engine.cameraCtl.yaw;
+        while (relAng > Math.PI) relAng -= Math.PI * 2;
+        while (relAng < -Math.PI) relAng += Math.PI * 2;
+        
+        const dirX = Math.sin(relAng);
+        const dirY = -Math.cos(relAng);
+        
+        const scaleX = Math.abs(dirX) > 0.001 ? (w / 2) / Math.abs(dirX) : Infinity;
+        const scaleY = Math.abs(dirY) > 0.001 ? (h / 2) / Math.abs(dirY) : Infinity;
+        const scale = Math.min(scaleX, scaleY);
+        
+        const edgeX = cx + dirX * scale;
+        const edgeY = cy + dirY * scale;
+
+        // 径向渐变阴影
+        const grad = ctx.createRadialGradient(edgeX, edgeY, 0, edgeX, edgeY, 100);
+        grad.addColorStop(0, `rgba(${color}, ${alpha * 0.6})`);
+        grad.addColorStop(1, `rgba(${color}, 0)`);
+        
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(edgeX, edgeY, 100, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
 }
 
