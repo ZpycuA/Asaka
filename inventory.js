@@ -167,11 +167,14 @@ export class Inventory {
     loadedQty = Math.max(0, Math.min(magCap, n));
   }
   
-  // ★ 彩虹子弹：初始化装填队列
-  item.loaded = { ammoType, qty: loadedQty, queue: [] };
-  if (loadedQty > 0) {
-    for (let i = 0; i < loadedQty; i++) item.loaded.queue.push(ammoType);
-  }
+ item.loaded = { ammoType, qty: loadedQty, queue: [] };
+if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
+  // ★ 还原敌人的彩虹子弹队列
+  item.loaded.queue = [...extras.loadedQueue];
+  item.loaded.qty = extras.loadedQueue.length;
+} else if (loadedQty > 0) {
+  for (let i = 0; i < loadedQty; i++) item.loaded.queue.push(ammoType);
+}
 }
 
     // ★ 容器类物品初始化 innerGrid
