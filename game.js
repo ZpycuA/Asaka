@@ -1898,7 +1898,7 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   reloading: 0,
   get mag() { return this.loaded.qty; },
   set mag(v) { this.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
-};
+};}
 
   /* ===== Inventory 对接 ===== */
   _buildWeaponFromInventory(inv, equipSlot) {
@@ -1928,7 +1928,7 @@ return {
   get reserve() { return self._countAmmoInInventory(inv, def.ammoType); },
   consumeReserve(count) { self._consumeAmmoInInventory(inv, def.ammoType, count); },
 };
-
+  }
 
 _computeCarriedValue(){
   const inv = this.engine.app ? this.engine.app.inventory : null;
