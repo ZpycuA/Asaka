@@ -86,25 +86,25 @@ const ACTION_MAP = {
     actionId: 'fire',
     mobile: { left: '30px', bottom: '150px', size: 70, color: 'rgba(255,80,80,.3)', border: 'rgba(255,100,100,.6)', mode: 'hold', rotate: true },
   },
-   crouch: {
+      crouch: {
   keys: ['c'],
   label: '蹲',
-  mobile: { right: '120px', bottom: '120px', size: 55, color: 'rgba(150,150,150,.3)', border: 'rgba(255,255,255,.5)', mode: 'hold' },
+  mobile: { right: '120px', bottom: '120px', size: 55, color: 'rgba(150,150,150,.3)', border: 'rgba(255,255,255,.5)', mode: 'hold', rotate: true },
 },
 ads: {
   mouse: 'right',
   label: '开镜',
-  mobile: { right: '20px', bottom: '280px', size: 55, color: 'rgba(50,150,255,.3)', border: 'rgba(100,180,255,.6)', mode: 'hold' },
+  mobile: { right: '20px', bottom: '280px', size: 55, color: 'rgba(50,150,255,.3)', border: 'rgba(100,180,255,.6)', mode: 'hold', rotate: true },
 },
 lean_left: {
   keys: ['z'],
   label: '左倾',
-  mobile: { left: '30px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold' },
+  mobile: { left: '30px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
 },
 lean_right: {
   keys: ['x'],
   label: '右倾',
-  mobile: { left: '85px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold' },
+  mobile: { left: '85px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
 },
 skill1: {
   keys: ['q'],
@@ -2571,7 +2571,7 @@ _updateProtection(dt){
   this._playSFX('reload');
 }
 
-    _finishReload(){
+      _finishReload(){
   const p = this.player;
   const w = this.currentWeapon;
   if (!w) return;
@@ -2582,7 +2582,7 @@ _updateProtection(dt){
   const targets = ['chest', 'pocket', 'bag', 'safe'];
   let loadedCount = 0;
 
-  // ★ 彩虹子弹：寻找所有 caliber 匹配的弹药
+  // ★ 彩虹子弹压入逻辑
   for (const t of targets) {
     if (loadedCount >= need) break;
     const c = inv.containers[t];
@@ -2598,7 +2598,6 @@ _updateProtection(dt){
       
       const take = Math.min(it.qty, need - loadedCount);
       
-      // 压入队列
       for(let i=0; i<take; i++) w.item.loaded.queue.push(it.defId);
       w.item.loaded.qty += take;
       loadedCount += take;
@@ -3312,10 +3311,14 @@ _updateDeathCamera(dt) {
     if (!p || !p.alive) { this._searchTarget = null; return; }
     let best = null, bestDist = COMBAT.SEARCH_RADIUS;
     const consider = (c) => {
-      if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0)) return;
-      const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
-      if (d < bestDist) { best = c; bestDist = d; }
-    };
+  // ★ 如果已经生成了网格且里面没东西，才跳过
+  if (c.grid && c.grid.items.size === 0) return;
+  // 兼容没有网格且原始数据也空的情况
+  if (!c.grid && c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0)) return;
+  
+  const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
+  if (d < bestDist) { best = c; bestDist = d; }
+};
     for (const c of this.containers) consider(c);
     for (const c of this.groundLoots) consider(c);
     this._searchTarget = best;
@@ -3604,17 +3607,14 @@ _updateMobileButtons(){
   }
 
   const inv = this.engine.app.inventory;
-  if (!c.grid) {
+if (!c.grid) {
   c.grid = new GridContainer(8, 6);
   inv.containers.loot = c.grid;
-  let items = c.revealed || c.loot || [];
   
-  // ★ 如果啥都没有，给点保底物资
-  if (items.length === 0) {
-    items = [
-      { table: 'ammo', defId: '9mm', qty: 30 },
-      { table: 'ammo', defId: '5.56', qty: 30 }
-    ];
+  // ★ 如果是新容器，生成随机物资
+  let items = c.revealed || c.loot || [];
+  if (items.length === 0 && !c.searched) {
+    items = this._generateLootSpecs();
   }
 
   for (const spec of items) {
@@ -3630,10 +3630,10 @@ _updateMobileButtons(){
   c.searched = true;
 }
 
-  inv.containers.loot = c.grid;
-  for (const uid of c.grid.items.keys()) {
-    inv.parentOf.set(uid, 'c:loot');
-  }
+inv.containers.loot = c.grid;
+for (const uid of c.grid.items.keys()) {
+  inv.parentOf.set(uid, 'c:loot');
+}
 
   this.engine.app.bagUI.openLoot(c);
 }
@@ -5323,17 +5323,17 @@ _bindCameraControls() {
         }
       });
       if (m.rotate) {
-        el.addEventListener('pointermove', (e) => {
-          if (el._dragPointerId !== e.pointerId) return;
-          const dx = e.clientX - el._lastX;
-          const dy = e.clientY - el._lastY;
-          el._lastX = e.clientX;
-          el._lastY = e.clientY;
-          if (Math.abs(dx) + Math.abs(dy) > 0.5) {
-            this.engine.cameraCtl.rotate(dx * 1.5, dy * 1.5);
-          }
-        });
-      }
+  el.addEventListener('pointermove', (e) => {
+    if (el._dragPointerId !== e.pointerId) return;
+    const dx = e.clientX - el._lastX;
+    const dy = e.clientY - el._lastY;
+    el._lastX = e.clientX;
+    el._lastY = e.clientY;
+    if (Math.abs(dx) + Math.abs(dy) > 0.5) {
+      this.engine.cameraCtl.rotate(dx * 1.5, dy * 1.5);
+    }
+  });
+}
       const release = (e) => {
   e.preventDefault(); e.stopPropagation();
   this.engine.input.setActionState(actionKey, false);
