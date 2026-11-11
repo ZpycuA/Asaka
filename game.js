@@ -216,33 +216,47 @@ const CombatSystem = {
   if (!armorItem || armorItem.dur <= 0 || !armorItem.lv) {
     return { absorbed: 0, remaining: energy, wear: 0, pierced: pen >= 3 };
   }
-  // 真实防弹：高等级护甲吸收率极高
-  // Lv3 可挡 5.56(1700J)，吸收 70%；Lv4 吸收 85%；Lv5 吸收 95%
-  const baseSpec = { 1: 0.1, 2: 0.3, 3: 0.70, 4: 0.85, 5: 0.95 };
+
+  // ★ 基础减伤率（可扩展：以后加 Lv6、Lv7 直接在这里加）
+  // Lv3: 70%, Lv4: 85%, Lv5: 95%
+  const baseSpec = { 1: 0.1, 2: 0.3, 3: 0.70, 4: 0.85, 5: 0.95, 6: 0.98, 7: 0.99 };
   const lv = armorItem.lv;
-  const penDiff = pen - lv;
-
-  let effRed = baseSpec[lv] || 0;
-  if (penDiff >= 3) effRed *= 0.22; // 穿甲弹直接击穿
-  else if (penDiff >= 1) effRed *= (1 - penDiff * 0.25);
-  else if (penDiff <= -2) effRed = Math.min(0.99, effRed * 1.1);
-
-  // 耐久惩罚：护甲磨损越多，吸收越差
+  const baseRed = baseSpec[lv] || 0.99;
+  
+  // ★ 严谨的等级差判定（diff = 子弹穿透力 - 护甲等级）
+  const diff = pen - lv;
+  
+  // 减伤倍率（根据等级差计算）
+  let redMul = 1.0;
+  if (diff >= 4) redMul = 0.05;        // 绝对碾压（比如高穿狙击弹打低级甲）
+  else if (diff === 3) redMul = 0.2;   // 重度穿透
+  else if (diff === 2) redMul = 0.4;   // 中度穿透
+  else if (diff === 1) redMul = 0.7;   // 轻度穿透
+  else if (diff === 0) redMul = 1.0;   // 等级持平
+  else if (diff === -1) redMul = 1.15; // 护甲略强
+  else if (diff <= -2) redMul = 1.3;   // 护甲碾压
+  
+  // 耐久惩罚：护甲磨损越多，减伤越差（损耗到 0 时，减伤也归 0）
   const durRatio = Math.max(0, Math.min(1, armorItem.dur / armorItem.max));
-  effRed *= (0.2 + 0.8 * durRatio);
+  const wearPenalty = 0.2 + 0.8 * durRatio;
+  
+  // 最终减伤率（无论如何锁死在 0.99 以内，防止无敌）
+  let effRed = Math.min(0.99, baseRed * redMul * wearPenalty);
+  
+  // 是否产生“贯通伤”（只要子弹穿透力大于护甲等级，就击穿）
+  const pierced = diff >= 1;
 
   const absorbed = energy * effRed;
-const pierced = penDiff >= 3;
-const afterArmor = energy - absorbed;
+  const afterArmor = energy - absorbed;
 
-// ★ 核心：如果没有被直接穿透，只有 30% 的剩余动能转化为钝击伤
-const finalDamage = pierced ? afterArmor : afterArmor * 0.3;
+  // ★ 核心：如果是贯通伤，剩余动能全额打在身上；如果被挡住，只有 5% 的剩余动能转化为钝击伤
+  const finalDamage = pierced ? afterArmor : afterArmor * 0.05;
 
-// 吸收 100J 扣除 4 点耐久（一块插板能抗约 2500J 累计伤害）
-const wear = Math.min(armorItem.dur, absorbed / 25);
-armorItem.dur = Math.max(0, armorItem.dur - wear);
+  // 磨损计算：护甲吸收了多少能量，就磨损多少耐久
+  const wear = Math.min(armorItem.dur, absorbed / 25);
+  armorItem.dur = Math.max(0, armorItem.dur - wear);
 
-return { absorbed, remaining: finalDamage, wear, pierced };
+  return { absorbed, remaining: finalDamage, wear, pierced };
 },
 
   applyCoupling(player, energy, type){
@@ -1876,16 +1890,15 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   const ammoDef = this.engine.content.get('ammo', def.ammoType);
   const magCap = def.mag || 0;
   return {
-    def, ammoDef,
-    loaded: { ammoType: def.ammoType, qty: magCap },
-    magCap,
-    reserve: magCap * 3,
-    fireCd: 0,
-    reloading: 0,
-    get mag() { return this.loaded.qty; },
-    set mag(v) { this.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
-  };
-}
+  def, ammoDef,
+  loaded: { ammoType: def.ammoType, qty: magCap, queue: new Array(magCap).fill(def.ammoType) },
+  magCap,
+  reserve: magCap * 3,
+  fireCd: 0,
+  reloading: 0,
+  get mag() { return this.loaded.qty; },
+  set mag(v) { this.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
+};
 
   /* ===== Inventory 对接 ===== */
   _buildWeaponFromInventory(inv, equipSlot) {
@@ -1900,19 +1913,21 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   if (item.mag === undefined) item.mag = def.mag;
 
   const self = this;
-  return {
-    item,
-    def,
-    ammoDef,
-    magCap: def.mag,
-    fireCd: 0,
-    reloading: 0,
-    get mag() { return this.item.mag; },
-    set mag(v) { this.item.mag = Math.max(0, Math.min(this.magCap, v)); },
-    get reserve() { return self._countAmmoInInventory(inv, def.ammoType); },
-    consumeReserve(count) { self._consumeAmmoInInventory(inv, def.ammoType, count); },
-  };
-}
+if (!item.loaded) item.loaded = { ammoType: def.ammoType, qty: 0, queue: [] };
+
+return {
+  item,
+  def,
+  ammoDef,
+  magCap: def.mag,
+  fireCd: 0,
+  reloading: 0,
+  // ★ 修复：正确指向 item.loaded.qty
+  get mag() { return this.item.loaded.qty; },
+  set mag(v) { this.item.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
+  get reserve() { return self._countAmmoInInventory(inv, def.ammoType); },
+  consumeReserve(count) { self._consumeAmmoInInventory(inv, def.ammoType, count); },
+};
 
 
 _computeCarriedValue(){
@@ -2830,10 +2845,24 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   this._spawnTracer(ox, oy, oz, endX, endY, endZ, isPlayer ? 0xffe08a : 0xff8b7b);
 
   const realisticDrop = this.engine.profile.get('combat.bulletDrop', false);
-  const decayK = realisticDrop ? COMBAT.RANGE_DECAY_REALISTIC : COMBAT.RANGE_DECAY;
-  const energy = CombatSystem.energyAtRange(baseEnergy, actualDist, range, decayK);
+const decayK = realisticDrop ? COMBAT.RANGE_DECAY_REALISTIC : COMBAT.RANGE_DECAY;
 
-  const pen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
+// 1. 动能衰减
+const energy = CombatSystem.energyAtRange(baseEnergy, actualDist, range, decayK);
+
+// 2. 穿透力衰减（超出有效射程一半后，穿透力逐渐下降）
+const basePen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
+let currentPen = basePen;
+if (basePen > 0) {
+  const effectiveRange = weaponDef.range || 100;
+  const halfRange = effectiveRange * 0.5;
+  if (actualDist > halfRange) {
+    const decay = (actualDist - halfRange) / halfRange;
+    // 每超出半程距离，穿透力可能下降 1 点，最多降到 0
+    currentPen = Math.max(0, basePen - Math.floor(decay * (basePen * 0.5)));
+  }
+}
+const pen = currentPen;
 
   if (hit && hit.body.userData.type !== 'obstacle') {
     const targetBody = hit.body;
@@ -3114,13 +3143,19 @@ this.combatLog.push({
 const corpseLoot = [];
 if (enemy.weapon && enemy.weapon.def) {
   const wDef = enemy.weapon.def;
-  const loadedQty = enemy.weapon.loaded ? enemy.weapon.loaded.qty : 0;
-  const reserve = enemy.weapon.reserve || 0;
+  const w = enemy.weapon;
+  const loadedQty = w.loaded ? w.loaded.qty : 0;
+  const reserve = w.reserve || 0;
+  
+  // ★ 完整保留枪械的队列状态和配件
   corpseLoot.push({
     table: 'weapons',
     defId: wDef.id,
-    loadedQty,
+    loadedQty: loadedQty,
+    loadedQueue: w.loaded.queue ? [...w.loaded.queue] : null,
+    attachments: w.item && w.item.attachments ? {...w.item.attachments} : null,
   });
+  
   if (reserve > 0) {
     corpseLoot.push({
       table: 'ammo',
@@ -3676,13 +3711,17 @@ if (!c.grid) {
   }
 
   for (const spec of items) {
-    const extras = { searched: false, qty: spec.qty || 1 };
-    if (spec.extras) Object.assign(extras, spec.extras);
-    if (spec.dur !== undefined) extras.dur = spec.dur;
-    if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
-    const uid = inv.createItem(spec.table, spec.defId, extras);
-    if (uid) inv.addToContainer('loot', uid);
-  }
+  const extras = { searched: false, qty: spec.qty || 1 };
+  if (spec.extras) Object.assign(extras, spec.extras);
+  if (spec.dur !== undefined) extras.dur = spec.dur;
+  if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+  // ★ 还原队列与配件
+  if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
+  if (spec.attachments) extras.attachments = spec.attachments;
+  
+  const uid = inv.createItem(spec.table, spec.defId, extras);
+  if (uid) inv.addToContainer('loot', uid);
+}
   c.loot = [];
   c.revealed = [];
   c.searched = true;
