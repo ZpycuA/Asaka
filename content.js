@@ -27,9 +27,8 @@ export function registerDefaultContent(engine) {
 const AMMO = {
   '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    w: 1, h: 1, caliber: '9mm', massG: 8.0,  v0: 360, tier: 0, pen: 0, value: 15, rarity: 'L0', stackLimit: 999 },
   '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    w: 1, h: 1, caliber: '5.56', massG: 4.0,  v0: 940, tier: 2, pen: 3, value: 60, rarity: 'L1', stackLimit: 999 },
-  '5.56_ap':{ name: '5.56 穿甲弹', desc: '高硬度钢芯弹，穿透力极强。', w: 1, h: 1, caliber: '5.56', massG: 4.2, v0: 920, tier: 3, pen: 5, value: 120, rarity: 'L2', stackLimit: 999 },
-  '7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, caliber: '7.62', massG: 8.0,  v0: 730, tier: 2, pen: 5, value: 80, rarity: 'L2', stackLimit: 999 },
-  '.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, caliber: '.45acp', massG: 14.9, v0: 290, tier: 0, pen: 1, value: 25, rarity: 'L0', stackLimit: 999 },
+'7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, caliber: '7.62', massG: 8.0,  v0: 800, tier: 2, pen: 5, value: 80, rarity: 'L2', stackLimit: 999 }, // ★ v0 从 730 提到 800
+'.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, caliber: '.45acp', massG: 14.9, v0: 290, tier: 0, pen: 1, value: 25, rarity: 'L0', stackLimit: 999 },
   '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   w: 1, h: 1, caliber: '12ga', massG: 3.5,  v0: 410, tier: 0, pen: 0, value: 40, rarity: 'L0', stackLimit: 999 },
 };
   c.registerAll('ammo', AMMO);
@@ -50,8 +49,8 @@ const AMMO = {
   p9:    { name: 'content.weapon.p9.name',    desc: 'content.weapon.p9.desc',    w: 2, h: 1, ammoType: '9mm',    rpm: 420, mag: 15, reload: 1.5, range: 80,  spread: 0.032, auto: false, pellets: 1, color: 0x6a6a7a, value: 600,  rarity: 'L0', stackLimit: 1, recoil: 20, stability: 50, handling: 80, adsSpread: 0.01, drop: 0.01, falloff: 0.5 },
   smg45: { name: 'content.weapon.smg45.name', desc: 'content.weapon.smg45.desc', w: 3, h: 1, ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1, recoil: 30, stability: 40, handling: 75, adsSpread: 0.02, drop: 0.015, falloff: 0.6 },
   ar556: { name: 'content.weapon.ar556.name', desc: 'content.weapon.ar556.desc', w: 4, h: 2, ammoType: '5.56',   rpm: 850, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1, recoil: 40, stability: 60, handling: 65, adsSpread: 0.005, drop: 0.02, falloff: 0.4 },
-  ak762: { name: 'content.weapon.ak762.name', desc: 'content.weapon.ak762.desc', w: 4, h: 2, ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1, recoil: 55, stability: 45, handling: 55, adsSpread: 0.01, drop: 0.025, falloff: 0.5 },
-  sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w: 5, h: 2, ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 250, spread: 0.002, auto: false, pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1, recoil: 80, stability: 90, handling: 30, adsSpread: 0.0, drop: 0.005, falloff: 0.1 },
+ak762: { name: 'content.weapon.ak762.name', desc: 'content.weapon.ak762.desc', w: 4, h: 2, ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1, recoil: 55, stability: 45, handling: 55, adsSpread: 0.01, drop: 0.025, falloff: 0.5 },
+sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w: 5, h: 2, ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 350, spread: 0.002, auto: false, pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1, recoil: 80, stability: 95, handling: 30, adsSpread: 0.0, drop: 0.005, falloff: 0.1 }, // ★ range 250->350
   sg12:  { name: 'content.weapon.sg12.name',  desc: 'content.weapon.sg12.desc',  w: 4, h: 2, ammoType: '12ga',   rpm: 85,  mag: 6,  reload: 3.0, range: 35,  spread: 0.100, auto: false, pellets: 9, color: 0x5a4a2a, value: 2500, rarity: 'L3', stackLimit: 1, recoil: 70, stability: 50, handling: 50, adsSpread: 0.05, drop: 0.01, falloff: 0.8 },
 };
   c.registerAll('weapons', WEAPONS);
