@@ -1,6 +1,6 @@
-/* ============================================================
-   LaiAsaka Engine · Bag UI (Grid Edition)
-   v2.0.0 · © 2026 ZpycuA · CC BY-NC 4.0
+\/* ============================================================
+   LaiAsaka Engine · Bag UI (Grid & Loot Edition)
+   v2.1.0 · © 2026 ZpycuA · CC BY-NC 4.0
    ============================================================ */
 
 import * as THREE from 'three'
@@ -38,7 +38,6 @@ const CSS = `
 @keyframes bagIncShift{0%{background-position:0% 0%}100%{background-position:200% 200%}}
 @keyframes bagIncPulse{0%{box-shadow:0 0 6px rgba(200,200,230,.5) inset,0 0 4px rgba(180,180,220,.6)}100%{box-shadow:0 0 14px rgba(255,255,255,.9) inset,0 0 10px rgba(220,220,255,.85)}}
 
-.bagui-item.dragging{opacity:0.4}
 .bagui-item.ghost{position:fixed;z-index:9999;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.6);opacity:0.85}
 .bagui-item-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;pointer-events:none}
 .bagui-item-name{position:absolute;bottom:2px;left:2px;right:2px;font-size:10px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cfe4f8;pointer-events:none;text-shadow:0 1px 2px #000}
@@ -62,7 +61,6 @@ const CSS = `
 .bagui-rarity-tag.r-PHE{background:rgba(255,215,0,.25);color:#ffd700}
 .bagui-rarity-tag.r-INC{background:rgba(0,0,0,.6);color:#e0e0ff;border:1px solid rgba(255,255,255,.4)}
 
-/* 配件槽 UI */
 .bagui-attach-title,.bagui-effects-title{font-size:10px;color:#8fb0c8;margin-top:8px;margin-bottom:4px;letter-spacing:2px}
 .bagui-attach-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
 .bagui-attach-slot{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 4px;background:rgba(10,18,28,.8);border:1px dashed rgba(80,125,175,.4);border-radius:6px;font-size:11px;transition:all 0.2s;cursor:pointer}
@@ -88,11 +86,11 @@ export class BagUI {
   constructor(engine, inventory) {
     this.engine = engine;
     this.inv = inventory;
+    this.viewInv = inventory; 
     this.open = false;
     this.selectedUid = null;
     this.openedBagUid = null;
     this._drag = null;
-    this.viewInv = inventory; // ★ 当前正在查看的背包
     this._injectCSS();
     this._buildDOM();
   }
@@ -150,6 +148,7 @@ export class BagUI {
     if (document.pointerLockElement) document.exitPointerLock();
     this.open = true;
     this.viewInv = this.inv;
+    this._lootTarget = null;
     this._clearGhosts();
     document.getElementById('bagui-overlay').classList.add('on');
     this.openedBagUid = null;
@@ -162,10 +161,24 @@ export class BagUI {
     this._cancelDrag();
     this._clearGhosts();
     this._deselectDetail();
+    this._lootTarget = null;
     if (this._charPreviewRenderer) {
       this._charPreviewRenderer.dispose();
       this._charPreviewRenderer = null;
     }
+    if (this.engine.app && this.engine.app.world) {
+      this.engine.app.world._closeSearch();
+    }
+  }
+
+  openLoot(target) {
+    if (document.pointerLockElement) document.exitPointerLock();
+    this._lootTarget = target;
+    this.viewInv = target.isCorpse ? target.lootInv : this.inv; // 如果是尸体，查看敌人物品栏
+    this.open = true;
+    this._clearGhosts();
+    document.getElementById('bagui-overlay').classList.add('on');
+    this.refresh();
   }
 
   _deselectDetail() {
@@ -203,11 +216,15 @@ export class BagUI {
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
     const totalVal = this.inv.getTotalValue();
     const carryVal = this.inv.getContainerValue('chest') + this.inv.getContainerValue('pocket') + this.inv.getContainerValue('bag') + this.inv.getContainerValue('safe');
-    const label = isInMatch
-      ? `携带 ${carryVal} cp`
-      : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
+    let label = '';
+    if (this._lootTarget) {
+      label = `正在搜刮：${this._lootTarget.label}`;
+    } else {
+      label = isInMatch ? `携带 ${carryVal} cp` : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
+    }
+    
     let html = `<span class="bagui-total">${label}</span>`;
-    if (!isInMatch) {
+    if (!isInMatch && !this._lootTarget) {
       html += '<button id="bagui-stash-all">整理 · 全部入仓</button>';
     }
     bar.innerHTML = html;
@@ -242,10 +259,18 @@ export class BagUI {
 
   _renderLeft() {
     const el = document.getElementById('bagui-left');
-    const inv = this.viewInv;
     let html = '';
     
-    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
+    // 如果正在搜刮普通容器，左侧不显示装备
+    if (this._lootTarget && !this._lootTarget.isCorpse) {
+      el.innerHTML = '<div class="bagui-empty" style="margin-top:50px;">正在搜索容器...</div>';
+      return;
+    }
+
+    const inv = this.viewInv; 
+    
+    // 无论是玩家还是尸体，都渲染装备槽
+    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
     const equipList = [
       ['main', '主武器'], ['side', '副武器'],
       ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
@@ -253,15 +278,19 @@ export class BagUI {
       ['backpack', '背包'], ['chestRig', '胸挂'],
     ];
     for (const [slot, label] of equipList) {
-      html += this._equipSlotHtml(inv.equipped[slot], slot, label);
+      html += this._equipSlotHtml(inv.equipped[slot], slot, label, inv);
     }
     html += '</div></div>';
 
-    for (const name of ['chest', 'pocket', 'bag', 'safe']) {
-      const c = inv.containers[name];
-      if (!c || !c.isActive) continue;
-      html += this._gridContainerHtml(name, this._cname(name));
+    // 如果是玩家自己，渲染口袋、安全箱
+    if (!this._lootTarget) {
+      for (const name of ['chest', 'pocket', 'bag', 'safe']) {
+        const c = inv.containers[name];
+        if (!c || !c.isActive) continue;
+        html += this._gridContainerHtml(name, this._cname(name), inv);
+      }
     }
+    
     el.innerHTML = html;
     this._bindItemEvents(el);
   }
@@ -270,26 +299,50 @@ export class BagUI {
     const el = document.getElementById('bagui-right');
     if (!el) return;
     
+    // 1. 如果是搜刮状态
     if (this._lootTarget) {
-      el.style.display = '';
-      let html = '';
-      const chestC = this.viewInv.containers.chest;
-      if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', this._lootTarget.isCorpse ? '敌人胸挂' : '胸挂');
-      const bagC = this.viewInv.containers.bag;
-      if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', this._lootTarget.isCorpse ? '敌人背包' : '背包');
-      el.innerHTML = html || '<div class="bagui-empty">无携带容器</div>';
-      this._bindItemEvents(el);
-      return;
+      if (this._lootTarget.isCorpse) {
+        // 渲染尸体的胸挂和背包
+        const inv = this.viewInv;
+        let html = '';
+        const chestC = inv.containers.chest;
+        if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', '敌人胸挂', inv);
+        const bagC = inv.containers.bag;
+        if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', '敌人背包', inv);
+        el.innerHTML = html || '<div class="bagui-empty">尸体无携带容器</div>';
+        this._bindItemEvents(el);
+        return;
+      } else {
+        // 渲染普通容器的网格
+        const grid = this._lootTarget.grid;
+        if (!grid) {
+          el.innerHTML = '<div class="bagui-empty">空容器</div>';
+          return;
+        }
+        let html = `<div class="bagui-sec"><h3>${this._lootTarget.label || '容器'}<span class="bagui-cap">${grid.w}x${grid.h}</span></h3>`;
+        html += `<div class="bagui-grid-wrap" style="width:${grid.w * CELL}px;height:${grid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="loot">`;
+        for (let y = 0; y < grid.h; y++) {
+          for (let x = 0; x < grid.w; x++) {
+            html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+          }
+        }
+        for (const [uid, pos] of grid.items) {
+          html += this._itemHtml(uid, pos, 'loot', this.viewInv);
+        }
+        html += `</div></div>`;
+        el.innerHTML = html;
+        this._bindItemEvents(el);
+        return;
+      }
     }
 
-    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
-
+    // 2. 嵌套背包
     if (this.openedBagUid) {
-      const bag = this.inv.items.get(this.openedBagUid);
+      const bag = this.viewInv.items.get(this.openedBagUid);
       if (bag && bag.innerGrid) {
         el.style.display = '';
         let html = `<div class="bagui-sec"><h3 style="cursor:pointer;color:var(--accent)" id="bagui-back-inner">← 返回</h3>`;
-        html += `<h3>${this._esc(this.engine.i18n.t(this.inv.getDef(bag).name || bag.defId))} 的内部</h3>`;
+        html += `<h3>${this._esc(this.engine.i18n.t(this.viewInv.getDef(bag).name || bag.defId))} 的内部</h3>`;
         html += `<div class="bagui-grid-wrap" style="width:${bag.innerGrid.w * CELL}px;height:${bag.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="inner:${bag.uid}">`;
         for (let y = 0; y < bag.innerGrid.h; y++) {
           for (let x = 0; x < bag.innerGrid.w; x++) {
@@ -297,7 +350,7 @@ export class BagUI {
           }
         }
         for (const [uid, pos] of bag.innerGrid.items) {
-          html += this._itemHtml(uid, pos, `inner:${bag.uid}`);
+          html += this._itemHtml(uid, pos, `inner:${bag.uid}`, this.viewInv);
         }
         html += `</div></div>`;
         el.innerHTML = html;
@@ -311,6 +364,8 @@ export class BagUI {
       this.openedBagUid = null;
     }
 
+    // 3. 玩家战局内预览或仓库
+    const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
     if (isInMatch) {
       el.style.display = '';
       el.innerHTML =
@@ -322,13 +377,13 @@ export class BagUI {
     }
 
     el.style.display = '';
-    let html = this._gridContainerHtml('stash', '仓库');
+    let html = this._gridContainerHtml('stash', '仓库', this.viewInv);
     el.innerHTML = html;
     this._bindItemEvents(el);
   }
 
-  _gridContainerHtml(name, label) {
-    const c = this.inv.containers[name];
+  _gridContainerHtml(name, label, inv = this.inv) {
+    const c = inv.containers[name];
     if (!c || !c.isActive) return '';
     let html = `<div class="bagui-sec"><h3>${label}<span class="bagui-cap">${c.w}x${c.h}</span></h3>`;
     html += `<div class="bagui-grid-wrap" style="width:${c.w * CELL}px;height:${c.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="${name}">`;
@@ -338,26 +393,27 @@ export class BagUI {
       }
     }
     for (const [uid, pos] of c.items) {
-      html += this._itemHtml(uid, pos, name);
+      html += this._itemHtml(uid, pos, name, inv);
     }
     html += `</div></div>`;
     return html;
   }
 
-  _equipSlotHtml(uid, slot, hint) {
+  _equipSlotHtml(uid, slot, hint, inv = this.inv) {
     if (!uid) return `<div class="bagui-slot empty" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;display:flex;align-items:center;justify-content:center;position:relative"><div class="bagui-name" style="color:#5c82a8;font-size:10px">${hint}</div></div>`;
-    const item = this.inv.items.get(uid);
-    const def = this.inv.getDef(item);
+    const item = inv.items.get(uid);
+    if (!item) return `<div class="bagui-slot empty" data-src-type="equip" data-src-slot="${slot}"></div>`;
+    const def = inv.getDef(item);
     const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
     const rarity = item.rarity || 'L0';
     return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;position:relative">
-      <div class="bagui-item-icon">${this._icon(item)}</div>
+      <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
     </div>`;
   }
 
-  _itemHtml(uid, pos, containerName) {
-    const item = this.inv.items.get(uid);
+  _itemHtml(uid, pos, containerName, inv = this.inv) {
+    const item = inv.items.get(uid);
     if (!item) return '';
     
     if (item.searched === false) {
@@ -367,7 +423,7 @@ export class BagUI {
       </div>`;
     }
 
-    const def = this.inv.getDef(item);
+    const def = inv.getDef(item);
     const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
     const rarity = item.rarity || 'L0';
     const qty = item.qty > 1 ? `<span class="bagui-item-qty">×${item.qty}</span>` : '';
@@ -376,15 +432,15 @@ export class BagUI {
     
     return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
       style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px">
-      <div class="bagui-item-icon">${this._icon(item)}</div>
+      <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
       ${qty}${durBar}
     </div>`;
   }
 
-  _icon(item) {
+  _icon(item, inv = this.inv) {
     if (!item) return '?';
-    const def = this.inv.getDef(item);
+    const def = inv.getDef(item);
     if (def && def.icon) {
       const icon = String(def.icon);
       if (icon.startsWith('/') || icon.startsWith('http') || icon.startsWith('data:')) {
@@ -472,7 +528,7 @@ export class BagUI {
         if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
       }
       if (moved) this.refresh();
-      else console.warn('背包已满，无法拿取');
+      else alert('背包已满，无法拿取');
       return;
     }
 
@@ -557,11 +613,11 @@ export class BagUI {
       const magCap = def.mag || 0;
       
       let currentQty = item.loaded.qty;
-      const world = this.engine.app ? this.engine.app.world : null;
-      if (world && world.running && this.viewInv === this.inv) {
-        const w = world.currentWeapon;
-        if (w && w.item === item) {
-          currentQty = w.mag;
+      if (this.viewInv === this.inv) {
+        const world = this.engine.app ? this.engine.app.world : null;
+        if (world && world.running) {
+          const w = world.currentWeapon;
+          if (w && w.item === item) currentQty = w.mag;
         }
       }
       
@@ -569,11 +625,11 @@ export class BagUI {
       const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
       
       html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${currentQty}/${magCap}</span><span style="display:flex;gap:4px">`;
-      if (isReloading) {
+      if (isReloading && this.viewInv === this.inv) {
         html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
       } else {
         if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
-        if (item.loaded.qty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
+        if (currentQty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
       }
       html += `</span></div>`;
     }
@@ -605,11 +661,11 @@ export class BagUI {
       html += '</div>';
     }
 
-    if (item.innerGrid) {
+    if (item.innerGrid && this.viewInv === this.inv) {
       html += `<button class="bagui-btn" id="bagui-open-inner" data-uid="${uid}">打开内部网格 (${item.innerGrid.w}x${item.innerGrid.h})</button>`;
     }
 
-    if (item.stackLimit > 1 && item.qty > 1) {
+    if (item.stackLimit > 1 && item.qty > 1 && this.viewInv === this.inv) {
       const halfQty = Math.max(1, Math.floor(item.qty / 2));
       html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
         <span>拆分</span>
@@ -618,9 +674,9 @@ export class BagUI {
       </div>`;
     }
 
-    const isInStash = this.inv.parentOf.get(uid) === 'c:stash';
+    const isInStash = this.viewInv.parentOf.get(uid) === 'c:stash';
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
-    if (isInStash && !isInMatch) {
+    if (isInStash && !isInMatch && this.viewInv === this.inv) {
       const sellValue = Math.floor(unitVal * 0.8);
       html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
     }
@@ -773,16 +829,6 @@ export class BagUI {
     this.refresh();
   }
 
-  openLoot(target) {
-    if (document.pointerLockElement) document.exitPointerLock();
-    this._lootTarget = target;
-    this.viewInv = target.isCorpse ? target.lootInv : this.inv;
-    this.open = true;
-    this._clearGhosts();
-    document.getElementById('bagui-overlay').classList.add('on');
-    this.refresh();
-  }
-
   /* ===== 拖拽 ===== */
   _onDown(e, uid, el) {
     if (e.button !== undefined && e.button > 0) return;
@@ -880,6 +926,23 @@ export class BagUI {
     }
     
     const wrap = tgt.closest('.bagui-grid-wrap');
+    
+    // ★ 跨背包拖拽
+    if (this.viewInv !== this.inv) {
+      if (wrap || tgt.closest('.bagui-slot') || !tgt.closest('#bagui-overlay')) {
+        const targets = ['bag', 'chest', 'pocket', 'safe'];
+        let moved = false;
+        for (const t of targets) {
+          if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
+        }
+        if (moved) this.refresh();
+        else if (srcEl) srcEl.style.opacity = 1;
+      } else {
+        if (srcEl) srcEl.style.opacity = 1;
+      }
+      return;
+    }
+
     if (wrap) {
       const containerName = wrap.dataset.container;
       const rect = wrap.getBoundingClientRect();
@@ -891,29 +954,16 @@ export class BagUI {
       let gy = Math.round((ghostTop - rect.top) / CELL);
 
       const item = this.viewInv.items.get(uid);
-      
-      // ★ 如果是从尸体上往外拖，直接塞进玩家背包
-      if (this.viewInv !== this.inv) {
-        const targets = ['bag', 'chest', 'pocket', 'safe'];
-        let moved = false;
-        for (const t of targets) {
-          if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
-        }
-        if (moved) this.refresh();
-        else if (srcEl) srcEl.style.opacity = 1;
-        return;
-      }
-
       let targetGrid = null;
       if (containerName.startsWith('inner:')) {
-        const host = this.inv.items.get(containerName.slice(6));
+        const host = this.viewInv.items.get(containerName.slice(6));
         if (host) targetGrid = host.innerGrid;
       } else {
-        targetGrid = this.inv.containers[containerName];
+        targetGrid = this.viewInv.containers[containerName];
       }
       
       if (targetGrid) {
-        const currentParent = this.inv.parentOf.get(uid);
+        const currentParent = this.viewInv.parentOf.get(uid);
         const isSameContainer = (currentParent === containerName || (currentParent === 'c:' + containerName));
         const oldPos = targetGrid.items.get(uid);
         
@@ -926,7 +976,7 @@ export class BagUI {
           ok = this._placeAt(containerName, targetGrid, uid, gx, gy, !item.rotated).ok;
         }
         if (!ok) {
-          ok = this.inv.addToContainer(containerName, uid).ok;
+          ok = this.viewInv.addToContainer(containerName, uid).ok;
         }
         
         if (ok) {
@@ -941,38 +991,38 @@ export class BagUI {
       const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
       if (equip) {
         const slot = equip.dataset.srcSlot;
-        const currentParent = this.inv.parentOf.get(uid);
+        const currentParent = this.viewInv.parentOf.get(uid);
         if (currentParent !== 'eq:' + slot) {
-          const originalParent = this.inv.parentOf.get(uid);
-          const origPos = originalParent && originalParent.startsWith('c:') ? this.inv.containers[originalParent.slice(2)].items.get(uid) : null;
+          const originalParent = this.viewInv.parentOf.get(uid);
+          const origPos = originalParent && originalParent.startsWith('c:') ? this.viewInv.containers[originalParent.slice(2)].items.get(uid) : null;
 
-          this.inv._detach(uid);
-          const r = this.inv.equip(slot, uid);
+          this.viewInv._detach(uid);
+          const r = this.viewInv.equip(slot, uid);
           
           if (r.ok) {
             if (r.swapped) {
               let placed = false;
               if (originalParent && originalParent.startsWith('c:')) {
                 const cName = originalParent.slice(2);
-                const grid = this.inv.containers[cName];
+                const grid = this.viewInv.containers[cName];
                 if (grid) {
                   if (origPos) {
                     if (this._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
                   }
                   if (!placed) {
-                    if (this.inv.addToContainer(cName, r.swapped).ok) placed = true;
+                    if (this.viewInv.addToContainer(cName, r.swapped).ok) placed = true;
                   }
                 }
               }
               if (!placed) {
                 for (const t of ['bag', 'chest', 'stash']) {
-                  if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+                  if (this.viewInv.addToContainer(t, r.swapped).ok) { placed = true; break; }
                 }
               }
               if (!placed) {
-                this.inv.unequip(slot);
-                this.inv._detach(uid);
-                this.inv.equip(slot, r.swapped);
+                this.viewInv.unequip(slot);
+                this.viewInv._detach(uid);
+                this.viewInv.equip(slot, r.swapped);
                 if (originalParent) this._restoreTo(uid, originalParent);
                 this.refresh();
                 return;
@@ -992,18 +1042,17 @@ export class BagUI {
   }
 
   _placeAt(containerName, grid, uid, gx, gy, rotated) {
-    const item = this.inv.items.get(uid);
+    const item = this.viewInv.items.get(uid);
     if (!item) return { ok: false };
     
-    // ★ 新增：防止背包互相嵌套的死循环
     const parentPath = containerName.startsWith('inner:') ? containerName : 'c:' + containerName;
-    if (this.inv.wouldCreateCycle(uid, parentPath)) {
+    if (this.viewInv.wouldCreateCycle(uid, parentPath)) {
       return { ok: false };
     }
 
     const w = rotated ? item.h : item.w;
     const h = rotated ? item.w : item.h;
-      
+    
     if (gx < 0) gx = 0;
     if (gy < 0) gy = 0;
     if (gx + w > grid.w) gx = grid.w - w;
@@ -1017,25 +1066,25 @@ export class BagUI {
       }
     }
 
-    this.inv._detach(uid);
-    this.inv._occupy(grid, uid, gx, gy, w, h, rotated);
+    this.viewInv._detach(uid);
+    this.viewInv._occupy(grid, uid, gx, gy, w, h, rotated);
     item.rotated = rotated;
-    this.inv.parentOf.set(uid, containerName.startsWith('inner:') ? containerName : 'c:' + containerName);
+    this.viewInv.parentOf.set(uid, containerName.startsWith('inner:') ? containerName : 'c:' + containerName);
     return { ok: true };
   }
 
   _restoreTo(uid, parent) {
-    if (!parent) { this.inv.addToContainer('stash', uid); return; }
-    if (parent.startsWith('eq:')) { this.inv.equip(parent.slice(3), uid); return; }
-    if (parent.startsWith('c:')) { this.inv.addToContainer(parent.slice(2), uid); return; }
-    const p = this.inv.items.get(parent);
+    if (!parent) { this.viewInv.addToContainer('stash', uid); return; }
+    if (parent.startsWith('eq:')) { this.viewInv.equip(parent.slice(3), uid); return; }
+    if (parent.startsWith('c:')) { this.viewInv.addToContainer(parent.slice(2), uid); return; }
+    const p = this.viewInv.items.get(parent);
     if (p && p.attachments) {
-      for (const k in p.attachments) if (!p.attachments[k]) if (this.inv.attachTo(parent, k, uid).ok) return;
+      for (const k in p.attachments) if (!p.attachments[k]) if (this.viewInv.attachTo(parent, k, uid).ok) return;
     }
     if (p && p.subSlots) {
-      for (const k in p.subSlots) if (!p.subSlots[k]) if (this.inv.attachToSubSlot(parent, k, uid).ok) return;
+      for (const k in p.subSlots) if (!p.subSlots[k]) if (this.viewInv.attachToSubSlot(parent, k, uid).ok) return;
     }
-    this.inv.addToContainer('stash', uid);
+    this.viewInv.addToContainer('stash', uid);
   }
 
   _cancelDrag() {
