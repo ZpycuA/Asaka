@@ -91,7 +91,8 @@ export class BagUI {
     this.open = false;
     this.selectedUid = null;
     this.openedBagUid = null;
-    this._drag = null;
+        this._drag = null;
+    this.viewInv = inventory; // ★ 当前正在查看的背包
     this._injectCSS();
     this._buildDOM();
   }
@@ -145,9 +146,10 @@ export class BagUI {
 
   toggle() { this.open ? this.close() : this.show(); }
   
-  show() {
+    show() {
     if (document.pointerLockElement) document.exitPointerLock();
     this.open = true;
+    this.viewInv = this.inv;
     this._clearGhosts();
     document.getElementById('bagui-overlay').classList.add('on');
     this.openedBagUid = null;
@@ -238,12 +240,14 @@ export class BagUI {
     this.refresh();
   }
 
-  _renderLeft() {
+    _renderLeft() {
     const el = document.getElementById('bagui-left');
-    const inv = this.inv;
+    const inv = this.viewInv; // ★ 替换
     let html = '';
     
-    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
+    // 装备
+    html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
+    // ...
     const equipList = [
       ['main', '主武器'], ['side', '副武器'],
       ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
@@ -264,27 +268,22 @@ export class BagUI {
     this._bindItemEvents(el);
   }
 
-  _renderRight() {
+    _renderRight() {
     const el = document.getElementById('bagui-right');
     if (!el) return;
     
     if (this._lootTarget) {
-  el.style.display = '';
-  let html = `<div class="bagui-sec"><h3>${this._lootTarget.label || '容器'}</h3>`;
-  html += `<div class="bagui-grid-wrap" style="width:${this._lootTarget.grid.w * CELL}px;height:${this._lootTarget.grid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;margin:0 auto" data-container="loot">`;
-  for (let y = 0; y < this._lootTarget.grid.h; y++) {
-    for (let x = 0; x < this._lootTarget.grid.w; x++) {
-      html += `<div class="bagui-cell" style="left:${x*CELL}px;top:${y*CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+      el.style.display = '';
+      let html = '';
+      const chestC = this.viewInv.containers.chest;
+      if (chestC && chestC.isActive) html += this._gridContainerHtml('chest', this._lootTarget.isCorpse ? '敌人胸挂' : '胸挂');
+      const bagC = this.viewInv.containers.bag;
+      if (bagC && bagC.isActive) html += this._gridContainerHtml('bag', this._lootTarget.isCorpse ? '敌人背包' : '背包');
+      el.innerHTML = html || '<div class="bagui-empty">无携带容器</div>';
+      this._bindItemEvents(el);
+      return;
     }
-  }
-  for (const [uid, pos] of this._lootTarget.grid.items) {
-    html += this._itemHtml(uid, pos, 'loot');
-  }
-  html += `</div></div>`;
-  el.innerHTML = html;
-  this._bindItemEvents(el);
-  return;
-}
+    // ...
 
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
 
@@ -464,12 +463,23 @@ export class BagUI {
     }, 800);
   }
 
-  _quickEquip(uid) {
-    const item = this.inv.items.get(uid);
+    _quickEquip(uid) {
+    const item = this.viewInv.items.get(uid);
     if (!item) return;
 
-    if (this._lootTarget) {
-      const parent = this.inv.parentOf.get(uid);
+    // ★ 跨背包转移
+    if (this.viewInv !== this.inv) {
+      const targets = ['bag', 'chest', 'pocket', 'safe'];
+      let moved = false;
+      for (const t of targets) {
+        if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
+      }
+      if (moved) this.refresh();
+      else console.warn('背包已满，无法拿取');
+      return;
+    }
+
+    // ... (后续原有的 self.inv 逻辑保持不变)
       if (parent === 'c:loot') {
         const targets = ['bag', 'chest', 'pocket', 'safe'];
         let moved = false;
@@ -782,15 +792,16 @@ export class BagUI {
     this.refresh();
   }
 
-  openLoot(target) {
+    openLoot(target) {
     if (document.pointerLockElement) document.exitPointerLock();
     this._lootTarget = target;
+    this.viewInv = target.isCorpse ? target.lootInv : this.inv;
     this.open = true;
     this._clearGhosts();
     document.getElementById('bagui-overlay').classList.add('on');
     this.refresh();
   }
-
+   
   /* ===== 拖拽 ===== */
   _onDown(e, uid, el) {
     if (e.button !== undefined && e.button > 0) return;
@@ -899,8 +910,22 @@ export class BagUI {
       let gx = Math.round((ghostLeft - rect.left) / CELL);
       let gy = Math.round((ghostTop - rect.top) / CELL);
 
-      const item = this.inv.items.get(uid);
+            const item = this.viewInv.items.get(uid);
+      
+      // ★ 如果是从尸体上往外拖，直接塞进玩家背包
+      if (this.viewInv !== this.inv) {
+        const targets = ['bag', 'chest', 'pocket', 'safe'];
+        let moved = false;
+        for (const t of targets) {
+          if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
+        }
+        if (moved) this.refresh();
+        else if (srcEl) srcEl.style.opacity = 1;
+        return;
+      }
+
       let targetGrid = null;
+      // ...
       if (containerName.startsWith('inner:')) {
         const host = this.inv.items.get(containerName.slice(6));
         if (host) targetGrid = host.innerGrid;
