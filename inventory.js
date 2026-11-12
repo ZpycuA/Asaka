@@ -532,6 +532,31 @@ this.equipped[slot] = uid;
     return { ok: false, reason: 'no_space' };
   }
 
+     transferItem(targetInv, uid, targetContainer) {
+    const item = this.items.get(uid);
+    if (!item) return { ok: false, reason: 'no_item' };
+    
+    const newUid = targetInv.createItem(item.table, item.defId, {
+      qty: item.qty,
+      lockValue: true,
+      valueMul: item.valueMul,
+      dur: item.dur,
+      loadedQty: item.loaded ? item.loaded.qty : 0,
+      loadedQueue: item.loaded && item.loaded.queue ? [...item.loaded.queue] : null,
+      attachments: item.attachments ? {...item.attachments} : null
+    });
+    
+    if (!newUid) return { ok: false };
+    const r = targetInv.addToContainer(targetContainer, newUid);
+    if (!r.ok) {
+      targetInv.destroyItem(newUid);
+      return { ok: false, reason: r.reason };
+    }
+    
+    this.destroyItem(uid);
+    return { ok: true, newUid };
+  }
+
   /* ====================== 配件操作（不变） ====================== */
   attachTo(weaponUid, slot, attachUid) {
     const weapon = this.items.get(weaponUid);
