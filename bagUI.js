@@ -91,7 +91,7 @@ export class BagUI {
     this.open = false;
     this.selectedUid = null;
     this.openedBagUid = null;
-        this._drag = null;
+    this._drag = null;
     this.viewInv = inventory; // ★ 当前正在查看的背包
     this._injectCSS();
     this._buildDOM();
@@ -146,7 +146,7 @@ export class BagUI {
 
   toggle() { this.open ? this.close() : this.show(); }
   
-    show() {
+  show() {
     if (document.pointerLockElement) document.exitPointerLock();
     this.open = true;
     this.viewInv = this.inv;
@@ -240,14 +240,12 @@ export class BagUI {
     this.refresh();
   }
 
-    _renderLeft() {
+  _renderLeft() {
     const el = document.getElementById('bagui-left');
-    const inv = this.viewInv; // ★ 替换
+    const inv = this.viewInv;
     let html = '';
     
-    // 装备
     html += '<div class="bagui-sec"><h3>装备</h3><div class="bagui-grid" style="width:100%;display:flex;flex-wrap:wrap;gap:4px;justify-content:center">';
-    // ...
     const equipList = [
       ['main', '主武器'], ['side', '副武器'],
       ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
@@ -268,7 +266,7 @@ export class BagUI {
     this._bindItemEvents(el);
   }
 
-    _renderRight() {
+  _renderRight() {
     const el = document.getElementById('bagui-right');
     if (!el) return;
     
@@ -283,7 +281,6 @@ export class BagUI {
       this._bindItemEvents(el);
       return;
     }
-    // ...
 
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
 
@@ -412,13 +409,13 @@ export class BagUI {
       el.addEventListener('dragstart', e => e.preventDefault());
 
       el.addEventListener('pointerdown', (e) => {
-        const item = this.inv.items.get(uid);
+        const item = this.viewInv.items.get(uid);
         if (item && item.searched === false) return;
         this._onDown(e, uid, el);
       });
 
       el.addEventListener('click', (e) => {
-        const item = this.inv.items.get(uid);
+        const item = this.viewInv.items.get(uid);
         if (item && item.searched === false) {
           e.stopPropagation();
           this._startSearchLoot(uid);
@@ -437,7 +434,7 @@ export class BagUI {
 
       el.addEventListener('dblclick', (e) => {
         e.preventDefault();
-        const item = this.inv.items.get(uid);
+        const item = this.viewInv.items.get(uid);
         if (item && item.searched === false) {
           this._startSearchLoot(uid);
           return;
@@ -456,14 +453,14 @@ export class BagUI {
     if (el) el.style.opacity = '0.6';
     
     setTimeout(() => {
-      const item = this.inv.items.get(uid);
+      const item = this.viewInv.items.get(uid);
       if (item) item.searched = true;
       this._searchingItems[uid] = false;
       this.refresh();
     }, 800);
   }
 
-     _quickEquip(uid) {
+  _quickEquip(uid) {
     const item = this.viewInv.items.get(uid);
     if (!item) return;
 
@@ -510,42 +507,18 @@ export class BagUI {
       this.refresh();
     }
   }
-    if (item.table === 'weapons') targetSlot = 'main';
-    else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
-    else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
-    else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
-    else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
-    else if (item.table === 'vestPlate') targetSlot = 'vestPlate';
-    else if (item.table === 'backpack') targetSlot = 'backpack';
-    else if (item.table === 'chestRig') targetSlot = 'chestRig';
-    
-    if (targetSlot) {
-      const r = this.inv.equip(targetSlot, uid);
-      if (!r.ok) console.warn('[BagUI] 快速装备失败', uid, targetSlot, r.reason);
-      else this.selectedUid = uid;
-      this.refresh();
-      return;
-    }
-
-    const parent = this.inv.parentOf.get(uid);
-    const targetC = (parent === 'c:stash') ? 'bag' : 'stash';
-    const res = this.inv.addToContainer(targetC, uid);
-    if (res.ok) {
-      this.refresh();
-    }
-  }
 
   _renderDetail(mx, my) {
     const el = document.getElementById('bagui-detail');
     if (!el) return;
     const uid = this.selectedUid;
-    if (!uid || !this.inv.items.has(uid)) {
+    if (!uid || !this.viewInv.items.has(uid)) {
       el.classList.remove('on');
       el.innerHTML = '';
       return;
     }
-    const item = this.inv.items.get(uid);
-    const def = this.inv.getDef(item);
+    const item = this.viewInv.items.get(uid);
+    const def = this.viewInv.getDef(item);
     if (!def) {
       el.classList.remove('on');
       return;
@@ -559,7 +532,7 @@ export class BagUI {
       html += `<div class="bagui-desc">${this._esc(this.engine.i18n.t(def.desc))}</div>`;
     }
 
-    const unitVal = this.inv.getItemValue(uid);
+    const unitVal = this.viewInv.getItemValue(uid);
     if (item.qty > 1) {
       const unit = Math.round(unitVal / item.qty);
       html += `<div>数量：${item.qty} / ${item.stackLimit}（单价 ${unit} cp · 总价 ${unitVal} cp）</div>`;
@@ -574,30 +547,28 @@ export class BagUI {
       html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
     }
 
-   if (item.table === 'weapons') {
-  if (!item.loaded) {
-    const ammoType = def.ammoType || '9mm';
-    item.loaded = { ammoType, qty: 0, queue: [] };
-  }
-  const ammoDef = this.inv.content.get('ammo', item.loaded.ammoType);
-  const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-  const magCap = def.mag || 0;
-  
-  // ★ 实时同步数据（如果此枪正拿在手上）
-  let currentQty = item.loaded.qty;
-  const world = this.engine.app ? this.engine.app.world : null;
-  if (world && world.running) {
-    const w = world.currentWeapon;
-    if (w && w.item === item) {
-      currentQty = w.mag; // 实时获取
-    }
-  }
-  
-  const isFull = currentQty >= magCap;
-  
-  const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
-  
-  html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${currentQty}/${magCap}</span><span style="display:flex;gap:4px">`;
+    if (item.table === 'weapons') {
+      if (!item.loaded) {
+        const ammoType = def.ammoType || '9mm';
+        item.loaded = { ammoType, qty: 0, queue: [] };
+      }
+      const ammoDef = this.viewInv.content.get('ammo', item.loaded.ammoType);
+      const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
+      const magCap = def.mag || 0;
+      
+      let currentQty = item.loaded.qty;
+      const world = this.engine.app ? this.engine.app.world : null;
+      if (world && world.running && this.viewInv === this.inv) {
+        const w = world.currentWeapon;
+        if (w && w.item === item) {
+          currentQty = w.mag;
+        }
+      }
+      
+      const isFull = currentQty >= magCap;
+      const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
+      
+      html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${currentQty}/${magCap}</span><span style="display:flex;gap:4px">`;
       if (isReloading) {
         html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
       } else {
@@ -614,7 +585,7 @@ export class BagUI {
         html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
         html += `<span class="bagui-attach-label">${slot}</span>`;
         if (aUid) {
-          const aDef = this.inv.getDef(this.inv.items.get(aUid));
+          const aDef = this.viewInv.getDef(this.viewInv.items.get(aUid));
           const aRaw = aDef ? (aDef.name || aDef.n || '?') : '?';
           html += `<span class="bagui-attach-val">${this._esc(this.engine.i18n.t(aRaw))}</span>`;
         } else {
@@ -710,9 +681,9 @@ export class BagUI {
   }
 
   _loadAmmo(weaponUid) {
-    const item = this.inv.items.get(weaponUid);
+    const item = this.viewInv.items.get(weaponUid);
     if (!item || item.table !== 'weapons' || !item.loaded) return;
-    const def = this.inv.getDef(item);
+    const def = this.viewInv.getDef(item);
     if (!def) return;
     const space = (def.mag || 0) - item.loaded.qty;
     if (space <= 0) return;
@@ -720,7 +691,7 @@ export class BagUI {
     const world = this.engine.app ? this.engine.app.world : null;
     const isInMatch = world && world.running;
 
-    if (isInMatch) {
+    if (isInMatch && this.viewInv === this.inv) {
       if (world.player.weapon && world.player.weapon.item === item) {
         world._startReload();
         this.close();
@@ -732,13 +703,13 @@ export class BagUI {
       let remaining = space;
       for (const cName of searchOrder) {
         if (remaining <= 0) break;
-        const c = this.inv.containers[cName];
+        const c = this.viewInv.containers[cName];
         if (!c) continue;
         for (const uid of Array.from(c.items.keys())) {
           if (remaining <= 0) break;
-          const it = this.inv.items.get(uid);
+          const it = this.viewInv.items.get(uid);
           if (!it || it.table !== 'ammo') continue;
-          const ammoDef = this.inv.getDef(it);
+          const ammoDef = this.viewInv.getDef(it);
           if (!ammoDef || ammoDef.caliber !== def.ammoType) continue;
           
           const take = Math.min(it.qty, remaining);
@@ -747,7 +718,7 @@ export class BagUI {
           remaining -= take;
           
           it.qty -= take;
-          if (it.qty <= 0) this.inv.destroyItem(uid);
+          if (it.qty <= 0) this.viewInv.destroyItem(uid);
         }
       }
       if (remaining < space) this.refresh();
@@ -755,10 +726,9 @@ export class BagUI {
   }
 
   _unloadAmmo(weaponUid) {
-    const item = this.inv.items.get(weaponUid);
+    const item = this.viewInv.items.get(weaponUid);
     if (!item || item.table !== 'weapons' || !item.loaded || item.loaded.qty <= 0) return;
     
-    // 统计队列里的子弹数量并分类
     const counts = {};
     if (item.loaded.queue && item.loaded.queue.length > 0) {
       for (const id of item.loaded.queue) counts[id] = (counts[id] || 0) + 1;
@@ -768,16 +738,16 @@ export class BagUI {
     
     let success = false;
     for (const [ammoId, qty] of Object.entries(counts)) {
-      const uid = this.inv.createItem('ammo', ammoId, { qty, lockValue: true, valueMul: item.valueMul });
+      const uid = this.viewInv.createItem('ammo', ammoId, { qty, lockValue: true, valueMul: item.valueMul });
       if (!uid) continue;
       
       const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
       let placed = false;
       for (const t of targets) {
-        if (this.inv.addToContainer(t, uid).ok) { placed = true; break; }
+        if (this.viewInv.addToContainer(t, uid).ok) { placed = true; break; }
       }
       if (!placed) {
-        this.inv.destroyItem(uid);
+        this.viewInv.destroyItem(uid);
         continue;
       }
       success = true;
@@ -791,10 +761,10 @@ export class BagUI {
   }
 
   _splitStack(uid, count) {
-    const origParent = this.inv.parentOf.get(uid);
+    const origParent = this.viewInv.parentOf.get(uid);
     let preferred = null;
     if (origParent && origParent.startsWith('c:')) preferred = origParent.slice(2);
-    const res = this.inv.splitStack(uid, count, preferred);
+    const res = this.viewInv.splitStack(uid, count, preferred);
     if (!res.ok) {
       console.warn('[BagUI] 拆分失败', uid, count, res.reason);
       return;
@@ -803,7 +773,7 @@ export class BagUI {
     this.refresh();
   }
 
-    openLoot(target) {
+  openLoot(target) {
     if (document.pointerLockElement) document.exitPointerLock();
     this._lootTarget = target;
     this.viewInv = target.isCorpse ? target.lootInv : this.inv;
@@ -812,7 +782,7 @@ export class BagUI {
     document.getElementById('bagui-overlay').classList.add('on');
     this.refresh();
   }
-   
+
   /* ===== 拖拽 ===== */
   _onDown(e, uid, el) {
     if (e.button !== undefined && e.button > 0) return;
@@ -900,7 +870,6 @@ export class BagUI {
     const tgt = document.elementFromPoint(px, py);
     if (!tgt) { 
       if (srcEl) srcEl.style.opacity = 1; 
-      // 丢到界面外 → 丢弃到地上
       if (this.engine.app && this.engine.app.world && this.engine.app.world.running) {
         if (this.engine.app.world._dropItemToGround(uid)) {
           this.refresh();
@@ -921,7 +890,7 @@ export class BagUI {
       let gx = Math.round((ghostLeft - rect.left) / CELL);
       let gy = Math.round((ghostTop - rect.top) / CELL);
 
-            const item = this.viewInv.items.get(uid);
+      const item = this.viewInv.items.get(uid);
       
       // ★ 如果是从尸体上往外拖，直接塞进玩家背包
       if (this.viewInv !== this.inv) {
@@ -936,7 +905,6 @@ export class BagUI {
       }
 
       let targetGrid = null;
-      // ...
       if (containerName.startsWith('inner:')) {
         const host = this.inv.items.get(containerName.slice(6));
         if (host) targetGrid = host.innerGrid;
@@ -1023,19 +991,19 @@ export class BagUI {
     }
   }
 
- _placeAt(containerName, grid, uid, gx, gy, rotated) {
-  const item = this.inv.items.get(uid);
-  if (!item) return { ok: false };
-  
-  // ★ 新增：防止背包互相嵌套的死循环
-  const parentPath = containerName.startsWith('inner:') ? containerName : 'c:' + containerName;
-  if (this.inv.wouldCreateCycle(uid, parentPath)) {
-    return { ok: false };
-  }
-
-  const w = rotated ? item.h : item.w;
-  const h = rotated ? item.w : item.h;
+  _placeAt(containerName, grid, uid, gx, gy, rotated) {
+    const item = this.inv.items.get(uid);
+    if (!item) return { ok: false };
     
+    // ★ 新增：防止背包互相嵌套的死循环
+    const parentPath = containerName.startsWith('inner:') ? containerName : 'c:' + containerName;
+    if (this.inv.wouldCreateCycle(uid, parentPath)) {
+      return { ok: false };
+    }
+
+    const w = rotated ? item.h : item.w;
+    const h = rotated ? item.w : item.h;
+      
     if (gx < 0) gx = 0;
     if (gy < 0) gy = 0;
     if (gx + w > grid.w) gx = grid.w - w;
