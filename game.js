@@ -3169,7 +3169,7 @@ this.combatLog.push({
 
     this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
 
-    // ★ 尸体生成：同步当前装备状态
+     // ★ 尸体生成：同步当前装备状态，并生成实体模型
   if (enemy.lootInv) {
     const wUid = enemy.lootInv.equipped.main;
     if (wUid && enemy.weapon.loaded) {
@@ -3189,16 +3189,26 @@ this.combatLog.push({
       }
     }
 
+    // 1. 生成地上的可见尸体箱（可以用之前的掉落箱逻辑）
+    const lx = enemy.body.position.x;
+    const lz = enemy.body.position.z;
+    const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 }); // 用红色箱子代表尸体
+    lootMesh.position.set(lx, 0, lz);
+    this.engine.renderer.scene.add(lootMesh);
+
+    // 2. 加入搜刮列表
     const corpseObj = {
-      x: enemy.body.position.x,
-      z: enemy.body.position.z,
+      x: lx,
+      z: lz,
+      mesh: lootMesh,
       label: this.engine.i18n.t(enemy.spec.name) + ' 的尸体',
       isCorpse: true,
       lootInv: enemy.lootInv,
-      grid: null
+      grid: null,
+      searched: true
     };
     this.groundLoots.push(corpseObj);
-    this.pois.push({ x: enemy.body.position.x, z: enemy.body.position.z, type: 'container', color: '#ffcc33' });
+    this.pois.push({ x: lx, z: lz, type: 'container', color: '#ff5555' });
   }
 }
 
