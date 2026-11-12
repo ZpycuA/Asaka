@@ -2100,7 +2100,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   const isPrazer = !!spec.prazer;
   const maxCoup = isPrazer ? 100 : 0;
 
-  const enemy = {
+    const enemy = {
   mesh, body, spec,
   hp: spec.hp * diffMul * profileMul,
   maxHp: spec.hp * diffMul * profileMul,
@@ -2117,7 +2117,6 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   strafeT: 0.7 + Math.random() * 1.2,
   hitFlash: 0,
   trainingDummy: this.kind === 'training',
-  // ★ 新增：护甲 + 耦合 + charSpec（与玩家一致）
   armor,
   coupling: maxCoup,
   maxCoupling: maxCoup,
@@ -2126,9 +2125,40 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   limbDamage: 0,
   speedMul: 1,
   charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
-  status: new EntityStatus(spec, isPrazer), // ★ 新增
+  status: new EntityStatus(spec, isPrazer),
+  lootInv: new Inventory(this.engine.content) // ★ 新增：敌人自带的库存
 };
-    body.userData.ref = enemy;
+  body.userData.ref = enemy;
+
+  // ★ 初始化敌人自带的库存（穿枪、穿甲、穿胸挂背包）
+  const lootInv = enemy.lootInv;
+  const wUid = lootInv.createItem('weapons', spec.weapon, { loadedQty: enemy.weapon.magCap, loadedQueue: [...enemy.weapon.loaded.queue] });
+  if (wUid) lootInv.equip('main', wUid);
+  
+  if (spec.gear && spec.gear.armor) {
+    const map = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
+    for (const s in map) {
+      const g = spec.gear.armor[s];
+      if (g && g.lv > 0) {
+        const aUid = lootInv.createItem(map[s], g.defId);
+        if (aUid) lootInv.equip(map[s], aUid);
+      }
+    }
+  }
+  
+  const chestUid = lootInv.createItem('chestRig', 'large');
+  if (chestUid) lootInv.equip('chestRig', chestUid);
+  const bagUid = lootInv.createItem('backpack', 'medium');
+  if (bagUid) lootInv.equip('backpack', bagUid);
+  
+  // 往他包里塞点备弹
+  if (spec.weapon) {
+    const wDef = this.engine.content.get('weapons', spec.weapon);
+    if (wDef) {
+      const ammoUid = lootInv.createItem('ammo', wDef.ammoType, { qty: 60 });
+      if (ammoUid) lootInv.addToContainer('chest', ammoUid);
+    }
+  }
 
   // ★ 收集轮廓流光（非 Prazer 时为空数组）
   enemy.glowMeshes = [];
@@ -3139,54 +3169,36 @@ this.combatLog.push({
 
     this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
 
-  // ★ 尸体 loot：武器 + 弹药 + 护甲
-const corpseLoot = [];
-if (enemy.weapon && enemy.weapon.def) {
-  const wDef = enemy.weapon.def;
-  const w = enemy.weapon;
-  const loadedQty = w.loaded ? w.loaded.qty : 0;
-  const reserve = w.reserve || 0;
-  
-  // ★ 完整保留枪械的队列状态和配件
-  corpseLoot.push({
-    table: 'weapons',
-    defId: wDef.id,
-    loadedQty: loadedQty,
-    loadedQueue: w.loaded.queue ? [...w.loaded.queue] : null,
-    attachments: w.item && w.item.attachments ? {...w.item.attachments} : null,
-  });
-  
-  if (reserve > 0) {
-    corpseLoot.push({
-      table: 'ammo',
-      defId: wDef.ammoType,
-      qty: reserve,
-    });
-  }
-}
-// ★ 护甲掉落（有 dur 才掉）
-if (enemy.armor) {
-  const armorTableMap = {
-    shell: 'helmetShell',
-    visor: 'helmetVisor',
-    fiber: 'vestFiber',
-    plate: 'vestPlate',
-  };
-  for (const slot in armorTableMap) {
-    const a = enemy.armor[slot];
-    if (a && a.lv > 0 && a.defId && a.dur > 0) {
-      corpseLoot.push({
-        table: armorTableMap[slot],
-        defId: a.defId,
-        dur: Math.round(a.dur),
-      });
+    // ★ 尸体生成：同步当前装备状态
+  if (enemy.lootInv) {
+    const wUid = enemy.lootInv.equipped.main;
+    if (wUid && enemy.weapon.loaded) {
+      const wItem = enemy.lootInv.items.get(wUid);
+      if (wItem) {
+        wItem.loaded.qty = enemy.weapon.loaded.qty;
+        wItem.loaded.queue = [...enemy.weapon.loaded.queue];
+      }
     }
-  }
-}
-  if (corpseLoot.length > 0) {
-    const lx = enemy.body.position.x + (Math.random() * 1.2 - 0.6);
-    const lz = enemy.body.position.z + (Math.random() * 1.2 - 0.6);
-    this._spawnGroundLoot(lx, lz, corpseLoot, this.engine.i18n.t(enemy.spec.name) + ' 的尸体');
+    
+    const armorMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
+    for (const slot in armorMap) {
+      const uid = enemy.lootInv.equipped[armorMap[slot]];
+      if (uid && enemy.armor[slot]) {
+        const aItem = enemy.lootInv.items.get(uid);
+        if (aItem) aItem.dur = enemy.armor[slot].dur;
+      }
+    }
+
+    const corpseObj = {
+      x: enemy.body.position.x,
+      z: enemy.body.position.z,
+      label: this.engine.i18n.t(enemy.spec.name) + ' 的尸体',
+      isCorpse: true,
+      lootInv: enemy.lootInv,
+      grid: null
+    };
+    this.groundLoots.push(corpseObj);
+    this.pois.push({ x: enemy.body.position.x, z: enemy.body.position.z, type: 'container', color: '#ffcc33' });
   }
 }
 
@@ -3403,15 +3415,11 @@ _updateDeathCamera(dt) {
     const p = this.player;
     if (!p || !p.alive) { this._searchTarget = null; return; }
     let best = null, bestDist = COMBAT.SEARCH_RADIUS;
-    const consider = (c) => {
-  // ★ 如果已经生成了网格且里面没东西，才跳过
-  if (c.grid && c.grid.items.size === 0) return;
-  // 兼容没有网格且原始数据也空的情况
-  if (!c.grid && c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0)) return;
-  
-  const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
-  if (d < bestDist) { best = c; bestDist = d; }
-};
+        const consider = (c) => {
+      // ★ 只要在距离内，随时可以打开（哪怕是空的，或者是尸体）
+      const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
+      if (d < bestDist) { best = c; bestDist = d; }
+    };
     for (const c of this.containers) consider(c);
     for (const c of this.groundLoots) consider(c);
     this._searchTarget = best;
@@ -3699,38 +3707,42 @@ _updateMobileButtons(){
     return;
   }
 
-  const inv = this.engine.app.inventory;
-if (!c.grid) {
-  c.grid = new GridContainer(8, 6);
-  inv.containers.loot = c.grid;
-  
-  // ★ 如果是新容器，生成随机物资
-  let items = c.revealed || c.loot || [];
-  if (items.length === 0 && !c.searched) {
-    items = this._generateLootSpecs();
+    if (c.isCorpse) {
+    this.engine.app.bagUI.openLoot(c);
+    return;
   }
 
-  for (const spec of items) {
-  const extras = { searched: false, qty: spec.qty || 1 };
-  if (spec.extras) Object.assign(extras, spec.extras);
-  if (spec.dur !== undefined) extras.dur = spec.dur;
-  if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
-  // ★ 还原队列与配件
-  if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
-  if (spec.attachments) extras.attachments = spec.attachments;
-  
-  const uid = inv.createItem(spec.table, spec.defId, extras);
-  if (uid) inv.addToContainer('loot', uid);
-}
-  c.loot = [];
-  c.revealed = [];
-  c.searched = true;
-}
+  const inv = this.engine.app.inventory;
+  if (!c.grid) {
+    c.grid = new GridContainer(8, 6);
+    inv.containers.loot = c.grid;
+    
+    // ★ 修复取值覆盖问题
+    let items = [];
+    if (c.loot && c.loot.length > 0) items = c.loot;
+    else if (c.revealed && c.revealed.length > 0) items = c.revealed;
+    else if (!c.searched) items = this._generateLootSpecs();
 
-inv.containers.loot = c.grid;
-for (const uid of c.grid.items.keys()) {
-  inv.parentOf.set(uid, 'c:loot');
-}
+    for (const spec of items) {
+      const extras = { searched: false, qty: spec.qty || 1 };
+      if (spec.extras) Object.assign(extras, spec.extras);
+      if (spec.dur !== undefined) extras.dur = spec.dur;
+      if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+      if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
+      if (spec.attachments) extras.attachments = spec.attachments;
+      
+      const uid = inv.createItem(spec.table, spec.defId, extras);
+      if (uid) inv.addToContainer('loot', uid);
+    }
+    c.loot = [];
+    c.revealed = [];
+    c.searched = true;
+  }
+
+  inv.containers.loot = c.grid;
+  for (const uid of c.grid.items.keys()) {
+    inv.parentOf.set(uid, 'c:loot');
+  }
 
   this.engine.app.bagUI.openLoot(c);
 }
