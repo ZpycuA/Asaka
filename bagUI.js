@@ -463,7 +463,7 @@ export class BagUI {
     }, 800);
   }
 
-    _quickEquip(uid) {
+     _quickEquip(uid) {
     const item = this.viewInv.items.get(uid);
     if (!item) return;
 
@@ -479,19 +479,6 @@ export class BagUI {
       return;
     }
 
-    // ... (后续原有的 self.inv 逻辑保持不变)
-      if (parent === 'c:loot') {
-        const targets = ['bag', 'chest', 'pocket', 'safe'];
-        let moved = false;
-        for (const t of targets) {
-          if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
-        }
-        if (moved) this.refresh();
-        else console.warn('背包已满');
-        return;
-      }
-    }
-
     if (item.innerGrid) {
       this.openedBagUid = uid;
       this.refresh();
@@ -499,6 +486,30 @@ export class BagUI {
     }
 
     let targetSlot = null;
+    if (item.table === 'weapons') targetSlot = 'main';
+    else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
+    else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
+    else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
+    else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
+    else if (item.table === 'vestPlate') targetSlot = 'vestPlate';
+    else if (item.table === 'backpack') targetSlot = 'backpack';
+    else if (item.table === 'chestRig') targetSlot = 'chestRig';
+    
+    if (targetSlot) {
+      const r = this.inv.equip(targetSlot, uid);
+      if (!r.ok) console.warn('[BagUI] 快速装备失败', uid, targetSlot, r.reason);
+      else this.selectedUid = uid;
+      this.refresh();
+      return;
+    }
+
+    const parent = this.inv.parentOf.get(uid);
+    const targetC = (parent === 'c:stash') ? 'bag' : 'stash';
+    const res = this.inv.addToContainer(targetC, uid);
+    if (res.ok) {
+      this.refresh();
+    }
+  }
     if (item.table === 'weapons') targetSlot = 'main';
     else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
