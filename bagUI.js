@@ -1,6 +1,6 @@
 /* ============================================================
    LaiAsaka Engine · Bag UI (Grid & Loot Edition)
-   v2.2.0 · © 2026 ZpycuA · CC BY-NC 4.0
+   v2.3.0 · © 2026 ZpycuA · CC BY-NC 4.0
    ============================================================ */
 
 import * as THREE from 'three'
@@ -175,7 +175,7 @@ export class BagUI {
   openLoot(target) {
     if (document.pointerLockElement) document.exitPointerLock();
     this._lootTarget = target;
-    this.viewInv = target.isCorpse ? target.lootInv : this.inv;
+    this.viewInv = target.isCorpse ? target.lootInv : this.inv; // 普通容器时，viewInv 指向玩家，loot 数据在 inv.containers.loot
     this.open = true;
     this._clearGhosts();
     document.getElementById('bagui-overlay').classList.add('on');
@@ -263,7 +263,6 @@ export class BagUI {
     const el = document.getElementById('bagui-left');
     let html = '';
     
-    // ★ 左侧永远渲染玩家自己
     const inv = this.inv; 
     
     html += '<div class="bagui-sec"><h3>我的装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
@@ -292,10 +291,8 @@ export class BagUI {
     const el = document.getElementById('bagui-right');
     if (!el) return;
     
-    // 1. 如果是搜刮状态
     if (this._lootTarget) {
       if (this._lootTarget.isCorpse) {
-        // 渲染尸体的完整装备和容器
         const inv = this.viewInv;
         let html = '<div class="bagui-sec"><h3>敌人装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
         const equipList = [
@@ -318,8 +315,7 @@ export class BagUI {
         this._bindItemEvents(el);
         return;
       } else {
-        // 渲染普通容器
-        const grid = this._lootTarget.grid;
+        const grid = this.inv.containers.loot;
         if (!grid) {
           el.innerHTML = '<div class="bagui-empty">空容器</div>';
           return;
@@ -332,7 +328,7 @@ export class BagUI {
           }
         }
         for (const [uid, pos] of grid.items) {
-          html += this._itemHtml(uid, pos, 'loot', this.viewInv);
+          html += this._itemHtml(uid, pos, 'loot', this.inv);
         }
         html += `</div></div>`;
         el.innerHTML = html;
@@ -341,7 +337,6 @@ export class BagUI {
       }
     }
 
-    // 2. 嵌套背包
     if (this.openedBagUid) {
       const bag = this.viewInv.items.get(this.openedBagUid);
       if (bag && bag.innerGrid) {
@@ -369,7 +364,6 @@ export class BagUI {
       this.openedBagUid = null;
     }
 
-    // 3. 玩家战局内预览或仓库
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
     if (isInMatch) {
       el.style.display = '';
@@ -524,10 +518,8 @@ export class BagUI {
   _quickEquip(uid) {
     const isFromPlayer = this.inv.items.has(uid);
     
-    // 跨背包转移
     if (this._lootTarget) {
       if (!isFromPlayer) {
-        // 从目标拿到玩家
         const targets = ['bag', 'chest', 'pocket', 'safe'];
         let moved = false;
         for (const t of targets) {
@@ -535,9 +527,6 @@ export class BagUI {
         }
         if (moved) this.refresh();
         else alert('背包已满，无法拿取');
-      } else {
-        // 从玩家放到目标（如果是普通容器）
-        // ...
       }
       return;
     }
@@ -695,6 +684,10 @@ export class BagUI {
       html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
     }
 
+    if (!isInMatch && inv === this.inv) {
+      html += `<button class="bagui-btn" id="bagui-discard-btn" style="background:rgba(100,100,100,.5);border-color:rgba(200,200,200,.5)">丢弃物品</button>`;
+    }
+
     el.innerHTML = html;
     el.classList.add('on');
 
@@ -743,6 +736,18 @@ export class BagUI {
           this.inv.destroyItem(uid);
           this.engine.save.data.credits = (this.engine.save.data.credits || 0) + sellVal;
           this.engine.save.save();
+          this._deselectDetail();
+          this.refresh();
+        }
+      };
+    }
+
+    const discardBtn = document.getElementById('bagui-discard-btn');
+    if (discardBtn) {
+      discardBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (confirm(`确认丢弃 ${displayName}？`)) {
+          this.inv.destroyItem(uid);
           this._deselectDetail();
           this.refresh();
         }
@@ -944,12 +949,27 @@ export class BagUI {
     const wrap = tgt.closest('.bagui-grid-wrap');
     const isFromPlayer = this.inv.items.has(uid);
     
-    // ★ 跨背包处理
+    // 快速交互（拖到武器或装备上）
+    const targetItemEl = tgt.closest('.bagui-item');
+    if (targetItemEl) {
+      const targetUid = targetItemEl.dataset.uid;
+      if (targetUid && targetUid !== uid) {
+        this._handleQuickInteract(uid, targetUid);
+        return;
+      }
+    }
+
+    const equipSlotEl = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
+    if (equipSlotEl) {
+      const slot = equipSlotEl.dataset.srcSlot;
+      this._handleEquipDrop(uid, slot);
+      return;
+    }
+
     if (this._lootTarget) {
       const isOverRight = tgt.closest('#bagui-right');
       const isOverLeft = tgt.closest('#bagui-left');
       
-      // 从玩家拖到目标
       if (isFromPlayer && isOverRight) {
         if (this._lootTarget.isCorpse) {
           let moved = false;
@@ -959,25 +979,18 @@ export class BagUI {
           if (moved) this.refresh();
           else if (srcEl) srcEl.style.opacity = 1;
         } else {
-          // 丢进普通容器
-          const cName = 'loot';
-          const grid = this.viewInv.containers.loot;
-          if (grid) {
-            let gx = Math.round((px - offsetX - wrap.getBoundingClientRect().left) / CELL);
-            let gy = Math.round((py - offsetY - wrap.getBoundingClientRect().top) / CELL);
+          const grid = this.inv.containers.loot;
+          if (grid && wrap) {
+            const rect = wrap.getBoundingClientRect();
+            let gx = Math.round((px - offsetX - rect.left) / CELL);
+            let gy = Math.round((py - offsetY - rect.top) / CELL);
             const item = this.inv.items.get(uid);
             if (this._placeAt('loot', grid, uid, gx, gy, item.rotated).ok) {
-              // 需要把物品的 parent 改成 viewInv 的 parentOf
-              this.viewInv.items.set(uid, item);
-              this.inv.items.delete(uid);
-              this.viewInv.parentOf.set(uid, 'c:loot');
-              this.inv.parentOf.delete(uid);
               this.refresh();
             }
           }
         }
       }
-      // 从目标拖到玩家
       else if (!isFromPlayer && isOverLeft) {
         let moved = false;
         for (const t of ['bag', 'chest', 'pocket', 'safe']) {
@@ -986,14 +999,12 @@ export class BagUI {
         if (moved) this.refresh();
         else if (srcEl) srcEl.style.opacity = 1;
       } 
-      // 如果拖拽回原处或取消
       else {
         if (srcEl) srcEl.style.opacity = 1;
       }
       return;
     }
 
-    // 正常拖拽（无搜刮状态）
     const inv = this.inv;
     if (wrap) {
       const containerName = wrap.dataset.container;
@@ -1040,67 +1051,132 @@ export class BagUI {
         if (srcEl) srcEl.style.opacity = 1;
       }
     } else {
-      const equip = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
-      if (equip) {
-        const slot = equip.dataset.srcSlot;
-        const currentParent = inv.parentOf.get(uid);
-        if (currentParent !== 'eq:' + slot) {
-          const originalParent = inv.parentOf.get(uid);
-          const origPos = originalParent && originalParent.startsWith('c:') ? inv.containers[originalParent.slice(2)].items.get(uid) : null;
+      if (srcEl) srcEl.style.opacity = 1;
+    }
+  }
 
-          inv._detach(uid);
-          const r = inv.equip(slot, uid);
-          
-          if (r.ok) {
-            if (r.swapped) {
-              let placed = false;
-              if (originalParent && originalParent.startsWith('c:')) {
-                const cName = originalParent.slice(2);
-                const grid = inv.containers[cName];
-                if (grid) {
-                  if (origPos) {
-                    if (this._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
-                  }
-                  if (!placed) {
-                    if (inv.addToContainer(cName, r.swapped).ok) placed = true;
-                  }
-                }
+  _handleEquipDrop(uid, slot) {
+    const inv = this.viewInv.items.has(uid) ? this.viewInv : this.inv;
+    const isFromPlayer = inv === this.inv;
+
+    if (this._lootTarget && !isFromPlayer) {
+      // 从敌人身上拖拽装备到玩家槽位（如果支持的话）
+      let transferredUid = null;
+      const targets = ['bag', 'chest'];
+      for (const t of targets) {
+        const res = this.viewInv.transferItem(this.inv, uid, t);
+        if (res.ok) { transferredUid = res.newUid; break; }
+      }
+      if (!transferredUid) return;
+
+      const currentParent = this.inv.parentOf.get(transferredUid);
+      if (currentParent !== 'eq:' + slot) {
+        const originalParent = this.inv.parentOf.get(transferredUid);
+        this.inv._detach(transferredUid);
+        const r = this.inv.equip(slot, transferredUid);
+        if (r.ok) {
+          if (r.swapped) {
+            let placed = false;
+            for (const t of ['bag', 'chest', 'stash']) {
+              if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+            }
+          }
+          this.refresh();
+        }
+      }
+      return;
+    }
+
+    // 玩家自己装备替换
+    const currentParent = inv.parentOf.get(uid);
+    if (currentParent !== 'eq:' + slot) {
+      const originalParent = inv.parentOf.get(uid);
+      const origPos = originalParent && originalParent.startsWith('c:') ? inv.containers[originalParent.slice(2)].items.get(uid) : null;
+
+      inv._detach(uid);
+      const r = inv.equip(slot, uid);
+      
+      if (r.ok) {
+        if (r.swapped) {
+          let placed = false;
+          if (originalParent && originalParent.startsWith('c:')) {
+            const cName = originalParent.slice(2);
+            const grid = inv.containers[cName];
+            if (grid) {
+              if (origPos) {
+                if (this._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
               }
               if (!placed) {
-                for (const t of ['bag', 'chest', 'stash']) {
-                  if (inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
-                }
-              }
-              if (!placed) {
-                inv.unequip(slot);
-                inv._detach(uid);
-                inv.equip(slot, r.swapped);
-                if (originalParent) this._restoreTo(uid, originalParent);
-                this.refresh();
-                return;
+                if (inv.addToContainer(cName, r.swapped).ok) placed = true;
               }
             }
-            this.refresh();
-          } else {
-            if (srcEl) srcEl.style.opacity = 1;
           }
-        } else {
-          if (srcEl) srcEl.style.opacity = 1;
+          if (!placed) {
+            for (const t of ['bag', 'chest', 'stash']) {
+              if (inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+            }
+          }
+          if (!placed) {
+            inv.unequip(slot);
+            inv._detach(uid);
+            inv.equip(slot, r.swapped);
+            if (originalParent) this._restoreTo(uid, originalParent);
+            this.refresh();
+            return;
+          }
         }
-      } else {
-        if (srcEl) srcEl.style.opacity = 1;
+        this.refresh();
       }
     }
   }
 
+  _handleQuickInteract(uid, targetUid) {
+    const inv = this.inv;
+    const item = inv.items.get(uid);
+    const target = inv.items.get(targetUid);
+    if (!item || !target) return;
+
+    // 1. 拖拽子弹到枪 -> 快速装填
+    if (item.table === 'ammo' && target.table === 'weapons') {
+      const def = inv.getDef(target);
+      if (def && def.ammoType === inv.getDef(item).caliber) {
+        const space = (def.mag || 0) - target.loaded.qty;
+        if (space > 0) {
+          const take = Math.min(item.qty, space);
+          for (let i=0; i<take; i++) target.loaded.queue.push(item.defId);
+          target.loaded.qty += take;
+          item.qty -= take;
+          if (item.qty <= 0) inv.destroyItem(uid);
+          this.refresh();
+          return;
+        }
+      }
+    }
+
+    // 2. 拖拽护甲到护甲装备栏 -> 替换
+    const targetParent = inv.parentOf.get(targetUid);
+    if (item.table.includes('helmet') || item.table.includes('vest')) {
+      if (targetParent && targetParent.startsWith('eq:')) {
+        const slot = targetParent.slice(3);
+        this._handleEquipDrop(uid, slot);
+        return;
+      }
+    }
+
+    // 3. 拖拽到背包/胸挂上 -> 快速放入内部
+    if (target.innerGrid) {
+      const r = inv.addToContainer(`inner:${targetUid}`, uid);
+      if (r.ok) this.refresh();
+    }
+  }
+
   _placeAt(containerName, grid, uid, gx, gy, rotated) {
-    const inv = grid === this.viewInv.containers.loot ? this.viewInv : this.inv;
+    const inv = grid === this.inv.containers.loot ? this.inv : this.viewInv;
     const item = inv.items.get(uid);
     if (!item) return { ok: false };
     
     const parentPath = containerName.startsWith('inner:') ? containerName : 'c:' + containerName;
     
-    // ★ 防止自己放入自己
     if (containerName === 'inner:' + uid || inv.wouldCreateCycle(uid, parentPath)) {
       return { ok: false };
     }
