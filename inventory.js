@@ -722,16 +722,30 @@ this.equipped[slot] = uid;
     }
   }
 
-  _deserializeV2(data) {
-    // 1. 物品
-    for (const raw of data.items || []) {
-      const item = raw;
-      // 恢复 innerGrid
-      if (item.innerGrid) {
-        item.innerGrid = GridContainer.fromJSON(item.innerGrid);
-      }
-      this.items.set(item.uid, item);
+ _deserializeV2(data) {
+  // 1. 物品
+  for (const raw of data.items || []) {
+    const item = raw;
+    // 恢复 innerGrid
+    if (item.innerGrid) {
+      item.innerGrid = GridContainer.fromJSON(item.innerGrid);
     }
+    
+    // ★ 核心修复：修复旧存档里武器丢失的 loaded 结构
+    if (item.table === 'weapons') {
+      const def = this.content.get('weapons', item.defId);
+      const magCap = def ? (def.mag || 0) : 0;
+      if (!item.loaded) {
+        item.loaded = { ammoType: def ? def.ammoType : '9mm', qty: magCap, queue: [] };
+        for (let i = 0; i < magCap; i++) item.loaded.queue.push(item.loaded.ammoType);
+      } else if (!item.loaded.queue) {
+        item.loaded.queue = [];
+        for (let i = 0; i < item.loaded.qty; i++) item.loaded.queue.push(item.loaded.ammoType);
+      }
+    }
+    
+    this.items.set(item.uid, item);
+  }
     // 2. parentOf
     for (const [k, v] of data.parentOf || []) this.parentOf.set(k, v);
     // 3. equipped
@@ -760,24 +774,37 @@ this.equipped[slot] = uid;
   }
 
   _deserializeV1(data) {
-    // 1. 物品（补 w/h/innerGrid/searched）
-    for (const item of data.items || []) {
-      const def = this.content.get(item.table, item.defId);
-      if (item.w === undefined) item.w = def ? (def.w || 1) : 1;
-      if (item.h === undefined) item.h = def ? (def.h || 1) : 1;
-      if (item.rotated === undefined) item.rotated = false;
-      if (item.searched === undefined) item.searched = true;
-      if (item.innerGrid === undefined) {
-        if (item.table === 'backpack' || item.table === 'chestRig') {
-          const innerW = def ? (def.innerW || 0) : 0;
-          const innerH = def ? (def.innerH || 0) : 0;
-          item.innerGrid = new GridContainer(innerW, innerH);
-        } else {
-          item.innerGrid = null;
-        }
+  // 1. 物品（补 w/h/innerGrid/searched）
+  for (const item of data.items || []) {
+    const def = this.content.get(item.table, item.defId);
+    if (item.w === undefined) item.w = def ? (def.w || 1) : 1;
+    if (item.h === undefined) item.h = def ? (def.h || 1) : 1;
+    if (item.rotated === undefined) item.rotated = false;
+    if (item.searched === undefined) item.searched = true;
+    if (item.innerGrid === undefined) {
+      if (item.table === 'backpack' || item.table === 'chestRig') {
+        const innerW = def ? (def.innerW || 0) : 0;
+        const innerH = def ? (def.innerH || 0) : 0;
+        item.innerGrid = new GridContainer(innerW, innerH);
+      } else {
+        item.innerGrid = null;
       }
-      this.items.set(item.uid, item);
     }
+    
+    // ★ 核心修复：修复旧存档武器丢失 loaded 结构
+    if (item.table === 'weapons') {
+      const magCap = def ? (def.mag || 0) : 0;
+      if (!item.loaded) {
+        item.loaded = { ammoType: def ? def.ammoType : '9mm', qty: magCap, queue: [] };
+      }
+      if (!item.loaded.queue) {
+        item.loaded.queue = [];
+        for (let i = 0; i < item.loaded.qty; i++) item.loaded.queue.push(item.loaded.ammoType);
+      }
+    }
+    
+    this.items.set(item.uid, item);
+  }
     // 2. parentOf
     for (const [k, v] of data.parentOf || []) this.parentOf.set(k, v);
     // 3. equipped
