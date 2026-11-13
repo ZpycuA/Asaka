@@ -2951,6 +2951,20 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
     return null;
   };
 
+  // ★ 核心修复：补回部位判定，让护甲真正挡子弹
+  if (hitPart === 'head') {
+    const s1 = applyOne(entity.armor.shell, '头盔壳');
+    const s2 = applyOne(entity.armor.visor, '面罩');
+    if (s1) snapshot = s1; else if (s2) snapshot = s2;
+  } else if (hitPart === 'thorax' || hitPart === 'abdomen') {
+    const s1 = applyOne(entity.armor.plate, '插板');
+    const s2 = applyOne(entity.armor.fiber, '纤维');
+    if (s1) snapshot = s1; else if (s2) snapshot = s2;
+  } else {
+    const s1 = applyOne(entity.armor.fiber, '纤维');
+    if (s1) snapshot = s1;
+  }
+
   return { remaining, snapshot };
 }
    
@@ -3162,14 +3176,11 @@ this.combatLog.push({
       }
     }
 
-  // 1. 生成地上的可见尸体箱
-const lx = enemy.body.position.x;
-const lz = enemy.body.position.z;
-const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 }); 
-lootMesh.position.set(lx, 0, lz);
-this.engine.renderer.scene.add(lootMesh);
+// ★ 尸体生成：同步当前装备状态，并生成实体模型
+if (!enemy.lootInv) {
+  enemy.lootInv = new Inventory(this.engine.content);
+}
 
-// ★ 同步真实装备耐久
 if (enemy.lootInv) {
   const wUid = enemy.lootInv.equipped.main;
   if (wUid && enemy.weapon.loaded) {
@@ -3185,14 +3196,30 @@ if (enemy.lootInv) {
     const uid = enemy.lootInv.equipped[armorMap[slot]];
     if (uid && enemy.armor[slot]) {
       const aItem = enemy.lootInv.items.get(uid);
-      if (aItem) {
-        aItem.dur = enemy.armor[slot].dur; // 真实耐久
-      }
+      if (aItem) aItem.dur = enemy.armor[slot].dur;
     }
   }
+
+  const lx = enemy.body.position.x;
+  const lz = enemy.body.position.z;
+  const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 }); 
+  lootMesh.position.set(lx, 0, lz);
+  this.engine.renderer.scene.add(lootMesh);
+
+  const corpseObj = {
+    x: lx,
+    z: lz,
+    mesh: lootMesh,
+    label: this.engine.i18n.t(enemy.spec.name) + ' 的尸体',
+    isCorpse: true,
+    lootInv: enemy.lootInv,
+    grid: null,
+    searched: true
+  };
+  this.groundLoots.push(corpseObj);
+  this.pois.push({ x: lx, z: lz, type: 'container', color: '#ff5555' });
 }
-  }
-     
+  }     
 }
 
 _addKillFeed(name, dmg, dist) {
@@ -3684,7 +3711,7 @@ _updateMobileButtons(){
   }
 }
    
-    _trySearchContainer(){
+      _trySearchContainer(){
   if (this._searching) return;
   if (this.actionProcess.isRunning()) {
     this._log('动作进行中，无法搜索', 'y');
@@ -3695,22 +3722,24 @@ _updateMobileButtons(){
     this._log('附近没有可搜索的容器', 'y');
     return;
   }
-  if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0)) {
+  if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0) && !c.grid) {
     this._log('容器已空', 'y');
     return;
   }
 
-    if (c.isCorpse) {
+  // ★ 核心修复：如果是尸体，确保有 inventory 并直接打开
+  if (c.isCorpse) {
+    if (!c.lootInv) {
+      c.lootInv = new Inventory(this.engine.content);
+    }
     this.engine.app.bagUI.openLoot(c);
     return;
   }
 
   const inv = this.engine.app.inventory;
+  // ★ 核心修复：生成容器网格
   if (!c.grid) {
     c.grid = new GridContainer(8, 6);
-    inv.containers.loot = c.grid;
-    
-    // ★ 修复取值覆盖问题
     let items = [];
     if (c.loot && c.loot.length > 0) items = c.loot;
     else if (c.revealed && c.revealed.length > 0) items = c.revealed;
@@ -3739,7 +3768,7 @@ _updateMobileButtons(){
 
   this.engine.app.bagUI.openLoot(c);
 }
-
+   
   _generateLoot(){
   const inv = this.engine.app ? this.engine.app.inventory : null;
   if (!inv) return [];
@@ -4289,6 +4318,13 @@ this._clearEyelids();
 if (this._searching) this._closeSearch();
   const _sp = document.getElementById('search-panel');
   if (_sp) _sp.classList.remove('on');
+  
+  // ★ 核心修复：强制停止换弹动作并清除 UI
+  if (this.actionProcess) {
+    this.actionProcess.cancel('退出战局', true);
+  }
+  const _ap = document.getElementById('action-progress');
+  if (_ap) _ap.classList.remove('on');
   if (this.player && this.player.weaponGroup) {
       this.engine.renderer.camera.remove(this.player.weaponGroup);
     }
