@@ -217,42 +217,31 @@ const CombatSystem = {
     return { absorbed: 0, remaining: energy, wear: 0, pierced: pen >= 3 };
   }
 
-  // ★ 基础减伤率（可扩展：以后加 Lv6、Lv7 直接在这里加）
-  // Lv3: 70%, Lv4: 85%, Lv5: 95%
   const baseSpec = { 1: 0.1, 2: 0.3, 3: 0.70, 4: 0.85, 5: 0.95, 6: 0.98, 7: 0.99 };
   const lv = armorItem.lv;
   const baseRed = baseSpec[lv] || 0.99;
   
-  // ★ 严谨的等级差判定（diff = 子弹穿透力 - 护甲等级）
   const diff = pen - lv;
-  
-  // 减伤倍率（根据等级差计算）
   let redMul = 1.0;
-  if (diff >= 4) redMul = 0.05;        // 绝对碾压（比如高穿狙击弹打低级甲）
-  else if (diff === 3) redMul = 0.2;   // 重度穿透
-  else if (diff === 2) redMul = 0.4;   // 中度穿透
-  else if (diff === 1) redMul = 0.7;   // 轻度穿透
-  else if (diff === 0) redMul = 1.0;   // 等级持平
-  else if (diff === -1) redMul = 1.15; // 护甲略强
-  else if (diff <= -2) redMul = 1.3;   // 护甲碾压
+  if (diff >= 4) redMul = 0.05;        
+  else if (diff === 3) redMul = 0.2;   
+  else if (diff === 2) redMul = 0.4;   
+  else if (diff === 1) redMul = 0.7;   
+  else if (diff === 0) redMul = 1.0;   
+  else if (diff === -1) redMul = 1.15; 
+  else if (diff <= -2) redMul = 1.3;   
   
-  // 耐久惩罚：护甲磨损越多，减伤越差（损耗到 0 时，减伤也归 0）
   const durRatio = Math.max(0, Math.min(1, armorItem.dur / armorItem.max));
   const wearPenalty = 0.2 + 0.8 * durRatio;
   
-  // 最终减伤率（无论如何锁死在 0.99 以内，防止无敌）
   let effRed = Math.min(0.99, baseRed * redMul * wearPenalty);
-  
-  // 是否产生“贯通伤”（只要子弹穿透力大于护甲等级，就击穿）
   const pierced = diff >= 1;
 
   const absorbed = energy * effRed;
   const afterArmor = energy - absorbed;
-
-  // ★ 核心：如果是贯通伤，剩余动能全额打在身上；如果被挡住，只有 5% 的剩余动能转化为钝击伤
   const finalDamage = pierced ? afterArmor : afterArmor * 0.05;
 
-  // 磨损计算：护甲吸收了多少能量，就磨损多少耐久
+  // ★ 必须扣耐久，除非完全没吸收
   const wear = Math.min(armorItem.dur, absorbed / 25);
   armorItem.dur = Math.max(0, armorItem.dur - wear);
 
@@ -2988,14 +2977,6 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true){
   remaining = armorRes.remaining;
   armorSnapshot = armorRes.snapshot;
 
-  if (hitPart === 'head') {
-    remaining *= COMBAT.HEAD_MULT;
-    if (profile.get('combat.headshotInstantKill', false)) {
-      const lethalEnergy = enemy.status.parts.head.maxHp * COMBAT.BODY_COEFF_HUMAN + 500;
-      if (remaining >= lethalEnergy) remaining = lethalEnergy;
-    }
-  }
-
   const res = enemy.status.takeDamage(hitPart, remaining, pen);
   enemy.hitFlash = 0.15;
   
@@ -3091,14 +3072,6 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
     if (s1) armorSnapshot = s1;
   }
 
-  if (part === 'head') {
-    remaining *= COMBAT.HEAD_MULT;
-    if (profile.get('combat.headshotInstantKill', false)) {
-      const lethalEnergy = player.status.parts.head.maxHp * COMBAT.BODY_COEFF_PRAZER + 500;
-      if (remaining >= lethalEnergy) remaining = lethalEnergy;
-    }
-  }
-
   player.status.takeDamage(part, remaining, pen);
   player.taken += remaining;
 
@@ -3189,27 +3162,37 @@ this.combatLog.push({
       }
     }
 
-    // 1. 生成地上的可见尸体箱（可以用之前的掉落箱逻辑）
-    const lx = enemy.body.position.x;
-    const lz = enemy.body.position.z;
-    const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 }); // 用红色箱子代表尸体
-    lootMesh.position.set(lx, 0, lz);
-    this.engine.renderer.scene.add(lootMesh);
+  // 1. 生成地上的可见尸体箱
+const lx = enemy.body.position.x;
+const lz = enemy.body.position.z;
+const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 }); 
+lootMesh.position.set(lx, 0, lz);
+this.engine.renderer.scene.add(lootMesh);
 
-    // 2. 加入搜刮列表
-    const corpseObj = {
-      x: lx,
-      z: lz,
-      mesh: lootMesh,
-      label: this.engine.i18n.t(enemy.spec.name) + ' 的尸体',
-      isCorpse: true,
-      lootInv: enemy.lootInv,
-      grid: null,
-      searched: true
-    };
-    this.groundLoots.push(corpseObj);
-    this.pois.push({ x: lx, z: lz, type: 'container', color: '#ff5555' });
+// ★ 同步真实装备耐久
+if (enemy.lootInv) {
+  const wUid = enemy.lootInv.equipped.main;
+  if (wUid && enemy.weapon.loaded) {
+    const wItem = enemy.lootInv.items.get(wUid);
+    if (wItem) {
+      wItem.loaded.qty = enemy.weapon.loaded.qty;
+      wItem.loaded.queue = [...enemy.weapon.loaded.queue];
+    }
   }
+  
+  const armorMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
+  for (const slot in armorMap) {
+    const uid = enemy.lootInv.equipped[armorMap[slot]];
+    if (uid && enemy.armor[slot]) {
+      const aItem = enemy.lootInv.items.get(uid);
+      if (aItem) {
+        aItem.dur = enemy.armor[slot].dur; // 真实耐久
+      }
+    }
+  }
+}
+  }
+     
 }
 
 _addKillFeed(name, dmg, dist) {
