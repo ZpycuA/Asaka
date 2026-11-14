@@ -77,11 +77,6 @@ const ACTION_MAP = {
     label: '跳跃',
     mobile: { right: '120px', bottom: '40px', size: 60, color: 'rgba(80,255,150,.4)', border: 'rgba(100,255,150,.8)', mode: 'hold' },
   },
-  search: {
-    keys: ['g'],
-    label: '搜索',
-    mobile: { right: '90px', bottom: '180px', size: 55, color: 'rgba(255,210,80,.35)', border: 'rgba(255,210,80,.7)', mode: 'click' },
-  },
     switchWeapon: {
   keys: ['f'],
   label: '切枪',
@@ -2375,6 +2370,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   this._updateSoundSystem(dt);
   this._updateExtracts(dt);
   this._updateContainers(dt);
+this._updateNearbyList();
   this._updateTracers(dt);
   this._updateMobileButtons();
 
@@ -2581,7 +2577,6 @@ if (!this._searching && !isDowned) {
   if (this._edge.switchWeapon) this._switchWeapon();
   if (this._edge.skill1) this._useSkill(0);
   if (this._edge.skill2) this._useSkill(1);
-  if (this._edge.search) this._trySearchContainer();
   if (this._edge.weaponSlot1) this._switchToSlot('primary');
 if (this._edge.weaponSlot2) this._switchToSlot('secondary');
 if (this._edge.weaponSlot3) this._switchToSlot('melee');
@@ -2944,7 +2939,6 @@ _meleeAttack(owner, weapon) {
       }
     }
 
-    this._spawnSpark(hit.point.x, hit.point.y, hit.point.z);
     this._playSFX('hit', { volume: 0.5 });
   }
 
@@ -3272,7 +3266,7 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType
     remaining = coup.remaining;
   }
 
-  const armorRes = this._applyArmorLayers(enemy, remaining, pen, hitPart);
+  const armorRes = this._applyArmorLayers(enemy, remaining, pen, hitPart, damageType);
   remaining = armorRes.remaining;
   armorSnapshot = armorRes.snapshot;
 
@@ -3349,7 +3343,7 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
     this.lastHitTime = this.time;
   }
 
-  const armorRes = this._applyArmorLayers(player, remaining, pen, part);
+  const armorRes = this._applyArmorLayers(player, remaining, pen, part, damageType);
   remaining = armorRes.remaining;
   const armorSnapshot = armorRes.snapshot;
 
@@ -3700,30 +3694,159 @@ _updateDeathCamera(dt) {
     }
   }
 
-  _updateContainers(dt){
-  if (!this._searching) {
-    const p = this.player;
-    if (!p || !p.alive) { this._searchTarget = null; return; }
-    let best = null, bestDist = COMBAT.SEARCH_RADIUS;
-        const consider = (c) => {
-      // ★ 只要在距离内，随时可以打开（哪怕是空的，或者是尸体）
-      const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
-      if (d < bestDist) { best = c; bestDist = d; }
-    };
-    for (const c of this.containers) consider(c);
-    for (const c of this.groundLoots) consider(c);
-    this._searchTarget = best;
-  } else {
-    const c = this._searchTarget;
-    if (!c) { this._closeSearch(); return; }
-    this._searchTimer += dt;
-    if (this._searchTimer >= this._revealInterval && c.loot && c.loot.length > 0) {
-      this._searchTimer = 0;
-      this._revealOne();
+ _updateContainers(dt){
+  // 容器的自动探测和搜索逻辑迁移到 _updateNearbyList
+}
+
+_scanNearby() {
+  const p = this.player;
+  if (!p || !p.alive) return [];
+  const results = [];
+  const R = 5.0;
+
+  for (const c of this.containers) {
+    const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
+    if (d < R) results.push({ kind: 'container', ref: c, dist: d, label: this.engine.i18n.t('ui.nearby.container') });
+  }
+  for (const c of this.groundLoots) {
+    const d = Math.hypot(p.body.position.x - c.x, p.body.position.z - c.z);
+    if (d < R) {
+      const label = c.isCorpse
+        ? this.engine.i18n.t('ui.nearby.corpse')
+        : (c.label || this.engine.i18n.t('ui.nearby.ground'));
+      results.push({ kind: c.isCorpse ? 'corpse' : 'ground', ref: c, dist: d, label });
     }
   }
+
+  results.sort((a, b) => a.dist - b.dist);
+  return results.slice(0, 6);
 }
-  _esc(s){
+
+_updateNearbyList() {
+  const el = document.getElementById('nearby-list');
+  if (!el) return;
+  if (!this.player || !this.player.alive) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const list = this._scanNearby();
+  if (list.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const i18n = this.engine.i18n;
+  let html = '';
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    let name;
+    if (item.kind === 'container') {
+      name = item.label;
+    } else if (item.kind === 'corpse') {
+      name = item.ref.label || item.label;
+    } else {
+      name = item.ref.label || item.label;
+    }
+    const icon = item.kind === 'container' ? '📦' : (item.kind === 'corpse' ? '💀' : '🎁');
+    html += `<div class="nb-item" data-idx="${i}">` +
+            `<span class="nb-icon">${icon}</span>` +
+            `<span class="nb-name">${this._esc(name)}</span>` +
+            `<span class="nb-dist">${i18n.t('ui.nearby.distance', { d: Math.round(item.dist) })}</span>` +
+            `</div>`;
+  }
+  el.innerHTML = html;
+
+  el.querySelectorAll('.nb-item').forEach(itemEl => {
+    itemEl.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const idx = parseInt(itemEl.dataset.idx, 10);
+      if (isFinite(idx) && list[idx]) {
+        this._openNearbyContainer(list[idx]);
+      }
+    });
+  });
+}
+
+_openNearbyContainer(entry) {
+  if (!entry) return;
+  const target = entry.ref;
+
+  if (entry.kind === 'corpse') {
+    if (!target.lootInv) target.lootInv = new Inventory(this.engine.content);
+    this.engine.app.bagUI.openLoot(target);
+    return;
+  }
+
+  if (entry.kind === 'ground') {
+    const inv = this.engine.app.inventory;
+    if (!target.grid) {
+      target.grid = new GridContainer(4, 4);
+      inv.containers.loot = target.grid;
+      const items = target.loot || [];
+      for (const spec of items) {
+        const extras = { searched: false, qty: spec.qty || 1 };
+        if (spec.extras) Object.assign(extras, spec.extras);
+        if (spec.dur !== undefined) extras.dur = spec.dur;
+        if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+        if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
+        if (spec.attachments) extras.attachments = spec.attachments;
+        const uid = inv.createItem(spec.table, spec.defId, extras);
+        if (uid) inv.addToContainer('loot', uid);
+      }
+      target.loot = [];
+      target.revealed = [];
+      target.searched = true;
+    }
+    inv.containers.loot = target.grid;
+    for (const uid of target.grid.items.keys()) {
+      inv.parentOf.set(uid, 'c:loot');
+    }
+    this.engine.app.bagUI.openLoot(target);
+    return;
+  }
+
+  if (entry.kind === 'container') {
+    const inv = this.engine.app.inventory;
+    const gridEmpty = !target.grid || target.grid.items.size === 0;
+    if (target.searched && target.revealed && target.revealed.length === 0 && (!target.loot || target.loot.length === 0) && gridEmpty) {
+      this._log('容器已空', 'y');
+      return;
+    }
+
+    if (!target.grid) {
+      target.grid = new GridContainer(8, 6);
+      inv.containers.loot = target.grid;
+      let items = [];
+      if (target.loot && target.loot.length > 0) items = target.loot;
+      else if (target.revealed && target.revealed.length > 0) items = target.revealed;
+      else if (!target.searched) items = this._generateLootSpecs();
+      for (const spec of items) {
+        const extras = { searched: false, qty: spec.qty || 1 };
+        if (spec.extras) Object.assign(extras, spec.extras);
+        if (spec.dur !== undefined) extras.dur = spec.dur;
+        if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+        if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
+        if (spec.attachments) extras.attachments = spec.attachments;
+        const uid = inv.createItem(spec.table, spec.defId, extras);
+        if (uid) inv.addToContainer('loot', uid);
+      }
+      target.loot = [];
+      target.revealed = [];
+      target.searched = true;
+    }
+
+    inv.containers.loot = target.grid;
+    for (const uid of target.grid.items.keys()) {
+      inv.parentOf.set(uid, 'c:loot');
+    }
+    this.engine.app.bagUI.openLoot(target);
+    return;
+  }
+}
+
+   _esc(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
@@ -3928,18 +4051,6 @@ _updateMobileButtons(){
   if (!app || !app._mobileButtons) return;
   const buttons = app._mobileButtons;
 
-  const searchBtn = buttons.search;
-  if (searchBtn) {
-    if (this._searching) {
-      searchBtn.style.display = 'none';
-    } else {
-      searchBtn.style.display = 'flex';
-      const c = this._searchTarget;
-      const hasTarget = c && !(c.searched && c.revealed && c.revealed.length === 0);
-      searchBtn.style.opacity = hasTarget ? '1' : '0.75';
-    }
-  }
-
   const reloadBtn = buttons.reload;
   if (reloadBtn) {
     const reloading = this.actionProcess.isRunning('reload');
@@ -3962,64 +4073,8 @@ if (switchBtn) {
 }
 }
    
- _trySearchContainer(){
-  if (this._searching) return;
-  if (this.actionProcess.isRunning()) {
-    this._log('动作进行中，无法搜索', 'y');
-    return;
-  }
-  const c = this._searchTarget;
-  if (!c) {
-    this._log('附近没有可搜索的容器', 'y');
-    return;
-  }
-  const gridEmpty = !c.grid || c.grid.items.size === 0;
-  if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0) && gridEmpty) {
-    this._log('容器已空', 'y');
-    return;
-  }
-
-  if (c.isCorpse) {
-    if (!c.lootInv) {
-      c.lootInv = new Inventory(this.engine.content);
-    }
-    this.engine.app.bagUI.openLoot(c);
-    return;
-  }
-
-  const inv = this.engine.app.inventory;
-
-  if (!c.grid) {
-    c.grid = new GridContainer(8, 6);
-    inv.containers.loot = c.grid;
-
-    let items = [];
-    if (c.loot && c.loot.length > 0) items = c.loot;
-    else if (c.revealed && c.revealed.length > 0) items = c.revealed;
-    else if (!c.searched) items = this._generateLootSpecs();
-
-    for (const spec of items) {
-      const extras = { searched: false, qty: spec.qty || 1 };
-      if (spec.extras) Object.assign(extras, spec.extras);
-      if (spec.dur !== undefined) extras.dur = spec.dur;
-      if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
-      if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
-      if (spec.attachments) extras.attachments = spec.attachments;
-
-      const uid = inv.createItem(spec.table, spec.defId, extras);
-      if (uid) inv.addToContainer('loot', uid);
-    }
-    c.loot = [];
-    c.revealed = [];
-    c.searched = true;
-  }
-
-  inv.containers.loot = c.grid;
-  for (const uid of c.grid.items.keys()) {
-    inv.parentOf.set(uid, 'c:loot');
-  }
-
-  this.engine.app.bagUI.openLoot(c);
+_trySearchContainer(){
+  // 已废弃：走 _openNearbyContainer
 }
    
   _generateLoot(){
