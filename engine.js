@@ -768,6 +768,32 @@ class InputSystem {
     canvas.addEventListener('contextmenu', e => e.preventDefault());
   }
 
+   _bindGyro() {
+  if (this._gyroBound) {
+    this.gyroEnabled = true;
+    return;
+  }
+  this._gyroBound = true;
+  this.gyroEnabled = true;
+  const handler = (e) => {
+    this.currentGyro.alpha = e.alpha || 0;
+    this.currentGyro.beta  = e.beta  || 0;
+    this.currentGyro.gamma = e.gamma || 0;
+  };
+  window.addEventListener('deviceorientation', handler);
+  this._gyroHandler = handler;
+}
+
+disableGyro() {
+  this.gyroEnabled = false;
+  if (this._gyroHandler) {
+    window.removeEventListener('deviceorientation', this._gyroHandler);
+    this._gyroHandler = null;
+    this._gyroBound = false;
+  }
+}
+
+
    async enableGyro() {
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
       try {
