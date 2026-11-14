@@ -132,6 +132,22 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #action-progress-bar{height:6px;background:rgba(0,0,0,.6);border-radius:3px;overflow:hidden;border:1px solid rgba(255,200,80,.4)}
 #action-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd93d,#ffe880);transition:width .05s}
 #action-progress-cancel{pointer-events:auto}
+#weapon-bar{position:absolute;right:12px;bottom:220px;display:flex;flex-direction:column;gap:6px;z-index:26;pointer-events:auto}
+#weapon-bar .wb-slot{display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(14,22,34,.85);border:1.5px solid rgba(80,125,175,.3);border-radius:6px;font-size:11px;color:#8fb0cc;min-width:120px;cursor:pointer;transition:all .15s;user-select:none}
+#weapon-bar .wb-slot:hover{border-color:rgba(120,190,255,.7);background:rgba(30,50,75,.9)}
+#weapon-bar .wb-slot.active{background:rgba(60,120,185,.5);border-color:rgba(120,190,255,.9);color:#e0f0ff;font-weight:700}
+#weapon-bar .wb-slot.empty{opacity:.35;cursor:not-allowed}
+#weapon-bar .wb-slot .wb-num{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:rgba(0,0,0,.4);font-size:9px;color:#a8d8ff;flex-shrink:0}
+#weapon-bar .wb-slot.active .wb-num{background:rgba(120,190,255,.5);color:#fff}
+#weapon-bar .wb-slot .wb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+#nearby-list{position:absolute;right:12px;top:64px;display:flex;flex-direction:column;gap:4px;z-index:26;pointer-events:auto;max-width:220px}
+#nearby-list .nb-item{display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(14,22,34,.9);border:1px solid rgba(255,210,80,.5);border-radius:5px;font-size:11px;color:#ffe8a8;cursor:pointer;transition:all .15s;user-select:none}
+#nearby-list .nb-item:hover{background:rgba(60,50,25,.9);border-color:rgba(255,220,100,.9)}
+#nearby-list .nb-item .nb-icon{font-size:13px;flex-shrink:0}
+#nearby-list .nb-item .nb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nearby-list .nb-item .nb-dist{font-size:9px;color:#7fa0bc;flex-shrink:0}
+#nearby-list .nb-empty{padding:8px 10px;background:rgba(14,22,34,.8);border:1px solid rgba(80,125,175,.2);border-radius:5px;font-size:11px;color:#5c82a8;text-align:center}
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
 #extract-fill{height:100%;width:0%;background:linear-gradient(90deg,#3fd0ff,#a2f0ff);transition:width .1s}
@@ -322,6 +338,9 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
     </div>
 
+     <div id="weapon-bar"></div>
+<div id="nearby-list"></div>
+     
     <div id="protect-group">
       <button class="protect-btn l1" data-level="L1"><div>L1</div><div style="font-size:8px;font-weight:400">冷兵器</div></button>
       <button class="protect-btn l2" data-level="L2"><div>L2</div><div style="font-size:8px;font-weight:400">+热兵器</div></button>
