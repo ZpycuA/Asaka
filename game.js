@@ -92,9 +92,13 @@ const ACTION_MAP = {
     label: '背包',
     mobile: { right: '90px', bottom: '280px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
   },
-  protectL1:    { keys: ['1'], label: '防护 L1' },
-  protectL2:    { keys: ['2'], label: '防护 L2' },
-  protectL3:    { keys: ['3'], label: '防护 L3' },
+  protectL1:    { keys: ['['], label: '防护 L1' },
+protectL2:    { keys: [']'], label: '防护 L2' },
+protectL3:    { keys: ['\\'], label: '防护 L3' },
+   weaponSlot1: { keys: ['1'], label: '武器一' },
+weaponSlot2: { keys: ['2'], label: '武器二' },
+weaponSlot3: { keys: ['3'], label: '副武器' },
+weaponSlot0: { keys: ['0'], label: '空手' },
   sprint:       { keys: ['shift'], label: '疾跑' },
   fire_left: {
     keys: [],
@@ -909,6 +913,7 @@ class HUDSystem {
     ammoEl: document.getElementById('bottom-right'),
     // ★ 修复：之前找的是 id="task-panel"，但 HTML 里是 class="task-panel"
     taskPanel: document.querySelector('.task-panel'), 
+     weaponBar: document.getElementById('weapon-bar'),
     crosshair: document.getElementById('crosshair'),
   };
 }
@@ -941,6 +946,7 @@ class HUDSystem {
   this._bindProtectionButtons();
   this._applyVisibility();
   this._renderMinimap();
+  this._renderWeaponBar();
   this._renderDamageIndicator();
   this._renderSoundRadar();
     
@@ -1437,6 +1443,46 @@ _updateCouplingFX(p) {
     if (lv) lv.textContent = broken ? '断' : ('Lv' + a.lv);
   }
 }
+
+  _renderWeaponBar() {
+  const el = document.getElementById('weapon-bar');
+  if (!el) return;
+  const p = this.world.player;
+  if (!p || !p.weapons) { el.innerHTML = ''; return; }
+
+  const i18n = this.engine.i18n;
+  const slots = [
+    { id: 'primary',   label: i18n.t('ui.weaponbar.primary'),   key: '1' },
+    { id: 'secondary', label: i18n.t('ui.weaponbar.secondary'), key: '2' },
+    { id: 'melee',     label: i18n.t('ui.weaponbar.melee'),     key: '3' },
+    { id: 'fist',      label: i18n.t('ui.weaponbar.fist'),      key: '0' },
+  ];
+
+  let html = '';
+  for (const s of slots) {
+    const weapon = s.id === 'fist' ? p.fist : p.weapons[s.id];
+    const active = p.activeSlot === s.id;
+    const empty = s.id !== 'fist' && !weapon;
+    const name = weapon && weapon.def ? i18n.t(weapon.def.name) : s.label;
+    html += `<div class="wb-slot${active ? ' active' : ''}${empty ? ' empty' : ''}" data-slot="${s.id}">` +
+            `<span class="wb-num">${s.key}</span>` +
+            `<span class="wb-name">${empty ? '—' : name}</span>` +
+            `</div>`;
+  }
+  el.innerHTML = html;
+
+  el.querySelectorAll('.wb-slot').forEach(slotEl => {
+    slotEl.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const slotId = slotEl.dataset.slot;
+      if (slotId === 'fist' || p.weapons[slotId]) {
+        this.world._switchToSlot(slotId);
+      }
+    });
+  });
+}
+
 
   _renderExtractProgress(){
     const el = document.getElementById('extract-progress');
@@ -1976,24 +2022,30 @@ _buildMeleeFromInventory(inv, equipSlot) {
   const uid = inv.equipped[equipSlot];
   if (!uid) return null;
   const item = inv.items.get(uid);
-  if (!item || item.table !== 'melee') return null;
-  const def = this.engine.content.get('melee', item.defId);
-  if (!def) return null;
-  return { item, def, fireCd: 0 };
+  if (!item) return null;
+  if (item.table === 'melee') {
+    const def = this.engine.content.get('melee', item.defId);
+    if (!def) return null;
+    return { item, def, fireCd: 0 };
+  }
+  if (item.table === 'weapons') {
+    return this._buildWeaponFromInventory(inv, equipSlot);
+  }
+  return null;
 }
-
+   
 _syncWeaponsFromInventory(){
   const p = this.player;
   const inv = this.engine.app ? this.engine.app.inventory : null;
   if (!p || !inv) return;
 
   const slots = [
-    ['primary', 'main', 'weapon'],
-    ['secondary', 'side', 'weapon'],
-    ['melee', 'melee', 'melee'],
+    ['primary', 'main'],
+    ['secondary', 'side'],
+    ['melee', 'melee'],
   ];
 
-  for (const [pSlot, iSlot, kind] of slots) {
+  for (const [pSlot, iSlot] of slots) {
     const uid = inv.equipped[iSlot];
     const current = p.weapons[pSlot];
     const currentUid = current && current.item ? current.item.uid : null;
@@ -2002,7 +2054,13 @@ _syncWeaponsFromInventory(){
 
     if (!uid) {
       p.weapons[pSlot] = null;
-    } else if (kind === 'melee') {
+      continue;
+    }
+
+    const item = inv.items.get(uid);
+    if (!item) { p.weapons[pSlot] = null; continue; }
+
+    if (item.table === 'melee') {
       p.weapons[pSlot] = this._buildMeleeFromInventory(inv, iSlot);
     } else {
       p.weapons[pSlot] = this._buildWeaponFromInventory(inv, iSlot);
@@ -2524,6 +2582,10 @@ if (!this._searching && !isDowned) {
   if (this._edge.skill1) this._useSkill(0);
   if (this._edge.skill2) this._useSkill(1);
   if (this._edge.search) this._trySearchContainer();
+  if (this._edge.weaponSlot1) this._switchToSlot('primary');
+if (this._edge.weaponSlot2) this._switchToSlot('secondary');
+if (this._edge.weaponSlot3) this._switchToSlot('melee');
+if (this._edge.weaponSlot0) this._switchToSlot('fist');
 }
 
   // ★ 8. Headbob + 武器摆动 + 冲刺 FOV
@@ -2620,7 +2682,7 @@ _updateSpeedFeedback(dt, isMoving) {
 _refreshEdges() {
   if (!this._actionPrev) this._actionPrev = {};
   if (!this._edge) this._edge = {};
-  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search'];
+  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0'];
   for (let i = 0; i < names.length; i++) {
     const a = names[i];
     const cur = !!this.engine.input.isActive(a);
@@ -2698,45 +2760,53 @@ _updateProtection(dt){
     if (this.player) this.player.protectionHold = false;
   }
 
+_switchToSlot(slot) {
+  const p = this.player;
+  if (!p) return;
+
+  this._syncWeaponsFromInventory();
+
+  if (slot === 'fist') {
+    if (p.activeSlot === 'fist') return;
+    if (this.actionProcess.isRunning()) {
+      if (!this.actionProcess.cancel('切换武器')) return;
+    }
+    p.activeSlot = 'fist';
+    p.fireCd = Math.max(p.fireCd, 0.3);
+    this._playSFX('switch');
+    return;
+  }
+
+  if (!p.weapons[slot]) return;
+  if (p.activeSlot === slot) return;
+
+  if (this.actionProcess.isRunning()) {
+    if (!this.actionProcess.cancel('切换武器')) return;
+  }
+
+  p.activeSlot = slot;
+  p.fireCd = Math.max(p.fireCd, 0.3);
+  this._playSFX('switch');
+}
+
+
 _switchWeapon(){
   const p = this.player;
   if (!p) return;
 
   this._syncWeaponsFromInventory();
 
-  const slots = ['primary', 'secondary', 'melee'];
-  const available = slots.filter(s => p.weapons[s] !== null);
+  const cycle = ['primary', 'secondary', 'melee', 'fist'];
+  const available = cycle.filter(s => s === 'fist' || p.weapons[s] !== null);
 
-  if (available.length === 0) {
-    if (p.activeSlot !== 'fist') {
-      if (this.actionProcess.isRunning()) {
-        if (!this.actionProcess.cancel('切换武器')) return;
-      }
-      p.activeSlot = 'fist';
-      p.fireCd = Math.max(p.fireCd, 0.3);
-      this._log('切换至 空手', 'p');
-      this._playSFX('switch');
-    }
-    return;
-  }
-
-  if (available.length === 1) {
-    if (p.activeSlot === available[0]) return;
-    if (this.actionProcess.isRunning()) {
-      if (!this.actionProcess.cancel('切换武器')) return;
-    }
-    p.activeSlot = available[0];
-    p.fireCd = Math.max(p.fireCd, 0.3);
-    this._playSFX('switch');
-    return;
-  }
+  if (available.length <= 1) return;
 
   if (this.actionProcess.isRunning()) {
     if (!this.actionProcess.cancel('切换武器')) return;
   }
 
   let currentIdx = available.indexOf(p.activeSlot);
-  if (currentIdx === -1) currentIdx = -1;
+  if (currentIdx === -1) currentIdx = 0;
   const nextIdx = (currentIdx + 1) % available.length;
   const nextSlot = available[nextIdx];
 
@@ -2744,11 +2814,6 @@ _switchWeapon(){
 
   p.activeSlot = nextSlot;
   p.fireCd = Math.max(p.fireCd, 0.3);
-
-  const cw = p.activeWeapon;
-  if (cw && cw.def) {
-    this._log('切换至 ' + this.engine.i18n.t(cw.def.name), 'p');
-  }
   this._playSFX('switch');
 }
 
@@ -3123,12 +3188,13 @@ const pen = currentPen;
   this._fireWeapon(enemy, enemy.weapon, false, target);
 }
 
-_applyArmorLayers(entity, energy, pen, hitPart) {
+_applyArmorLayers(entity, energy, pen, hitPart, damageType) {
   let remaining = energy;
   let snapshot = null;
 
   if (!entity.armor) return { remaining, snapshot };
 
+  const isMelee = damageType === 'melee';
   let anyArmorActive = false;
   let allPierced = true;
   let mainAbsorbed = 0;
@@ -3137,9 +3203,21 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
     if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
     anyArmorActive = true;
     const before = piece.dur;
-    const res = CombatSystem.applyArmor(piece, remaining, pen, false);
+
+    let res;
+    if (isMelee) {
+      const absorbRatio = Math.min(0.5, piece.lv * 0.05);
+      const absorbed = remaining * absorbRatio;
+      const wear = Math.min(piece.dur, absorbed / 25);
+      piece.dur = Math.max(0, piece.dur - wear);
+      res = { absorbed, remaining: remaining - absorbed, wear, pierced: false };
+    } else {
+      res = CombatSystem.applyArmor(piece, remaining, pen, false);
+    }
+
     remaining = res.remaining;
     if (!res.pierced) allPierced = false;
+
     if (res.absorbed > 0) {
       const snap = {
         layer: layerName,
@@ -3168,7 +3246,7 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
     applyOne(entity.armor.fiber, '纤维');
   }
 
-  if (anyArmorActive && !allPierced) {
+  if (anyArmorActive && !allPierced && !isMelee) {
     remaining *= 0.25;
   }
 
