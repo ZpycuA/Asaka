@@ -4621,6 +4621,10 @@ try { this._processModeHook('onMatchEnd', success); }
 
 destroy(){
 this.running = false;
+this.paused = false;
+// ★ 退出战局时一并复位暂停蒙版，避免下一局开局卡在暂停界面
+const _pause = document.getElementById('pause-screen');
+if (_pause) _pause.classList.remove('on');
 // ★ 清理死亡姿态
 if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
   this.engine.cameraCtl.resetDeathPose();
@@ -5149,6 +5153,11 @@ async startMatch(kind){
   const e = this.engine;
   this._lastMatchKind = kind;
 
+  // ★ 开场统一复位：上一局可能残留暂停蒙版 / 换弹条 / 附近列表
+  if (this.bagUI && this.bagUI.open) {
+    try { this.bagUI.close(); } catch (err) { console.warn(err); }
+  }
+  this._clearMatchUI();
   this._showScreen('game');
 
   // ★ 加一个加载遮罩，避免看到虚空/上一场残留
@@ -5240,6 +5249,8 @@ setTimeout(() => {
     } catch (err) {
     console.error('[GameApp] startMatch failed:', err);
     if (loadingEl) loadingEl.style.display = 'none';
+    try { if (this.world) { this.world.destroy(); this.world = null; } } catch (_) {}
+    this._clearMatchUI();
     alert('启动失败，请查看控制台：' + (err && err.message ? err.message : String(err)));
     this._showScreen('menu');
   }
@@ -5440,14 +5451,18 @@ save.save();
 }
 
   _togglePause(force){
-  if (!this.world || !this.world.running) return;
   const pauseScreen = document.getElementById('pause-screen');
+  // ★ 战局已结束/未开始时也要把蒙版收掉，避免暂停界面卡在大厅
+  if (!this.world || !this.world.running) {
+    if (pauseScreen) pauseScreen.classList.remove('on');
+    return;
+  }
   const isPaused = this.world.paused;
   const target = force !== undefined ? force : !isPaused;
 
   if (target) {
     this.world.pause();
-    pauseScreen.classList.add('on');
+    if (pauseScreen) pauseScreen.classList.add('on');
     if (document.pointerLockElement) document.exitPointerLock();
     const statsEl = document.getElementById('pause-stats');
     if (statsEl) {
@@ -5458,7 +5473,7 @@ save.save();
     }
   } else {
     this.world.resume();
-    pauseScreen.classList.remove('on');
+    if (pauseScreen) pauseScreen.classList.remove('on');
     /* 从暂停恢复：用户点"继续"是手势事件，直接重新锁鼠标 */
     const canvas = this.engine.renderer.canvas;
     if (typeof canvas.requestPointerLock === 'function') {
@@ -5469,6 +5484,14 @@ save.save();
 
     _quitToMenu(){
   if (document.pointerLockElement) document.exitPointerLock();
+
+  // ★ 先关搜刮界面，再统一复位战局内 UI：
+  //   暂停蒙版 / 换弹进度 / 附近列表 / 武器栏都不能残留到大厅或下一局
+  if (this.bagUI) {
+    try { this.bagUI.close(); } catch (e) { console.warn(e); }
+  }
+  this._clearMatchUI();
+
   if (this.world) {
     try { this.world.destroy(); } catch (e) { console.warn(e); }
     this.world = null;
@@ -5488,6 +5511,26 @@ this._showScreen('menu');
   if (this.engine.save.refreshMenu) this.engine.save.refreshMenu();
 }
 
+  // 统一清理战局内的临时 DOM 状态（进入/退出战局都要调用）
+  _clearMatchUI(){
+    if (document.pointerLockElement) document.exitPointerLock();
+
+    for (const id of ['pause-screen', 'result-screen', 'bagui-overlay', 'search-panel']) {
+      document.getElementById(id)?.classList.remove('on');
+    }
+    document.getElementById('action-progress')?.classList.remove('on');
+    document.getElementById('extract-progress')?.classList.remove('on');
+
+    const nearby = document.getElementById('nearby-list');
+    if (nearby) nearby.innerHTML = '';
+    const weaponBar = document.getElementById('weapon-bar');
+    if (weaponBar) weaponBar.innerHTML = '';
+    const killFeed = document.getElementById('kill-feed');
+    if (killFeed) killFeed.innerHTML = '';
+    const taskList = document.getElementById('task-list');
+    if (taskList) taskList.innerHTML = '';
+  }
+
   _showScreen(name){
     const map = { boot: 'boot-screen', menu: 'menu-screen', game: 'game-screen' };
     for (const key in map) {
@@ -5495,6 +5538,9 @@ this._showScreen('menu');
       if (!el) continue;
       el.classList.toggle('on', key === name);
     }
+    // ★ 暂停按钮只在战局内显示，防止回大厅后残留
+    const pauseBtn = document.getElementById('pause-btn');
+    if (pauseBtn) pauseBtn.style.display = name === 'game' ? 'flex' : 'none';
   }
 
   setLanguage(code){

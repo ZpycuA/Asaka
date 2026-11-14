@@ -554,6 +554,20 @@ this.equipped[slot] = uid;
   const item = this.items.get(uid);
   if (!item) return { ok: false, reason: 'no_item' };
 
+  // ★ 跨 Inventory 装备前先做槽位类型校验，避免"先迁移子物品再失败"造成内容丢失
+  if (typeof targetContainer === 'string' && targetContainer.startsWith('eq:')) {
+    const slot = targetContainer.slice(3);
+    const expected = EQUIP_TABLE[slot];
+    if (!expected) return { ok: false, reason: 'bad_slot' };
+    if (expected === '__aux__') {
+      if (item.table !== 'weapons' && item.table !== 'melee') {
+        return { ok: false, reason: 'type_mismatch' };
+      }
+    } else if (item.table !== expected) {
+      return { ok: false, reason: 'type_mismatch' };
+    }
+  }
+
   const newUid = targetInv.createItem(item.table, item.defId, {
     qty: item.qty,
     lockValue: true,
@@ -574,6 +588,25 @@ this.equipped[slot] = uid;
     for (const childUid of childUids) {
       this.transferItem(targetInv, childUid, `inner:${newUid}`);
     }
+  }
+
+  // ★ 支持跨 Inventory 直接装备（targetContainer = 'eq:main' 等）。
+  //   先把目标槽位旧装备卸下，让旧背包/胸挂的内部物品 parentOf 正确回挂，
+  //   否则直接覆盖 equipped[slot] 会让旧容器的子物品变成幽灵物品。
+  if (typeof targetContainer === 'string' && targetContainer.startsWith('eq:')) {
+    const slot = targetContainer.slice(3);
+    const prevUid = targetInv.equipped[slot] || null;
+    if (prevUid) targetInv.unequip(slot);
+
+    const r = targetInv.equip(slot, newUid);
+    if (!r.ok) {
+      if (prevUid && targetInv.items.get(prevUid)) targetInv.equip(slot, prevUid);
+      targetInv.destroyItem(newUid);
+      return { ok: false, reason: r.reason };
+    }
+
+    this.destroyItem(uid);
+    return { ok: true, newUid, swapped: prevUid };
   }
 
   const r = targetInv.addToContainer(targetContainer, newUid);
