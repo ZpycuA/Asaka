@@ -64,7 +64,7 @@ const ACTION_MAP = {
   fire: {
     keys: [],
     mouse: 'left',
-    label: ''攻击,
+    label: '攻击',
     mobile: { right: '20px', bottom: '80px', size: 80, color: 'rgba(255,80,80,.4)', border: 'rgba(255,100,100,.8)', mode: 'hold', rotate: true },
   },
   reload: {
