@@ -121,6 +121,30 @@ const CHEST_RIG = {
 };
 c.registerAll('chestRig', CHEST_RIG);
 
+
+/* ==========================================================
+   3.7 近战武器
+   ----------------------------------------------------------
+   melee 表独立于 weapons：近战没有 rpm / mag / range（米）等字段，
+   改为 damage（动能 J）/ range（近战范围 m）/ cooldown（攻击间隔 s）。
+   ========================================================== */
+const MELEE = {
+  knife: {
+    name: 'content.melee.knife.name',
+    desc: 'content.melee.knife.desc',
+    w: 2, h: 1,
+    damage: 200,
+    range: 3,
+    cooldown: 0.8,
+    value: 200,
+    rarity: 'L1',
+    stackLimit: 1,
+    melee: true,
+  },
+};
+c.registerAll('melee', MELEE);
+
+
   /* ==========================================================
      4. 敌人
      ----------------------------------------------------------
