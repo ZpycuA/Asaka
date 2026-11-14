@@ -1982,6 +1982,43 @@ _buildMeleeFromInventory(inv, equipSlot) {
   return { item, def, fireCd: 0 };
 }
 
+_syncWeaponsFromInventory(){
+  const p = this.player;
+  const inv = this.engine.app ? this.engine.app.inventory : null;
+  if (!p || !inv) return;
+
+  const slots = [
+    ['primary', 'main', 'weapon'],
+    ['secondary', 'side', 'weapon'],
+    ['melee', 'melee', 'melee'],
+  ];
+
+  for (const [pSlot, iSlot, kind] of slots) {
+    const uid = inv.equipped[iSlot];
+    const current = p.weapons[pSlot];
+    const currentUid = current && current.item ? current.item.uid : null;
+
+    if (currentUid === uid) continue;
+
+    if (!uid) {
+      p.weapons[pSlot] = null;
+    } else if (kind === 'melee') {
+      p.weapons[pSlot] = this._buildMeleeFromInventory(inv, iSlot);
+    } else {
+      p.weapons[pSlot] = this._buildWeaponFromInventory(inv, iSlot);
+    }
+  }
+
+  if (p.activeSlot !== 'fist' && p.weapons[p.activeSlot] === null) {
+    const nextAvail = ['primary', 'secondary', 'melee'].find(s => p.weapons[s] !== null);
+    p.activeSlot = nextAvail || 'fist';
+  }
+
+  if (p.activeSlot === 'fist') {
+    p.fist.fireCd = 0;
+  }
+}
+
 _computeCarriedValue(){
   const inv = this.engine.app ? this.engine.app.inventory : null;
   if (!inv) return 0;
