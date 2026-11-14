@@ -2275,13 +2275,11 @@ _updatePlayer(dt){
       
       // 死区过滤，防止静止时画面自己抖
       if (Math.abs(dx) > 0.15 || Math.abs(dy) > 0.15) {
-        const sens = 3.0 * e.input.gyroSensitivity;
-        e.cameraCtl.rotate(dx * sens, dy * sens);
-        
-        // 立即更新基准点，防止累积过度导致瞬间翻转
-        this._gyroBase.gamma = g.gamma;
-        this._gyroBase.beta = g.beta;
-      }
+  const sens = 3.0 * e.input.gyroSensitivity;
+  e.cameraCtl.rotate(dx * sens, dy * sens);
+}
+this._gyroBase.gamma = g.gamma;
+this._gyroBase.beta = g.beta;
     }
   }
 
@@ -2485,7 +2483,6 @@ _updateSpeedFeedback(dt, isMoving) {
   const cam = this.engine.renderer.camera;
   const sp = this._sprintProgress || 0;
 
-  // --- headbob（连续，基于冲刺进度） ---
   if (!this._bob) this._bob = { phase: 0 };
   const bobAmp = 0.02 + sp * 0.03;
   const bobFreq = 8 + sp * 4;
@@ -2494,12 +2491,10 @@ _updateSpeedFeedback(dt, isMoving) {
   const bobY = Math.sin(this._bob.phase * 2) * bobAmp;
   const bobX = Math.cos(this._bob.phase) * bobAmp * 0.3;
 
-  // 通过 cameraCtl 统一应用（避免被 cameraCtl.update 覆盖）
   if (camCtl && typeof camCtl.setBob === 'function') {
     camCtl.setBob(bobY, bobX * 0.15);
   }
 
-  // --- 武器摆动 ---
   if (p.weaponGroup) {
     const swayAmp = 0.005 + sp * 0.015;
     const swayX = Math.cos(this._bob.phase) * swayAmp;
@@ -2510,10 +2505,11 @@ _updateSpeedFeedback(dt, isMoving) {
     p.weaponGroup.position.z += (baseZ - p.weaponGroup.position.z) * 0.2;
   }
 
-  // --- FOV（基于平滑冲刺进度，连续变化） ---
-  const baseFov = 60;
-  const sprintFov = 68;
-  const targetFov = baseFov + sp * (sprintFov - baseFov);
+  // ★ FOV 统一在这里管理：开镜 > 蹲下 > 冲刺
+  let targetFov;
+  if (p.ads)            targetFov = 45;
+  else if (p.isCrouching) targetFov = 55;
+  else                  targetFov = 60 + sp * 8;
   const fovDiff = targetFov - cam.fov;
   if (Math.abs(fovDiff) > 0.05) {
     cam.fov += fovDiff * Math.min(1, dt * 10);
@@ -4590,7 +4586,12 @@ export class GameApp {
 
    _renderMarketList() {
   const el = document.getElementById('market-list');
-  if (!el || !this.market) return;
+  if (!el) return;
+  if (!this.market) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:#5c82a8">市场加载中…</div>';
+    setTimeout(() => this._renderMarketList(), 200);
+    return;
+  }
   
   const content = this.engine.content;
   const tables = ['weapons', 'ammo', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
