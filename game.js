@@ -1986,7 +1986,7 @@ _computeCarriedValue(){
   const inv = this.engine.app ? this.engine.app.inventory : null;
   if (!inv) return 0;
   let total = 0;
-  for (const slot of ['main', 'side', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
+  for (const slot of ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
     const uid = inv.equipped[slot];
     if (uid) total += inv.getItemValue(uid);
   }
@@ -3836,14 +3836,13 @@ _updateMobileButtons(){
   }
 
   const switchBtn = buttons.switchWeapon;
-  if (switchBtn) {
-    const p = this.player;
-    if (p && !p.sidearm) {
-      switchBtn.style.opacity = '0.4';
-    } else {
-      switchBtn.style.opacity = '1';
-    }
+if (switchBtn) {
+  const p = this.player;
+  if (p) {
+    const slotCount = ['primary', 'secondary', 'melee'].filter(s => p.weapons[s] !== null).length;
+    switchBtn.style.opacity = slotCount > 1 ? '1' : '0.4';
   }
+}
 }
    
  _trySearchContainer(){
@@ -4871,7 +4870,7 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   }
        // 初始化库存
 
-   _ensureInitialInventory(forceReset){
+_ensureInitialInventory(forceReset){
   const inv = this.inventory;
   if (!inv) return;
   const data = this.engine.save.data;
@@ -4881,27 +4880,19 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   if (forceReset) {
     this._stripInventoryForLoadout();
   } else {
-    // 已有主武器 → 视为已配装，继承，不覆盖
-    if (inv.equipped.main) return;
+    if (data.flags.initialInventoryGiven === true) return;
   }
 
   const charSpec = this.engine.content.get('characters', this.menuState.char);
   if (!charSpec) return;
 
   if (!inv.equipped.main && charSpec.weapon) {
-  const wDef = this.engine.content.get('weapons', charSpec.weapon);
-  const uid = inv.createItem('weapons', charSpec.weapon, {
-    loadedQty: wDef ? (wDef.mag || 0) : 0,
-  });
-  if (uid) inv.equip('main', uid);
-}
-if (!inv.equipped.side && charSpec.sidearm) {
-  const sDef = this.engine.content.get('weapons', charSpec.sidearm);
-  const uid = inv.createItem('weapons', charSpec.sidearm, {
-    loadedQty: sDef ? (sDef.mag || 0) : 0,
-  });
-  if (uid) inv.equip('side', uid);
-}
+    const wDef = this.engine.content.get('weapons', charSpec.weapon);
+    const uid = inv.createItem('weapons', charSpec.weapon, {
+      loadedQty: wDef ? (wDef.mag || 0) : 0,
+    });
+    if (uid) inv.equip('main', uid);
+  }
 
   const armorSlots = [
     ['helmetShell', 'helmetShell', 'lv3'],
@@ -4925,7 +4916,6 @@ if (!inv.equipped.side && charSpec.sidearm) {
     if (uid) inv.equip('chestRig', uid);
   }
 
-  // 弹药放进 bag/chest（战斗中可从身上拿），不放 stash
   const giveAmmo = (ammoType, qty) => {
     const uid = inv.createItem('ammo', ammoType, { qty });
     if (!uid) return;
@@ -4938,12 +4928,7 @@ if (!inv.equipped.side && charSpec.sidearm) {
     const wDef = this.engine.content.get('weapons', charSpec.weapon);
     if (wDef) giveAmmo(wDef.ammoType, 120);
   }
-  if (charSpec.sidearm) {
-    const sDef = this.engine.content.get('weapons', charSpec.sidearm);
-    if (sDef) giveAmmo(sDef.ammoType, 60);
-  }
 
-    // ★ 修复老存档：如果主/副武器 loaded.qty 为 0（旧逻辑未填满），补满
   const fixLoaded = (slotName) => {
     const uid = inv.equipped[slotName];
     if (!uid) return;
@@ -4951,7 +4936,7 @@ if (!inv.equipped.side && charSpec.sidearm) {
     if (!item || item.table !== 'weapons') return;
     if (!item.loaded) {
       const wDef = this.engine.content.get('weapons', item.defId);
-      if (wDef) item.loaded = { ammoType: wDef.ammoType, qty: 0 };
+      if (wDef) item.loaded = { ammoType: wDef.ammoType, qty: 0, queue: [] };
     }
     if (item.loaded && item.loaded.qty === 0) {
       const wDef = this.engine.content.get('weapons', item.defId);
@@ -4968,7 +4953,7 @@ if (!inv.equipped.side && charSpec.sidearm) {
 _stripInventoryForLoadout(){
   const inv = this.inventory;
   if (!inv) return;
-  for (const slot of ['main', 'side', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
+  for (const slot of ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
     const uid = inv.equipped[slot];
     if (uid) {
       inv.unequip(slot);
@@ -5115,7 +5100,7 @@ try {
   const inv = this.inventory;
   if (inv) {
     if (!success) {
-      for (const slot of ['main', 'side', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
+      for (const slot of ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
         const uid = inv.equipped[slot];
         if (uid) { inv.unequip(slot); inv.destroyItem(uid); }
       }
