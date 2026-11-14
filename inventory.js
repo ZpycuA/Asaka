@@ -34,14 +34,14 @@ const STACK_LIMITS = {
 };
 
 const EQUIP_SLOTS = [
-  'main', 'side',
+  'main', 'side', 'melee',
   'helmetShell', 'helmetVisor', 'helmetEar',
   'vestFiber', 'vestPlate',
   'backpack', 'chestRig',
 ];
 
 const EQUIP_TABLE = {
-  main: 'weapons', side: 'weapons',
+  main: 'weapons', side: 'weapons', melee: 'melee',
   helmetShell: 'helmetShell', helmetVisor: 'helmetVisor', helmetEar: 'helmetEar',
   vestFiber: 'vestFiber', vestPlate: 'vestPlate',
   backpack: 'backpack', chestRig: 'chestRig',
