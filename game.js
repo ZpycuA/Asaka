@@ -212,36 +212,41 @@ const CombatSystem = {
     return baseEnergy * Math.exp(-k * t * t);
   },
 
-  applyArmor(armorItem, energy, pen){
+  applyArmor(armorItem, energy, pen, applyBruise){
   if (!armorItem || armorItem.dur <= 0 || !armorItem.lv) {
     return { absorbed: 0, remaining: energy, wear: 0, pierced: pen >= 3 };
   }
 
-  const baseSpec = { 1: 0.1, 2: 0.3, 3: 0.70, 4: 0.85, 5: 0.95, 6: 0.98, 7: 0.99 };
+  const baseSpec = { 1: 0.10, 2: 0.25, 3: 0.50, 4: 0.70, 5: 0.85, 6: 0.95, 7: 0.99 };
   const lv = armorItem.lv;
   const baseRed = baseSpec[lv] || 0.99;
-  
+
   const diff = pen - lv;
   let redMul = 1.0;
-  if (diff >= 4) redMul = 0.05;        
-  else if (diff === 3) redMul = 0.2;   
-  else if (diff === 2) redMul = 0.4;   
-  else if (diff === 1) redMul = 0.7;   
-  else if (diff === 0) redMul = 1.0;   
-  else if (diff === -1) redMul = 1.15; 
-  else if (diff <= -2) redMul = 1.3;   
-  
+  if (diff >= 4) redMul = 0.05;
+  else if (diff === 3) redMul = 0.2;
+  else if (diff === 2) redMul = 0.4;
+  else if (diff === 1) redMul = 0.7;
+  else if (diff === 0) redMul = 1.0;
+  else if (diff === -1) redMul = 1.15;
+  else if (diff <= -2) redMul = 1.3;
+
   const durRatio = Math.max(0, Math.min(1, armorItem.dur / armorItem.max));
   const wearPenalty = 0.2 + 0.8 * durRatio;
-  
+
   let effRed = Math.min(0.99, baseRed * redMul * wearPenalty);
   const pierced = diff >= 1;
 
   const absorbed = energy * effRed;
   const afterArmor = energy - absorbed;
-  const finalDamage = pierced ? afterArmor : afterArmor * 0.05;
 
-  // ★ 必须扣耐久，除非完全没吸收
+  let finalDamage;
+  if (applyBruise === false) {
+    finalDamage = afterArmor;
+  } else {
+    finalDamage = pierced ? afterArmor : afterArmor * 0.25;
+  }
+
   const wear = Math.min(armorItem.dur, absorbed / 25);
   armorItem.dur = Math.max(0, armorItem.dur - wear);
 
@@ -2934,35 +2939,45 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
 
   if (!entity.armor) return { remaining, snapshot };
 
+  let anyPierced = false;
+  let mainAbsorbed = 0;
+
   const applyOne = (piece, layerName) => {
     if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
     const before = piece.dur;
-    const res = CombatSystem.applyArmor(piece, remaining, pen);
+    const res = CombatSystem.applyArmor(piece, remaining, pen, false);
     remaining = res.remaining;
+    if (res.pierced) anyPierced = true;
     if (res.absorbed > 0) {
-      return {
+      const snap = {
         layer: layerName,
         lv: piece.lv,
         absorbed: res.absorbed,
         wear: before - piece.dur,
         broke: piece.dur <= 0,
+        pierced: res.pierced,
       };
+      if (res.absorbed > mainAbsorbed) {
+        mainAbsorbed = res.absorbed;
+        snapshot = snap;
+      }
+      return snap;
     }
     return null;
   };
 
-  // ★ 核心修复：补回部位判定，让护甲真正挡子弹
   if (hitPart === 'head') {
-    const s1 = applyOne(entity.armor.shell, '头盔壳');
-    const s2 = applyOne(entity.armor.visor, '面罩');
-    if (s1) snapshot = s1; else if (s2) snapshot = s2;
+    applyOne(entity.armor.shell, '头盔壳');
+    applyOne(entity.armor.visor, '面罩');
   } else if (hitPart === 'thorax' || hitPart === 'abdomen') {
-    const s1 = applyOne(entity.armor.plate, '插板');
-    const s2 = applyOne(entity.armor.fiber, '纤维');
-    if (s1) snapshot = s1; else if (s2) snapshot = s2;
+    applyOne(entity.armor.plate, '插板');
+    applyOne(entity.armor.fiber, '纤维');
   } else {
-    const s1 = applyOne(entity.armor.fiber, '纤维');
-    if (s1) snapshot = s1;
+    applyOne(entity.armor.fiber, '纤维');
+  }
+
+  if (!anyPierced) {
+    remaining *= 0.25;
   }
 
   return { remaining, snapshot };
@@ -3023,15 +3038,18 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true){
   }
 
   if (enemy.status.isDead() && enemy.alive) {
-    const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
-    this._killEnemy(enemy, remaining, dist);
-  } else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
-    enemy.isDownedState = true;
-    enemy.mesh.rotation.z = Math.PI / 2;
-    enemy.body.height = 0.5;
-    enemy.body.halfH = 0.25;
-    enemy.body.position.y = 0.25;
-  } else if (enemy.alive) {
+  const dist = Math.round(Math.hypot(this.player.body.position.x - enemy.body.position.x, this.player.body.position.z - enemy.body.position.z));
+  this._killEnemy(enemy, remaining, dist);
+} else if (enemy.status.isDowned() && enemy.alive && !enemy.isDownedState) {
+  enemy.isDownedState = true;
+  enemy.mesh.rotation.z = Math.PI / 2;
+  enemy.body.height = 0.5;
+  enemy.body.halfH = 0.25;
+  enemy.body.position.y = 0.25;
+  enemy.body.radius = Math.max(enemy.body.radius, 1.8);
+  enemy.wasCrouching = enemy.isCrouching;
+  enemy.isCrouching = false;
+} else if (enemy.alive) {
     // 任何来源的伤害都会触发敌人的受击反击，但来源坐标需要判断是谁打的
     let srcX = this.player.body.position.x;
     let srcZ = this.player.body.position.z;
@@ -3061,55 +3079,34 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
     this.lastHitTime = this.time;
   }
 
-  let armorSnapshot = null;
-  const applyOne = (piece, layerName) => {
-    if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
-    const beforeDur = piece.dur;
-    const res = CombatSystem.applyArmor(piece, remaining, pen);
-    remaining = res.remaining;
-    if (res.absorbed > 0) {
-      return { layer: layerName, lv: piece.lv, absorbed: res.absorbed, wear: beforeDur - piece.dur, broke: piece.dur <= 0 };
-    }
-    return null;
-  };
-
-  if (part === 'head') {
-    const s1 = applyOne(player.armor.shell, '头盔壳');
-    const s2 = applyOne(player.armor.visor, '面罩');
-    if (s1) armorSnapshot = s1; else if (s2) armorSnapshot = s2;
-  } else if (part === 'thorax' || part === 'abdomen') {
-    const s1 = applyOne(player.armor.plate, '插板');
-    const s2 = applyOne(player.armor.fiber, '纤维');
-    if (s1) armorSnapshot = s1; else if (s2) armorSnapshot = s2;
-  } else {
-    const s1 = applyOne(player.armor.fiber, '纤维');
-    if (s1) armorSnapshot = s1;
-  }
+  const armorRes = this._applyArmorLayers(player, remaining, pen, part);
+  remaining = armorRes.remaining;
+  const armorSnapshot = armorRes.snapshot;
 
   player.status.takeDamage(part, remaining, pen);
   player.taken += remaining;
 
   const sourceWeapon = sourceEnt && sourceEnt.weapon && sourceEnt.weapon.def ? { name: this.engine.i18n.t(sourceEnt.weapon.def.name) } : null;
   const selfEffs = Array.from(player.status.effects.keys()).map(k => {
-  const d = this.engine.content.get('effects', k);
-  return d ? d.name : k;
-});
+    const d = this.engine.content.get('effects', k);
+    return d ? d.name : k;
+  });
 
-this.combatLog.push({
-  type: 'damage_taken',
-  t: this.time,
-  source: sourceEnt ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon, effects: [] } : { name: '未知', effects: [] },
-  amount: Math.round(remaining), // ★ 保留动能数值
-  part: part,
-  pierced: pen >= 3,
-  armor: armorSnapshot,
-  coupling: couplingSnapshot,
-  hpBefore: hpBefore,
-  hpAfter: Math.round(player.status.healthQuality),
-  maxHp: 100,
-  bleeding: player.status.hasEffect('bleeding'),
-  effects: selfEffs, // ★ 当前自身状态列表
-});
+  this.combatLog.push({
+    type: 'damage_taken',
+    t: this.time,
+    source: sourceEnt ? { name: this.engine.i18n.t(sourceEnt.spec ? sourceEnt.spec.name : '敌人'), weapon: sourceWeapon, effects: [] } : { name: '未知', effects: [] },
+    amount: Math.round(remaining),
+    part: part,
+    pierced: pen >= 3,
+    armor: armorSnapshot,
+    coupling: couplingSnapshot,
+    hpBefore: hpBefore,
+    hpAfter: Math.round(player.status.healthQuality),
+    maxHp: 100,
+    bleeding: player.status.hasEffect('bleeding'),
+    effects: selfEffs,
+  });
 
   this._spawnDamageNumber(player.body.position.x, player.body.position.z, Math.round(remaining), 'player');
   this._hurtFX();
@@ -3124,8 +3121,7 @@ this.combatLog.push({
   } else if (player.status.isDowned() && player.alive && !player.isDownedState) {
     player.isDownedState = true;
     this._log('严重受损，进入击倒状态', 'r');
-    this.engine.cameraCtl.setDeathPose(Math.PI / 2 * 0.8, 0.8, 0); // 临时用死亡视觉模拟倒地
-    // 后续需要真正倒地爬行的动作逻辑
+    this.engine.cameraCtl.setDeathPose(Math.PI / 2 * 0.8, 0.8, 0);
   }
 }
 
@@ -3711,7 +3707,7 @@ _updateMobileButtons(){
   }
 }
    
-      _trySearchContainer(){
+ _trySearchContainer(){
   if (this._searching) return;
   if (this.actionProcess.isRunning()) {
     this._log('动作进行中，无法搜索', 'y');
@@ -3722,12 +3718,12 @@ _updateMobileButtons(){
     this._log('附近没有可搜索的容器', 'y');
     return;
   }
-  if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0) && !c.grid) {
+  const gridEmpty = !c.grid || c.grid.items.size === 0;
+  if (c.searched && c.revealed && c.revealed.length === 0 && (!c.loot || c.loot.length === 0) && gridEmpty) {
     this._log('容器已空', 'y');
     return;
   }
 
-  // ★ 核心修复：如果是尸体，确保有 inventory 并直接打开
   if (c.isCorpse) {
     if (!c.lootInv) {
       c.lootInv = new Inventory(this.engine.content);
@@ -3737,9 +3733,11 @@ _updateMobileButtons(){
   }
 
   const inv = this.engine.app.inventory;
-  // ★ 核心修复：生成容器网格
+
   if (!c.grid) {
     c.grid = new GridContainer(8, 6);
+    inv.containers.loot = c.grid;
+
     let items = [];
     if (c.loot && c.loot.length > 0) items = c.loot;
     else if (c.revealed && c.revealed.length > 0) items = c.revealed;
@@ -3752,7 +3750,7 @@ _updateMobileButtons(){
       if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
       if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
       if (spec.attachments) extras.attachments = spec.attachments;
-      
+
       const uid = inv.createItem(spec.table, spec.defId, extras);
       if (uid) inv.addToContainer('loot', uid);
     }
@@ -4214,20 +4212,19 @@ _updateSoundSystem(dt) {
 
 _syncMeshes(dt){
   const p = this.player;
-if (p && p.mesh) {
-  p.mesh.position.set(p.body.position.x, p.body.footY, p.body.position.z);
-  p.mesh.rotation.y = Math.PI - p.angle;
-}
+  if (p && p.mesh) {
+    p.mesh.position.set(p.body.position.x, p.body.footY, p.body.position.z);
+    p.mesh.rotation.y = Math.PI - p.angle;
+  }
   for (const e of this.enemies) {
     if (!e.mesh) continue;
 
     if (!e.alive) {
-      // ★ 倒地动画：0.6 秒内平滑侧躺 + 下沉，结束后隐藏
       if (e.deathTimer !== undefined && e.deathTimer > 0) {
         e.deathTimer -= dt;
         const total = e.deathTotal || 0.6;
         const t = Math.min(1, 1 - Math.max(0, e.deathTimer) / total);
-        const et = 1 - Math.pow(1 - t, 3); // ease-out cubic
+        const et = 1 - Math.pow(1 - t, 3);
         e.mesh.rotation.z = (Math.PI / 2) * et;
         if (e.deathStartY !== undefined) {
           e.mesh.position.y = e.deathStartY - et * 0.2;
@@ -4245,14 +4242,19 @@ if (p && p.mesh) {
       continue;
     }
 
-   e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
-// e.angle 是 atan2(dz, dx)，加 90 度让模型正面(+z)朝向玩家
-e.mesh.rotation.y = Math.PI / 2 - e.angle;
+    if (e.isDownedState) {
+      e.mesh.position.set(e.body.position.x, 0.18, e.body.position.z);
+      e.mesh.rotation.z = Math.PI / 2;
+      e.mesh.rotation.y = Math.PI / 2 - e.angle;
+    } else {
+      e.mesh.position.set(e.body.position.x, e.body.footY, e.body.position.z);
+      e.mesh.rotation.y = Math.PI / 2 - e.angle;
+      e.mesh.rotation.z = 0;
+    }
 
-// ★ 敌人流光状态
-this._updateGlowState(e, dt);
+    this._updateGlowState(e, dt);
 
-if (e.hitFlash > 0) {
+    if (e.hitFlash > 0) {
       e.hitFlash -= dt;
       e.mesh.traverse(obj => {
         if (obj.isMesh && obj.material && obj.material.emissive) {
@@ -4263,7 +4265,7 @@ if (e.hitFlash > 0) {
     } else {
       e.mesh.traverse(obj => {
         if (obj.isMesh && obj.material && obj.material.emissive) {
-          obj.material.emissive.setHex(0x000000); 
+          obj.material.emissive.setHex(0x000000);
           obj.material.emissiveIntensity = 0;
         }
       });
