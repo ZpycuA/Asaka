@@ -20,8 +20,8 @@ const COMBAT = Object.freeze({
   BODY_COEFF_HUMAN: 34,
   BODY_COEFF_PRAZER: 48,
   HEAD_MULT: 2.0,
-  RANGE_DECAY: 1.15,
-  RANGE_DECAY_REALISTIC: 2.5,
+  RANGE_DECAY: 0.25,
+  RANGE_DECAY_REALISTIC: 0.50,
   MELEE_RANGE: 3,
   MELEE_DAMAGE: 60,
   COUPLING_REGEN_IDLE: 3.0,
@@ -206,11 +206,11 @@ const CombatSystem = {
   },
 
   energyAtRange(baseEnergy, traveled, range, decayK){
-    if (!range || range <= 0) return baseEnergy;
-    const k = decayK !== undefined ? decayK : COMBAT.RANGE_DECAY;
-    const t = Math.min(traveled / range, 1.5);
-    return baseEnergy * Math.exp(-k * t * t);
-  },
+  if (!range || range <= 0) return baseEnergy;
+  const k = decayK !== undefined ? decayK : COMBAT.RANGE_DECAY;
+  const t = Math.min(traveled / range, 5.0);
+  return baseEnergy * Math.exp(-k * t);
+},
 
   applyArmor(armorItem, energy, pen, applyBruise){
   if (!armorItem || armorItem.dur <= 0 || !armorItem.lv) {
@@ -2857,19 +2857,21 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   const realisticDrop = this.engine.profile.get('combat.bulletDrop', false);
 const decayK = realisticDrop ? COMBAT.RANGE_DECAY_REALISTIC : COMBAT.RANGE_DECAY;
 
-// 1. 动能衰减
-const energy = CombatSystem.energyAtRange(baseEnergy, actualDist, range, decayK);
+// ★ 有效射程（def.range）作为衰减基准，与物理射程上限（range = def.range * 10）解耦
+const effectiveRange = weaponDef.range || 100;
 
-// 2. 穿透力衰减（超出有效射程一半后，穿透力逐渐下降）
+// 1. 动能衰减：真实弹道近似为 exp(-k * traveled / effectiveRange)
+const energy = CombatSystem.energyAtRange(baseEnergy, actualDist, effectiveRange, decayK);
+
+// 2. 穿透力衰减：超出有效射程 80% 后，每超出一个有效射程降 1 点
 const basePen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
 let currentPen = basePen;
 if (basePen > 0) {
-  const effectiveRange = weaponDef.range || 100;
-  const halfRange = effectiveRange * 0.5;
-  if (actualDist > halfRange) {
-    const decay = (actualDist - halfRange) / halfRange;
-    // 每超出半程距离，穿透力可能下降 1 点，最多降到 0
-    currentPen = Math.max(0, basePen - Math.floor(decay * (basePen * 0.5)));
+  const decayStart = effectiveRange * 0.8;
+  if (actualDist > decayStart) {
+    const over = actualDist - decayStart;
+    const decayPen = Math.floor(over / effectiveRange);
+    currentPen = Math.max(0, basePen - decayPen);
   }
 }
 const pen = currentPen;
