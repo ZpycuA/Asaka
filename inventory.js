@@ -617,10 +617,20 @@ this.equipped[slot] = uid;
 
   /* ====================== 自环检测 ====================== */
   wouldCreateCycle(sourceUid, targetParent) {
-    if (!targetParent) return false;
-    if (targetParent.startsWith('c:') || targetParent.startsWith('eq:')) return false;
-    return this.isDescendant(sourceUid, targetParent);
+  if (!targetParent) return false;
+  if (targetParent.startsWith('eq:')) return false;
+
+  if (targetParent.startsWith('c:')) {
+    const name = targetParent.slice(2);
+    const container = this.containers[name];
+    const source = this.items.get(sourceUid);
+    if (source && source.innerGrid && container === source.innerGrid) return true;
+    if (this.isDescendant(sourceUid, targetParent)) return true;
+    return false;
   }
+
+  return this.isDescendant(sourceUid, targetParent);
+}
 
   isDescendant(ancestorUid, nodeUid) {
     let cur = nodeUid;
