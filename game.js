@@ -2224,8 +2224,6 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   this._updateContainers(dt);
   this._updateTracers(dt);
   this._updateMobileButtons();
-  this._updateSearchHint();
-  
 
   // ★ 5. 物理同步与渲染
   this.physics.step(dt);
@@ -2265,23 +2263,22 @@ _updatePlayer(dt){
 
   // ★ 1. 陀螺仪视角控制（增量计算，防飘防抖）
   if (e.input.gyroEnabled) {
-    const g = e.input.currentGyro;
-    if (!this._gyroBase) {
-      this._gyroBase = { beta: g.beta, gamma: g.gamma };
-    } else {
-      // 获取相对上次的增量
-      const dx = g.gamma - this._gyroBase.gamma;
-      const dy = g.beta - this._gyroBase.beta;
-      
-      // 死区过滤，防止静止时画面自己抖
-      if (Math.abs(dx) > 0.15 || Math.abs(dy) > 0.15) {
-  const sens = 3.0 * e.input.gyroSensitivity;
-  e.cameraCtl.rotate(dx * sens, dy * sens);
-}
-this._gyroBase.gamma = g.gamma;
-this._gyroBase.beta = g.beta;
+  const g = e.input.currentGyro;
+  if (!this._gyroBase) {
+    this._gyroBase = { beta: g.beta, gamma: g.gamma };
+  } else {
+    const dx = g.gamma - this._gyroBase.gamma;
+    const dy = g.beta - this._gyroBase.beta;
+
+    if (Math.abs(dx) > 0.15 || Math.abs(dy) > 0.15) {
+      const sens = 3.0 * e.input.gyroSensitivity;
+      e.cameraCtl.rotate(dx * sens, dy * sens);
     }
+    // ★ 无论是否触发，都更新基准（修死区累积）
+    this._gyroBase.gamma = g.gamma;
+    this._gyroBase.beta = g.beta;
   }
+}
 
  // ★ 2. 硬核体力值系统（非线性）
 const mv = e.input.getMoveVector();
@@ -2380,14 +2377,7 @@ else if (e.input.isActive('lean_right')) leanTarget = 1;
 p.leanAmount = (p.leanAmount || 0) + (leanTarget - (p.leanAmount || 0)) * Math.min(1, dt * 10);
 p.leanOffset = p.leanAmount * 0.5;
 
-// ★ 战术动作：开镜 ADS
 p.ads = e.input.isActive('ads');
-const targetFov = p.ads ? 45 : 60;
-const fovDiff = targetFov - e.renderer.camera.fov;
-if (Math.abs(fovDiff) > 0.05 && !p._isDeadCam) {
-  e.renderer.camera.fov += fovDiff * Math.min(1, dt * 15);
-  e.renderer.camera.updateProjectionMatrix();
-}
 
 // 记录相机基础高度（供 update 主循环读取）
 p.camHeight = p.isCrouching ? 1.05 : 1.55;
@@ -2428,7 +2418,7 @@ if (!this._searching && !isDowned) {
 }
 
 // ★ 7. 其他输入动作检测（edge-trigger，搜索时禁用）
-if (!this._searching) {
+if (!this._searching && !isDowned) {
   if (this._edge.reload) this._startReload();
   if (this._edge.switchWeapon && p.sidearm) this._switchWeapon();
   if (this._edge.skill1) this._useSkill(0);
@@ -2935,15 +2925,17 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
 
   if (!entity.armor) return { remaining, snapshot };
 
-  let anyPierced = false;
+  let anyArmorActive = false;
+  let allPierced = true;
   let mainAbsorbed = 0;
 
   const applyOne = (piece, layerName) => {
     if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
+    anyArmorActive = true;
     const before = piece.dur;
     const res = CombatSystem.applyArmor(piece, remaining, pen, false);
     remaining = res.remaining;
-    if (res.pierced) anyPierced = true;
+    if (!res.pierced) allPierced = false;
     if (res.absorbed > 0) {
       const snap = {
         layer: layerName,
@@ -2972,7 +2964,7 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
     applyOne(entity.armor.fiber, '纤维');
   }
 
-  if (!anyPierced) {
+  if (anyArmorActive && !allPierced) {
     remaining *= 0.25;
   }
 
@@ -3236,6 +3228,10 @@ if (this.actionProcess.isRunning()) {
 }
 if (this._searching) {
   this._closeSearch();
+}
+    // ★ 新增：退出战局时关闭 bagUI
+if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
+  this.engine.app.bagUI.close();
 }
 this.combatLog.push({
   type: 'downed',
@@ -3643,24 +3639,6 @@ _closeSearch(){
   const panel = document.getElementById('search-panel');
   if (panel) panel.classList.remove('on');
   this._searchTarget = null;
-}
-
-_updateSearchHint(){
-  const el = document.getElementById('search-hint');
-  if (!el) {
-    if (!this._hintWarnTime || this.time - this._hintWarnTime > 5) {
-      this._hintWarnTime = this.time;
-      console.warn('[Search] #search-hint 元素不存在，请检查 index.html');
-    }
-    return;
-  }
-  if (this._searching) { el.classList.remove('on'); return; }
-  const c = this._searchTarget;
-  if (c && !(c.searched && c.revealed && c.revealed.length === 0)) {
-    el.classList.add('on');
-  } else {
-    el.classList.remove('on');
-  }
 }
 
 _updateMobileButtons(){
@@ -4314,6 +4292,10 @@ if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
 // ★ 收起眼皮
 this._clearEyelids();
 if (this._searching) this._closeSearch();
+   // ★ 新增：死亡时关闭 bagUI
+if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
+  this.engine.app.bagUI.close();
+}
   const _sp = document.getElementById('search-panel');
   if (_sp) _sp.classList.remove('on');
   
@@ -4420,6 +4402,10 @@ export class GameApp {
 
   this._renderCustomSettings();
   e.profile.setProfile(this.menuState.profile);
+  e.profile.setProfile(this.menuState.profile);
+// ★ 恢复持久化的灵敏度
+const savedSens = e.profile.get('input.sensitivity', 1.0);
+if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   this._updateDifficultyDisplay();
   e.profile.onChange(() => { this._updateDifficultyDisplay(); this._syncCustomSettingsUI(); });
   this._menuReady = true;
@@ -4585,7 +4571,7 @@ export class GameApp {
 }
 
    _renderMarketList() {
-  const el = document.getElementById('market-list');
+   const el = document.getElementById('market-list');
   if (!el) return;
   if (!this.market) {
     el.innerHTML = '<div style="padding:20px;text-align:center;color:#5c82a8">市场加载中…</div>';
