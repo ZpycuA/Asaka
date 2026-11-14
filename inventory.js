@@ -532,30 +532,41 @@ this.equipped[slot] = uid;
     return { ok: false, reason: 'no_space' };
   }
 
-     transferItem(targetInv, uid, targetContainer) {
-    const item = this.items.get(uid);
-    if (!item) return { ok: false, reason: 'no_item' };
-    
-    const newUid = targetInv.createItem(item.table, item.defId, {
-      qty: item.qty,
-      lockValue: true,
-      valueMul: item.valueMul,
-      dur: item.dur,
-      loadedQty: item.loaded ? item.loaded.qty : 0,
-      loadedQueue: item.loaded && item.loaded.queue ? [...item.loaded.queue] : null,
-      attachments: item.attachments ? {...item.attachments} : null
-    });
-    
-    if (!newUid) return { ok: false };
-    const r = targetInv.addToContainer(targetContainer, newUid);
-    if (!r.ok) {
-      targetInv.destroyItem(newUid);
-      return { ok: false, reason: r.reason };
+ transferItem(targetInv, uid, targetContainer) {
+  const item = this.items.get(uid);
+  if (!item) return { ok: false, reason: 'no_item' };
+
+  const newUid = targetInv.createItem(item.table, item.defId, {
+    qty: item.qty,
+    lockValue: true,
+    valueMul: item.valueMul,
+    dur: item.dur,
+    loadedQty: item.loaded ? item.loaded.qty : 0,
+    loadedQueue: item.loaded && item.loaded.queue ? [...item.loaded.queue] : null,
+    attachments: item.attachments ? {...item.attachments} : null
+  });
+
+  if (!newUid) return { ok: false };
+
+  const newItem = targetInv.items.get(newUid);
+
+  // ★ 递归转移 innerGrid：先转移子物品，再把容器本身放入目标容器
+  if (item.innerGrid && newItem && newItem.innerGrid) {
+    const childUids = Array.from(item.innerGrid.items.keys());
+    for (const childUid of childUids) {
+      this.transferItem(targetInv, childUid, `inner:${newUid}`);
     }
-    
-    this.destroyItem(uid);
-    return { ok: true, newUid };
   }
+
+  const r = targetInv.addToContainer(targetContainer, newUid);
+  if (!r.ok) {
+    targetInv.destroyItem(newUid);
+    return { ok: false, reason: r.reason };
+  }
+
+  this.destroyItem(uid);
+  return { ok: true, newUid };
+}
 
   /* ====================== 配件操作（不变） ====================== */
   attachTo(weaponUid, slot, attachUid) {
@@ -625,8 +636,7 @@ this.equipped[slot] = uid;
     const container = this.containers[name];
     const source = this.items.get(sourceUid);
     if (source && source.innerGrid && container === source.innerGrid) return true;
-    if (this.isDescendant(sourceUid, targetParent)) return true;
-    return false;
+    return this.isDescendant(sourceUid, targetParent);
   }
 
   return this.isDescendant(sourceUid, targetParent);
