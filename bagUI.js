@@ -765,51 +765,54 @@ export class BagUI {
     }
   }
 
-  _loadAmmo(weaponUid) {
-    const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
-    const item = inv.items.get(weaponUid);
-    if (!item || item.table !== 'weapons' || !item.loaded) return;
-    const def = inv.getDef(item);
-    if (!def) return;
-    const space = (def.mag || 0) - item.loaded.qty;
-    if (space <= 0) return;
+ _loadAmmo(weaponUid) {
+  const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
+  const item = inv.items.get(weaponUid);
+  if (!item || item.table !== 'weapons' || !item.loaded) return;
+  const def = inv.getDef(item);
+  if (!def) return;
+  const space = (def.mag || 0) - item.loaded.qty;
+  if (space <= 0) return;
 
-    const world = this.engine.app ? this.engine.app.world : null;
-    const isInMatch = world && world.running;
+  const world = this.engine.app ? this.engine.app.world : null;
+  const isInMatch = world && world.running;
 
-    if (isInMatch && inv === this.inv) {
-      if (world.player.weapon && world.player.weapon.item === item) {
-        world._startReload();
-        this.close();
-      } else {
-        alert('战局内只能给手持武器换弹。');
-      }
-    } else {
-      const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
-      let remaining = space;
-      for (const cName of searchOrder) {
-        if (remaining <= 0) break;
-        const c = inv.containers[cName];
-        if (!c) continue;
-        for (const uid of Array.from(c.items.keys())) {
-          if (remaining <= 0) break;
-          const it = inv.items.get(uid);
-          if (!it || it.table !== 'ammo') continue;
-          const ammoDef = inv.getDef(it);
-          if (!ammoDef || ammoDef.caliber !== def.ammoType) continue;
-          
-          const take = Math.min(it.qty, remaining);
-          for(let i=0; i<take; i++) item.loaded.queue.push(it.defId);
-          item.loaded.qty += take;
-          remaining -= take;
-          
-          it.qty -= take;
-          if (it.qty <= 0) inv.destroyItem(uid);
-        }
-      }
-      if (remaining < space) this.refresh();
+  if (isInMatch && inv === this.inv) {
+    const activeWeapon = world.player.activeWeapon;
+    if (!activeWeapon || activeWeapon.item !== item) {
+      alert('战局内只能给手持武器换弹。');
+      return;
     }
+    if (world.actionProcess.isRunning('reload')) return;
+    // ★ 启动换弹动作，但不关闭背包
+    world._startReload();
+    this.refresh();
+  } else {
+    const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
+    let remaining = space;
+    for (const cName of searchOrder) {
+      if (remaining <= 0) break;
+      const c = inv.containers[cName];
+      if (!c) continue;
+      for (const uid of Array.from(c.items.keys())) {
+        if (remaining <= 0) break;
+        const it = inv.items.get(uid);
+        if (!it || it.table !== 'ammo') continue;
+        const ammoDef = inv.getDef(it);
+        if (!ammoDef || ammoDef.caliber !== def.ammoType) continue;
+
+        const take = Math.min(it.qty, remaining);
+        for (let i = 0; i < take; i++) item.loaded.queue.push(it.defId);
+        item.loaded.qty += take;
+        remaining -= take;
+
+        it.qty -= take;
+        if (it.qty <= 0) inv.destroyItem(uid);
+      }
+    }
+    if (remaining < space) this.refresh();
   }
+}
 
   _unloadAmmo(weaponUid) {
     const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
