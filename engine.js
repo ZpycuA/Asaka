@@ -1284,9 +1284,9 @@ class CameraController {
   }
   
   rotate(dx, dy) {
-    this.yaw -= dx * 0.002 * this.sensitivity;
+    this.yaw += dx * 0.002 * this.sensitivity;
     this.pitch = clamp(this.pitch - dy * 0.002 * this.sensitivity, -Math.PI/2 + 0.1, Math.PI/2 - 0.1);
-  }
+}
 
   shake(amount, duration){
     this.shakeIntensity = Math.max(this.shakeIntensity, amount || 0.5);
