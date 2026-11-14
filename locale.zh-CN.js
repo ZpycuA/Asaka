@@ -99,6 +99,8 @@ export default {
 'content.helmetEar.basic.desc': '基础战术耳机。提供被动降噪与通讯功能，可放大细微环境声，不提供弹道防护。',
 'content.vestFiber.lv3.desc': '3 级纤维护甲。多层凯夫拉与陶瓷片复合，可抵挡手枪弹，对步枪弹吸收部分能量。',
 'content.vestFiber.lv4.desc': '4 级纤维护甲。加强陶瓷层与背衬层，可抵挡中间威力步枪弹。',
+  'content.vestPlate.lv3.name': '3 级防弹插板',
+'content.vestPlate.lv3.desc': '3 级防弹插板。轻型陶瓷复合板，可抵挡手枪弹与低速弹片，对步枪弹吸收部分能量。',
 'content.vestPlate.lv4.desc': '4 级防弹插板。独立陶瓷复合板，可插入纤维护甲前后插板位，专门抵挡步枪弹。',
 'content.vestPlate.lv5.desc': '5 级防弹插板。重型陶瓷复合板，可抵挡大部分步枪弹，重量显著。',
 'content.backpack.small.desc': '小型背包。8 格容量，日常携行用途，容量有限。',
