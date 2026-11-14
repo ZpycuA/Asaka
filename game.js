@@ -37,6 +37,22 @@ const COMBAT = Object.freeze({
 });
 
 /* ============================================================
+   [0.4] 空手拳击定义
+   ------------------------------------------------------------
+   玩家没有装备任何武器时的兜底"武器"。不占背包槽位，
+   由 player.fist 常驻持有。
+   ============================================================ */
+const FIST_DEF = Object.freeze({
+  name: 'content.melee.fist.name',
+  desc: 'content.melee.fist.desc',
+  damage: 80,
+  range: 1.5,
+  cooldown: 0.5,
+  melee: true,
+  isFist: true,
+});
+
+/* ============================================================
    [0.5] 动作映射表 · 单一真相源
    ------------------------------------------------------------
    · keys   → PC 键位注册（engine.input.registerAction）
@@ -48,7 +64,7 @@ const ACTION_MAP = {
   fire: {
     keys: [],
     mouse: 'left',
-    label: '开火',
+    label: ''攻击,
     mobile: { right: '20px', bottom: '80px', size: 80, color: 'rgba(255,80,80,.4)', border: 'rgba(255,100,100,.8)', mode: 'hold', rotate: true },
   },
   reload: {
@@ -1817,17 +1833,25 @@ const body = this.physics.add(new Body({
   weaponGroup.position.set(0.25, -0.2, -0.4);
   this.engine.renderer.camera.add(weaponGroup);
 
-  const inv = this.engine.app ? this.engine.app.inventory : null;
-  const invMain = this._buildWeaponFromInventory(inv, 'main');
-  const invSide = this._buildWeaponFromInventory(inv, 'side');
+    const inv = this.engine.app ? this.engine.app.inventory : null;
+  const invPrimary = this._buildWeaponFromInventory(inv, 'main');
+  const invSecondary = this._buildWeaponFromInventory(inv, 'side');
+  const invMelee = this._buildMeleeFromInventory(inv, 'melee');
   const invArmor = this._buildArmorFromInventory(inv);
-  
+
+  const fist = { def: FIST_DEF, fireCd: 0, isFist: true };
+
+  let activeSlot = 'fist';
+  if (invPrimary) activeSlot = 'primary';
+  else if (invSecondary) activeSlot = 'secondary';
+  else if (invMelee) activeSlot = 'melee';
+
   this.player = {
   mesh, body,
-  weaponGroup, // ★ 存入玩家对象
+  weaponGroup,
   charSpec: spec,
   charId: spec.id,
-  faction: 'player', // ★ 新增阵营
+  faction: 'player',
   hp: spec.hp,
   maxHp: spec.hp,
   coupling: spec.prazer ? 100 : 0,
@@ -1835,9 +1859,26 @@ const body = this.physics.add(new Body({
   protection: null,
   protectionHold: false,
   angle: 0,
-  weapon: invMain || this._buildWeapon(spec.weapon),
-  sidearm: invSide || (spec.sidearm ? this._buildWeapon(spec.sidearm) : null),
-  usingSidearm: false,
+
+  weapons: {
+    primary: invPrimary,
+    secondary: invSecondary,
+    melee: invMelee,
+  },
+  fist,
+  activeSlot,
+  get activeWeapon() {
+    if (this.activeSlot === 'fist') return this.fist;
+    return this.weapons[this.activeSlot] || this.fist;
+  },
+  get weapon() { return this.activeWeapon; },
+  get sidearm() {
+    if (this.activeSlot === 'primary') return this.weapons.secondary || null;
+    if (this.activeSlot === 'secondary') return this.weapons.primary || null;
+    return this.weapons.primary || this.weapons.secondary || null;
+  },
+  get usingSidearm() { return this.activeSlot === 'secondary'; },
+
   fireCd: 0,
   alive: true,
   kills: 0,
@@ -1855,7 +1896,7 @@ const body = this.physics.add(new Body({
      plate: { lv: 4, dur: 100, max: 100 },
   },
   skills: this._buildSkills(spec.skills || []),
-  status: new EntityStatus(spec, spec.prazer), // ★ 新增
+  status: new EntityStatus(spec, spec.prazer),
 };
   this.player.body.userData.ref = this.player;
 
@@ -1923,6 +1964,18 @@ return {
   consumeReserve(count) { self._consumeAmmoInInventory(inv, def.ammoType, count); },
 };
   }
+
+
+_buildMeleeFromInventory(inv, equipSlot) {
+  if (!inv) return null;
+  const uid = inv.equipped[equipSlot];
+  if (!uid) return null;
+  const item = inv.items.get(uid);
+  if (!item || item.table !== 'melee') return null;
+  const def = this.engine.content.get('melee', item.defId);
+  if (!def) return null;
+  return { item, def, fireCd: 0 };
+}
 
 _computeCarriedValue(){
   const inv = this.engine.app ? this.engine.app.inventory : null;
@@ -2598,19 +2651,52 @@ _updateProtection(dt){
     if (this.player) this.player.protectionHold = false;
   }
 
-    _switchWeapon(){
+ _switchWeapon(){
   const p = this.player;
   if (!p) return;
-  if (!p.sidearm) {
-    this._log('无副武器', 'y');
+
+  const slots = ['primary', 'secondary', 'melee'];
+  const available = slots.filter(s => p.weapons[s] !== null);
+
+  if (available.length === 0) {
+    if (p.activeSlot !== 'fist') {
+      if (this.actionProcess.isRunning()) {
+        if (!this.actionProcess.cancel('切换武器')) return;
+      }
+      p.activeSlot = 'fist';
+      p.fireCd = Math.max(p.fireCd, 0.3);
+      this._log('切换至 空手', 'p');
+      this._playSFX('switch');
+    }
     return;
   }
+
+  if (available.length === 1) {
+    if (p.activeSlot === available[0]) return;
+    if (this.actionProcess.isRunning()) {
+      if (!this.actionProcess.cancel('切换武器')) return;
+    }
+    p.activeSlot = available[0];
+    p.fireCd = Math.max(p.fireCd, 0.3);
+    this._playSFX('switch');
+    return;
+  }
+
   if (this.actionProcess.isRunning()) {
     if (!this.actionProcess.cancel('切换武器')) return;
   }
-  p.usingSidearm = !p.usingSidearm;
+
+  let currentIdx = available.indexOf(p.activeSlot);
+  if (currentIdx === -1) currentIdx = -1;
+  const nextIdx = (currentIdx + 1) % available.length;
+  const nextSlot = available[nextIdx];
+
+  if (p.activeSlot === nextSlot) return;
+
+  p.activeSlot = nextSlot;
   p.fireCd = Math.max(p.fireCd, 0.3);
-  const cw = p.usingSidearm ? p.sidearm : p.weapon;
+
+  const cw = p.activeWeapon;
   if (cw && cw.def) {
     this._log('切换至 ' + this.engine.i18n.t(cw.def.name), 'p');
   }
@@ -2618,10 +2704,10 @@ _updateProtection(dt){
 }
 
   get currentWeapon(){
-    const p = this.player;
-    if (!p) return null;
-    return p.usingSidearm ? p.sidearm : p.weapon;
-  }
+  const p = this.player;
+  if (!p) return null;
+  return p.activeWeapon;
+}
 
   _startReload(){
   const p = this.player;
@@ -2690,6 +2776,69 @@ _updateProtection(dt){
     }
   }
 }
+
+_meleeAttack(owner, weapon) {
+  if (!weapon || !weapon.def) return;
+  const def = weapon.def;
+  const range = def.range || 1.5;
+  const cooldown = def.cooldown || 0.5;
+
+  owner.fireCd = cooldown;
+
+  const px = owner.body.position.x;
+  const pz = owner.body.position.z;
+  const yaw = this.engine.cameraCtl.yaw;
+  const dirX = Math.sin(yaw);
+  const dirZ = -Math.cos(yaw);
+  const eyeY = owner.body.position.y + 0.2;
+
+  const hit = this.physics.raycast(
+    px, eyeY, pz, dirX, 0, dirZ, range,
+    body => body !== owner.body && (body.userData && (body.userData.type === 'enemy' || body.userData.type === 'player'))
+  );
+
+  const energy = def.damage || 80;
+  const pen = 6;
+  const ownerFaction = owner.faction || 'player';
+
+  if (hit) {
+    const targetBody = hit.body;
+    const hitY = hit.point.y;
+    const relY = hitY - targetBody.position.y;
+    const hh = targetBody.halfH || 1.2;
+    const r = relY / hh;
+    let part;
+    if (r > 0.5625) part = 'head';
+    else if (r > 0.0833) part = 'thorax';
+    else if (r > -0.1667) part = 'abdomen';
+    else part = 'legs';
+
+    if (targetBody.userData && targetBody.userData.type === 'enemy') {
+      const targetEnemy = targetBody.userData.ref;
+      if (targetEnemy && this.isHostile(ownerFaction, targetEnemy.spec.faction)) {
+        this._damageEnemy(targetEnemy, energy, pen, part, owner === this.player, 'melee');
+      }
+    } else if (targetBody.userData && targetBody.userData.type === 'player') {
+      const targetPlayer = targetBody.userData.ref;
+      if (targetPlayer && this.isHostile(ownerFaction, targetPlayer.faction)) {
+        this._damagePlayer(targetPlayer, energy, pen, part,
+          owner.body.position.x, owner.body.position.z, owner, 'melee');
+      }
+    }
+
+    this._spawnSpark(hit.point.x, hit.point.y, hit.point.z);
+    this._playSFX('hit', { volume: 0.5 });
+  }
+
+  if (owner.weaponGroup) {
+    const baseZ = -0.4;
+    owner.weaponGroup.position.z = baseZ + 0.2;
+    setTimeout(() => {
+      if (owner.weaponGroup) owner.weaponGroup.position.z = baseZ;
+    }, 120);
+  }
+}
+
 
  _fireWeapon(owner, weapon, isPlayer, target){
   if (!weapon || !weapon.def) return;
