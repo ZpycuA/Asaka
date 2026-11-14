@@ -516,55 +516,65 @@ export class BagUI {
   }
 
   _quickEquip(uid) {
-    const isFromPlayer = this.inv.items.has(uid);
-    
-    if (this._lootTarget) {
-      if (!isFromPlayer) {
-        const targets = ['bag', 'chest', 'pocket', 'safe'];
+  if (this._lootTarget) {
+    if (this._lootTarget.isCorpse) {
+      const isFromCorpse = this.viewInv !== this.inv;
+      if (isFromCorpse) {
         let moved = false;
-        for (const t of targets) {
+        for (const t of ['bag', 'chest', 'pocket', 'safe']) {
           if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
         }
         if (moved) this.refresh();
         else alert('背包已满，无法拿取');
       }
-      return;
+    } else {
+      const parent = this.inv.parentOf.get(uid);
+      if (parent === 'c:loot') {
+        let moved = false;
+        for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+          if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
+        }
+        if (moved) this.refresh();
+        else alert('背包已满，无法拿取');
+      } else if (parent && parent.startsWith('c:')) {
+        if (this.inv.addToContainer('loot', uid).ok) this.refresh();
+      }
     }
-
-    const item = this.inv.items.get(uid);
-    if (!item) return;
-
-    if (item.innerGrid) {
-      this.openedBagUid = uid;
-      this.refresh();
-      return;
-    }
-
-    let targetSlot = null;
-    if (item.table === 'weapons') targetSlot = 'main';
-    else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
-    else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
-    else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
-    else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
-    else if (item.table === 'vestPlate') targetSlot = 'vestPlate';
-    else if (item.table === 'backpack') targetSlot = 'backpack';
-    else if (item.table === 'chestRig') targetSlot = 'chestRig';
-    
-    if (targetSlot) {
-      const r = this.inv.equip(targetSlot, uid);
-      if (!r.ok) console.warn('[BagUI] 快速装备失败', uid, targetSlot, r.reason);
-      else this.selectedUid = uid;
-      this.refresh();
-      return;
-    }
-
-    const parent = this.inv.parentOf.get(uid);
-    const targetC = (parent === 'c:stash') ? 'bag' : 'stash';
-    const res = this.inv.addToContainer(targetC, uid);
-    if (res.ok) {
-      this.refresh();
-    }
+    return;
   }
+
+  const item = this.inv.items.get(uid);
+  if (!item) return;
+
+  if (item.innerGrid) {
+    this.openedBagUid = uid;
+    this.refresh();
+    return;
+  }
+
+  let targetSlot = null;
+  if (item.table === 'weapons') targetSlot = 'main';
+  else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
+  else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
+  else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
+  else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
+  else if (item.table === 'vestPlate') targetSlot = 'vestPlate';
+  else if (item.table === 'backpack') targetSlot = 'backpack';
+  else if (item.table === 'chestRig') targetSlot = 'chestRig';
+
+  if (targetSlot) {
+    const r = this.inv.equip(targetSlot, uid);
+    if (!r.ok) console.warn('[BagUI] 快速装备失败', uid, targetSlot, r.reason);
+    else this.selectedUid = uid;
+    this.refresh();
+    return;
+  }
+
+  const parent = this.inv.parentOf.get(uid);
+  const targetC = (parent === 'c:stash') ? 'bag' : 'stash';
+  const res = this.inv.addToContainer(targetC, uid);
+  if (res.ok) this.refresh();
+}
 
   _renderDetail(mx, my) {
     const el = document.getElementById('bagui-detail');
@@ -967,43 +977,79 @@ export class BagUI {
     }
 
     if (this._lootTarget) {
-      const isOverRight = tgt.closest('#bagui-right');
-      const isOverLeft = tgt.closest('#bagui-left');
-      
-      if (isFromPlayer && isOverRight) {
-        if (this._lootTarget.isCorpse) {
-          let moved = false;
-          for (const t of ['bag', 'chest']) {
-            if (this.inv.transferItem(this.viewInv, uid, t).ok) { moved = true; break; }
-          }
-          if (moved) this.refresh();
-          else if (srcEl) srcEl.style.opacity = 1;
-        } else {
-          const grid = this.inv.containers.loot;
-          if (grid && wrap) {
-            const rect = wrap.getBoundingClientRect();
-            let gx = Math.round((px - offsetX - rect.left) / CELL);
-            let gy = Math.round((py - offsetY - rect.top) / CELL);
-            const item = this.inv.items.get(uid);
-            if (this._placeAt('loot', grid, uid, gx, gy, item.rotated).ok) {
-              this.refresh();
-            }
-          }
+  const isOverRight = tgt.closest('#bagui-right');
+  const isOverLeft = tgt.closest('#bagui-left');
+
+  if (!this._lootTarget.isCorpse) {
+    const parent = this.inv.parentOf.get(uid);
+    const inLoot = parent === 'c:loot';
+    const inPlayer = parent && (
+      parent === 'c:bag' || parent === 'c:chest' || parent === 'c:pocket' ||
+      parent === 'c:safe' || parent === 'c:stash' || parent.startsWith('eq:')
+    );
+
+    if (inPlayer && isOverRight) {
+      if (wrap && wrap.dataset.container === 'loot') {
+        const rect = wrap.getBoundingClientRect();
+        let gx = Math.round((px - offsetX - rect.left) / CELL);
+        let gy = Math.round((py - offsetY - rect.top) / CELL);
+        const item = this.inv.items.get(uid);
+        if (item) {
+          let ok = this._placeAt('loot', this.inv.containers.loot, uid, gx, gy, item.rotated).ok;
+          if (!ok) ok = this._placeAt('loot', this.inv.containers.loot, uid, gx, gy, !item.rotated).ok;
+          if (!ok) ok = this.inv.addToContainer('loot', uid).ok;
+          if (ok) { this.refresh(); return; }
         }
       }
-      else if (!isFromPlayer && isOverLeft) {
-        let moved = false;
-        for (const t of ['bag', 'chest', 'pocket', 'safe']) {
-          if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
-        }
-        if (moved) this.refresh();
-        else if (srcEl) srcEl.style.opacity = 1;
-      } 
-      else {
-        if (srcEl) srcEl.style.opacity = 1;
-      }
+      if (srcEl) srcEl.style.opacity = 1;
       return;
     }
+
+    if (inLoot && isOverLeft) {
+      if (wrap) {
+        const containerName = wrap.dataset.container;
+        const grid = this.inv.containers[containerName];
+        if (grid) {
+          const rect = wrap.getBoundingClientRect();
+          let gx = Math.round((px - offsetX - rect.left) / CELL);
+          let gy = Math.round((py - offsetY - rect.top) / CELL);
+          const item = this.inv.items.get(uid);
+          if (item) {
+            let ok = this._placeAt(containerName, grid, uid, gx, gy, item.rotated).ok;
+            if (!ok) ok = this._placeAt(containerName, grid, uid, gx, gy, !item.rotated).ok;
+            if (!ok) ok = this.inv.addToContainer(containerName, uid).ok;
+            if (ok) { this.refresh(); return; }
+          }
+        }
+      }
+      if (srcEl) srcEl.style.opacity = 1;
+      return;
+    }
+
+    if (srcEl) srcEl.style.opacity = 1;
+    return;
+  }
+
+  const isFromPlayerHere = this.inv.items.has(uid);
+  if (isFromPlayerHere && isOverRight) {
+    let moved = false;
+    for (const t of ['bag', 'chest']) {
+      if (this.inv.transferItem(this.viewInv, uid, t).ok) { moved = true; break; }
+    }
+    if (moved) this.refresh();
+    else if (srcEl) srcEl.style.opacity = 1;
+  } else if (!isFromPlayerHere && isOverLeft) {
+    let moved = false;
+    for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+      if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
+    }
+    if (moved) this.refresh();
+    else if (srcEl) srcEl.style.opacity = 1;
+  } else {
+    if (srcEl) srcEl.style.opacity = 1;
+  }
+  return;
+}
 
     const inv = this.inv;
     if (wrap) {
