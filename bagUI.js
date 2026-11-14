@@ -267,11 +267,11 @@ export class BagUI {
     
     html += '<div class="bagui-sec"><h3>我的装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
     const equipList = [
-      ['main', '主武器'], ['side', '副武器'],
-      ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
-      ['vestFiber', '护甲'], ['vestPlate', '插板'],
-      ['backpack', '背包'], ['chestRig', '胸挂'],
-    ];
+  ['main', '武器一'], ['side', '武器二'], ['melee', '近战'],
+  ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
+  ['vestFiber', '护甲'], ['vestPlate', '插板'],
+  ['backpack', '背包'], ['chestRig', '胸挂'],
+];
     for (const [slot, label] of equipList) {
       html += this._equipSlotHtml(inv.equipped[slot], slot, label, inv);
     }
@@ -296,11 +296,11 @@ export class BagUI {
         const inv = this.viewInv;
         let html = '<div class="bagui-sec"><h3>敌人装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
         const equipList = [
-          ['main', '主武器'], ['side', '副武器'],
-          ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
-          ['vestFiber', '护甲'], ['vestPlate', '插板'],
-          ['backpack', '背包'], ['chestRig', '胸挂'],
-        ];
+  ['main', '武器一'], ['side', '武器二'], ['melee', '近战'],
+  ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
+  ['vestFiber', '护甲'], ['vestPlate', '插板'],
+  ['backpack', '背包'], ['chestRig', '胸挂'],
+];
         for (const [slot, label] of equipList) {
           html += this._equipSlotHtml(inv.equipped[slot], slot, label, inv);
         }
@@ -553,8 +553,9 @@ export class BagUI {
   }
 
   let targetSlot = null;
-  if (item.table === 'weapons') targetSlot = 'main';
-  else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
+if (item.table === 'weapons') targetSlot = 'main';
+else if (item.table === 'melee') targetSlot = 'melee';
+else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
   else if (item.table === 'helmetVisor') targetSlot = 'helmetVisor';
   else if (item.table === 'helmetEar') targetSlot = 'helmetEar';
   else if (item.table === 'vestFiber') targetSlot = 'vestFiber';
@@ -1104,120 +1105,228 @@ export class BagUI {
     }
   }
 
+_checkSlotType(slot, table) {
+  const SLOT_TABLE = {
+    main: 'weapons', side: 'weapons', melee: 'melee',
+    helmetShell: 'helmetShell', helmetVisor: 'helmetVisor', helmetEar: 'helmetEar',
+    vestFiber: 'vestFiber', vestPlate: 'vestPlate',
+    backpack: 'backpack', chestRig: 'chestRig',
+  };
+  return SLOT_TABLE[slot] === table;
+}
+
+_swapEquipmentSlots(inv, srcSlot, dstSlot) {
+  const srcUid = inv.equipped[srcSlot];
+  const dstUid = inv.equipped[dstSlot];
+
+  if (srcUid) {
+    const srcItem = inv.items.get(srcUid);
+    if (srcItem && !this._checkSlotType(dstSlot, srcItem.table)) return false;
+  }
+  if (dstUid) {
+    const dstItem = inv.items.get(dstUid);
+    if (dstItem && !this._checkSlotType(srcSlot, dstItem.table)) return false;
+  }
+
+  inv.unequip(srcSlot);
+  if (dstUid) inv.unequip(dstSlot);
+
+  if (srcUid) inv.equip(dstSlot, srcUid);
+  if (dstUid) inv.equip(srcSlot, dstUid);
+
+  return true;
+}
+
+
   _handleEquipDrop(uid, slot) {
-    const inv = this.viewInv.items.has(uid) ? this.viewInv : this.inv;
-    const isFromPlayer = inv === this.inv;
+  const inv = this.viewInv.items.has(uid) ? this.viewInv : this.inv;
+  const isFromPlayer = inv === this.inv;
 
-    if (this._lootTarget && !isFromPlayer) {
-      // 从敌人身上拖拽装备到玩家槽位（如果支持的话）
-      let transferredUid = null;
-      const targets = ['bag', 'chest'];
-      for (const t of targets) {
-        const res = this.viewInv.transferItem(this.inv, uid, t);
-        if (res.ok) { transferredUid = res.newUid; break; }
-      }
-      if (!transferredUid) return;
-
-      const currentParent = this.inv.parentOf.get(transferredUid);
-      if (currentParent !== 'eq:' + slot) {
-        const originalParent = this.inv.parentOf.get(transferredUid);
-        this.inv._detach(transferredUid);
-        const r = this.inv.equip(slot, transferredUid);
-        if (r.ok) {
-          if (r.swapped) {
-            let placed = false;
-            for (const t of ['bag', 'chest', 'stash']) {
-              if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
-            }
-          }
-          this.refresh();
-        }
-      }
-      return;
+  if (this._lootTarget && !isFromPlayer) {
+    let transferredUid = null;
+    const targets = ['bag', 'chest'];
+    for (const t of targets) {
+      const res = this.viewInv.transferItem(this.inv, uid, t);
+      if (res.ok) { transferredUid = res.newUid; break; }
     }
+    if (!transferredUid) return;
 
-    // 玩家自己装备替换
-    const currentParent = inv.parentOf.get(uid);
+    const currentParent = this.inv.parentOf.get(transferredUid);
     if (currentParent !== 'eq:' + slot) {
-      const originalParent = inv.parentOf.get(uid);
-      const origPos = originalParent && originalParent.startsWith('c:') ? inv.containers[originalParent.slice(2)].items.get(uid) : null;
-
-      inv._detach(uid);
-      const r = inv.equip(slot, uid);
-      
+      this.inv._detach(transferredUid);
+      const r = this.inv.equip(slot, transferredUid);
       if (r.ok) {
         if (r.swapped) {
-          let placed = false;
-          if (originalParent && originalParent.startsWith('c:')) {
-            const cName = originalParent.slice(2);
-            const grid = inv.containers[cName];
-            if (grid) {
-              if (origPos) {
-                if (this._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
-              }
-              if (!placed) {
-                if (inv.addToContainer(cName, r.swapped).ok) placed = true;
-              }
-            }
-          }
-          if (!placed) {
-            for (const t of ['bag', 'chest', 'stash']) {
-              if (inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
-            }
-          }
-          if (!placed) {
-            inv.unequip(slot);
-            inv._detach(uid);
-            inv.equip(slot, r.swapped);
-            if (originalParent) this._restoreTo(uid, originalParent);
-            this.refresh();
-            return;
+          for (const t of ['bag', 'chest', 'stash']) {
+            if (this.inv.addToContainer(t, r.swapped).ok) break;
           }
         }
         this.refresh();
       }
     }
+    return;
   }
 
-  _handleQuickInteract(uid, targetUid) {
-    const inv = this.inv;
-    const item = inv.items.get(uid);
-    const target = inv.items.get(targetUid);
-    if (!item || !target) return;
+  const currentParent = inv.parentOf.get(uid);
+  if (currentParent === 'eq:' + slot) return;
 
-    // 1. 拖拽子弹到枪 -> 快速装填
-    if (item.table === 'ammo' && target.table === 'weapons') {
-      const def = inv.getDef(target);
-      if (def && def.ammoType === inv.getDef(item).caliber) {
-        const space = (def.mag || 0) - target.loaded.qty;
-        if (space > 0) {
-          const take = Math.min(item.qty, space);
-          for (let i=0; i<take; i++) target.loaded.queue.push(item.defId);
-          target.loaded.qty += take;
-          item.qty -= take;
-          if (item.qty <= 0) inv.destroyItem(uid);
+  if (currentParent && currentParent.startsWith('eq:')) {
+    const srcSlot = currentParent.slice(3);
+    if (this._swapEquipmentSlots(inv, srcSlot, slot)) {
+      this.refresh();
+      return;
+    }
+  }
+
+  const originalParent = currentParent;
+  const origPos = originalParent && originalParent.startsWith('c:')
+    ? inv.containers[originalParent.slice(2)].items.get(uid)
+    : null;
+
+  inv._detach(uid);
+  const r = inv.equip(slot, uid);
+
+  if (r.ok) {
+    if (r.swapped) {
+      let placed = false;
+      if (originalParent && originalParent.startsWith('c:')) {
+        const cName = originalParent.slice(2);
+        const grid = inv.containers[cName];
+        if (grid) {
+          if (origPos) {
+            if (this._placeAt(cName, grid, r.swapped, origPos.x, origPos.y, origPos.rotated).ok) placed = true;
+          }
+          if (!placed) {
+            if (inv.addToContainer(cName, r.swapped).ok) placed = true;
+          }
+        }
+      }
+      if (!placed) {
+        for (const t of ['bag', 'chest', 'stash']) {
+          if (inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+        }
+      }
+      if (!placed) {
+        inv.unequip(slot);
+        inv._detach(uid);
+        inv.equip(slot, r.swapped);
+        if (originalParent) this._restoreTo(uid, originalParent);
+        this.refresh();
+        return;
+      }
+    }
+    this.refresh();
+  }
+}
+
+  _handleQuickInteract(uid, targetUid) {
+  const inv = this.inv;
+  const item = inv.items.get(uid);
+  const target = inv.items.get(targetUid);
+  if (!item || !target) return;
+
+  if (item.table === 'ammo' && target.table === 'weapons') {
+    const def = inv.getDef(target);
+    const ammoDef = inv.getDef(item);
+    if (def && ammoDef && def.ammoType === ammoDef.caliber) {
+      const space = (def.mag || 0) - target.loaded.qty;
+      if (space > 0) {
+        const take = Math.min(item.qty, space);
+        for (let i = 0; i < take; i++) target.loaded.queue.push(item.defId);
+        target.loaded.qty += take;
+        item.qty -= take;
+        if (item.qty <= 0) inv.destroyItem(uid);
+        this.refresh();
+        return;
+      }
+    }
+  }
+
+  const targetParent = inv.parentOf.get(targetUid);
+  const srcParent = inv.parentOf.get(uid);
+
+  if (item.table === target.table) {
+    if (targetParent && targetParent.startsWith('eq:')) {
+      const targetSlot = targetParent.slice(3);
+      if (this._checkSlotType(targetSlot, item.table)) {
+        this._handleEquipDrop(uid, targetSlot);
+        return;
+      }
+    }
+
+    if (targetParent && targetParent.startsWith('c:')) {
+      const cName = targetParent.slice(2);
+      const grid = inv.containers[cName];
+      if (!grid) return;
+      const targetPos = grid.items.get(targetUid);
+      if (!targetPos) return;
+
+      if (srcParent && srcParent.startsWith('eq:')) {
+        const srcSlot = srcParent.slice(3);
+        if (this._checkSlotType(srcSlot, target.table)) {
+          inv.unequip(srcSlot);
+          inv._detach(targetUid);
+          inv.equip(srcSlot, targetUid);
+          this._placeAt(cName, grid, uid, targetPos.x, targetPos.y, targetPos.rotated);
+          this.refresh();
+          return;
+        }
+      }
+
+      if (srcParent && srcParent.startsWith('c:')) {
+        const srcCName = srcParent.slice(2);
+        const srcGrid = inv.containers[srcCName];
+        if (!srcGrid) return;
+        const srcPos = srcGrid.items.get(uid);
+        if (!srcPos) return;
+
+        if (this._swapGridItems(inv, uid, srcCName, srcPos, targetUid, cName, targetPos)) {
           this.refresh();
           return;
         }
       }
     }
-
-    // 2. 拖拽护甲到护甲装备栏 -> 替换
-    const targetParent = inv.parentOf.get(targetUid);
-    if (item.table.includes('helmet') || item.table.includes('vest')) {
-      if (targetParent && targetParent.startsWith('eq:')) {
-        const slot = targetParent.slice(3);
-        this._handleEquipDrop(uid, slot);
-        return;
-      }
-    }
-
-    // 3. 拖拽到背包/胸挂上 -> 快速放入内部
-    if (target.innerGrid) {
-      const r = inv.addToContainer(`inner:${targetUid}`, uid);
-      if (r.ok) this.refresh();
-    }
   }
+
+  if (target.innerGrid) {
+    const r = inv.addToContainer(`inner:${targetUid}`, uid);
+    if (r.ok) this.refresh();
+  }
+}
+
+_swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
+  const itemA = inv.items.get(uidA);
+  const itemB = inv.items.get(uidB);
+  const gridA = inv.containers[cNameA];
+  const gridB = inv.containers[cNameB];
+  if (!itemA || !itemB || !gridA || !gridB) return false;
+
+  const aFitsInPosA = (itemB.w <= posA.w && itemB.h <= posA.h) ||
+                      (itemB.w <= posA.h && itemB.h <= posA.w);
+  const bFitsInPosB = (itemA.w <= posB.w && itemA.h <= posB.h) ||
+                      (itemA.w <= posB.h && itemA.h <= posB.w);
+
+  if (!aFitsInPosA || !bFitsInPosB) return false;
+
+  inv._vacate(gridA, uidA);
+  inv._vacate(gridB, uidB);
+
+  const bRotated = (itemB.w > posA.w || itemB.h > posA.h);
+  const bw = bRotated ? itemB.h : itemB.w;
+  const bh = bRotated ? itemB.w : itemB.h;
+  inv._occupy(gridA, uidB, posA.x, posA.y, bw, bh, bRotated);
+  itemB.rotated = bRotated;
+  inv.parentOf.set(uidB, 'c:' + cNameA);
+
+  const aRotated = (itemA.w > posB.w || itemA.h > posB.h);
+  const aw = aRotated ? itemA.h : itemA.w;
+  const ah = aRotated ? itemA.w : itemA.h;
+  inv._occupy(gridB, uidA, posB.x, posB.y, aw, ah, aRotated);
+  itemA.rotated = aRotated;
+  inv.parentOf.set(uidA, 'c:' + cNameB);
+
+  return true;
+}
 
   _placeAt(containerName, grid, uid, gx, gy, rotated) {
     const inv = grid === this.inv.containers.loot ? this.inv : this.viewInv;
