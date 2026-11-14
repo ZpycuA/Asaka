@@ -335,56 +335,68 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
 
   /* ====================== 容器操作 ====================== */
   addToContainer(name, uid, opts) {
-    opts = opts || {};
-    const container = this.containers[name];
-    const item = this.items.get(uid);
-    if (!container || !item) return { ok: false, reason: 'no_target' };
-    if (!container.isActive) return { ok: false, reason: 'no_capacity' };
+  opts = opts || {};
+  let container;
+  let parentPath;
 
-    if (this.wouldCreateCycle(uid, 'c:' + name)) {
-      return { ok: false, reason: 'cycle' };
-    }
+  if (name.startsWith('inner:')) {
+    const hostUid = name.slice(6);
+    const host = this.items.get(hostUid);
+    if (!host || !host.innerGrid) return { ok: false, reason: 'no_target' };
+    container = host.innerGrid;
+    parentPath = name;
+  } else {
+    container = this.containers[name];
+    parentPath = 'c:' + name;
+  }
 
-    // ---- 1. 先尝试合并堆叠 ----
-    const stackLimit = item.stackLimit || 1;
-    if (!opts.noMerge && stackLimit > 1 && item.dur === item.durMax) {
-      for (const [otherUid] of container.items) {
-        const other = this.items.get(otherUid);
-        if (!other) continue;
-        if (other.table !== item.table || other.defId !== item.defId) continue;
-        if (other.dur !== item.dur) continue;
-        const otherLimit = other.stackLimit || 1;
-        const space = otherLimit - other.qty;
-        if (space >= item.qty) {
-          other.qty += item.qty;
-          this._detach(uid);
-          this.destroyItem(uid);
-          return { ok: true, merged: true };
-        }
-        // 部分合并：只有容器还有空位放剩余时才做
-        if (space > 0) {
-          const slotCheck = this._findSlot(container, item.w, item.h, false);
-          if (slotCheck) {
-            other.qty += space;
-            item.qty -= space;
-          }
+  const item = this.items.get(uid);
+  if (!container || !item) return { ok: false, reason: 'no_target' };
+  if (!container.isActive) return { ok: false, reason: 'no_capacity' };
+
+  if (this.wouldCreateCycle(uid, parentPath)) {
+    return { ok: false, reason: 'cycle' };
+  }
+
+  // ---- 1. 先尝试合并堆叠 ----
+  const stackLimit = item.stackLimit || 1;
+  if (!opts.noMerge && stackLimit > 1 && item.dur === item.durMax) {
+    for (const [otherUid] of container.items) {
+      const other = this.items.get(otherUid);
+      if (!other) continue;
+      if (other.table !== item.table || other.defId !== item.defId) continue;
+      if (other.dur !== item.dur) continue;
+      const otherLimit = other.stackLimit || 1;
+      const space = otherLimit - other.qty;
+      if (space >= item.qty) {
+        other.qty += item.qty;
+        this._detach(uid);
+        this.destroyItem(uid);
+        return { ok: true, merged: true };
+      }
+      if (space > 0) {
+        const slotCheck = this._findSlot(container, item.w, item.h, false);
+        if (slotCheck) {
+          other.qty += space;
+          item.qty -= space;
         }
       }
     }
-
-    // ---- 2. 找空位（含自动旋转） ----
-    const slot = this._findSlot(container, item.w, item.h, opts.preferRotated || false);
-    if (!slot) return { ok: false, reason: 'full' };
-
-    // ---- 3. 放入 ----
-    this._detach(uid);
-    const placedW = slot.rotated ? item.h : item.w;
-    const placedH = slot.rotated ? item.w : item.h;
-    this._occupy(container, uid, slot.x, slot.y, placedW, placedH, slot.rotated);
-    item.rotated = slot.rotated;
-    this.parentOf.set(uid, 'c:' + name);
-    return { ok: true, position: slot };
   }
+
+  // ---- 2. 找空位（含自动旋转） ----
+  const slot = this._findSlot(container, item.w, item.h, opts.preferRotated || false);
+  if (!slot) return { ok: false, reason: 'full' };
+
+  // ---- 3. 放入 ----
+  this._detach(uid);
+  const placedW = slot.rotated ? item.h : item.w;
+  const placedH = slot.rotated ? item.w : item.h;
+  this._occupy(container, uid, slot.x, slot.y, placedW, placedH, slot.rotated);
+  item.rotated = slot.rotated;
+  this.parentOf.set(uid, parentPath);
+  return { ok: true, position: slot };
+}
 
   removeFromContainer(name, uid) {
     const container = this.containers[name];
