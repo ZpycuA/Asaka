@@ -41,7 +41,7 @@ const EQUIP_SLOTS = [
 ];
 
 const EQUIP_TABLE = {
-  main: 'weapons', side: 'weapons', melee: 'melee',
+  main: 'weapons', side: 'weapons', melee: '__aux__',
   helmetShell: 'helmetShell', helmetVisor: 'helmetVisor', helmetEar: 'helmetEar',
   vestFiber: 'vestFiber', vestPlate: 'vestPlate',
   backpack: 'backpack', chestRig: 'chestRig',
@@ -440,9 +440,15 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     if (!item) return { ok: false, reason: 'no_item' };
 
     const expectedTable = EQUIP_TABLE[slot];
-    if (expectedTable && item.table !== expectedTable) {
+if (expectedTable) {
+  if (expectedTable === '__aux__') {
+    if (item.table !== 'weapons' && item.table !== 'melee') {
       return { ok: false, reason: 'type_mismatch' };
     }
+  } else if (item.table !== expectedTable) {
+    return { ok: false, reason: 'type_mismatch' };
+  }
+}
 
     if (this.wouldCreateCycle(uid, 'eq:' + slot)) {
       return { ok: false, reason: 'cycle' };
