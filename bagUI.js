@@ -163,6 +163,9 @@ export class BagUI {
     this._clearGhosts();
     this._deselectDetail();
     this._lootTarget = null;
+    if (this.engine.app && this.engine.app.world && this.engine.app.world.running) {
+  this.engine.app.world._syncWeaponsFromInventory();
+    }
     if (this._charPreviewRenderer) {
       this._charPreviewRenderer.dispose();
       this._charPreviewRenderer = null;
