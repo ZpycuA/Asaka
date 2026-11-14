@@ -518,8 +518,7 @@ export class BagUI {
   _quickEquip(uid) {
   if (this._lootTarget) {
     if (this._lootTarget.isCorpse) {
-      const isFromCorpse = this.viewInv !== this.inv;
-      if (isFromCorpse) {
+      if (this.viewInv.items.has(uid)) {
         let moved = false;
         for (const t of ['bag', 'chest', 'pocket', 'safe']) {
           if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
@@ -527,18 +526,19 @@ export class BagUI {
         if (moved) this.refresh();
         else alert('背包已满，无法拿取');
       }
-    } else {
-      const parent = this.inv.parentOf.get(uid);
-      if (parent === 'c:loot') {
-        let moved = false;
-        for (const t of ['bag', 'chest', 'pocket', 'safe']) {
-          if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
-        }
-        if (moved) this.refresh();
-        else alert('背包已满，无法拿取');
-      } else if (parent && parent.startsWith('c:')) {
-        if (this.inv.addToContainer('loot', uid).ok) this.refresh();
+      return;
+    }
+
+    const parent = this.inv.parentOf.get(uid);
+    if (parent === 'c:loot') {
+      let moved = false;
+      for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+        if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
       }
+      if (moved) this.refresh();
+      else alert('背包已满，无法拿取');
+    } else if (parent && parent.startsWith('c:')) {
+      if (this.inv.addToContainer('loot', uid).ok) this.refresh();
     }
     return;
   }
