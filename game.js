@@ -981,11 +981,16 @@ this._renderEffects(p);
   }
 
  // 武器与弹药
-const cw = this.world.currentWeapon || p.weapon;
+const cw = this.world.currentWeapon;
 if (cw) {
   this._setText('weapon-name', this.engine.i18n.t(cw.def.name));
-  this._setText('ammo-mag', String(cw.mag));
-  this._setText('ammo-reserve', String(cw.reserve));
+  if (cw.isFist || (cw.def && cw.def.melee)) {
+    this._setText('ammo-mag', '—');
+    this._setText('ammo-reserve', '—');
+  } else {
+    this._setText('ammo-mag', String(cw.mag));
+    this._setText('ammo-reserve', String(cw.reserve));
+  }
 }
 
 if (p.carriedValue !== undefined) {
@@ -2465,15 +2470,20 @@ if (!this._searching && !isDowned) {
   if (p.fireCd > 0) p.fireCd -= dt;
   const cw = this.currentWeapon;
   if (!reloading && e.input.isActive('fire') && p.fireCd <= 0 && cw) {
-    if (cw.mag <= 0) this._startReload();
-    else this._fireWeapon(p, cw, true);
+  if (cw.isFist || (cw.def && cw.def.melee)) {
+    this._meleeAttack(p, cw);
+  } else if (cw.mag <= 0) {
+    this._startReload();
+  } else {
+    this._fireWeapon(p, cw, true);
   }
+}
 }
 
 // ★ 7. 其他输入动作检测（edge-trigger，搜索时禁用）
 if (!this._searching && !isDowned) {
   if (this._edge.reload) this._startReload();
-  if (this._edge.switchWeapon && p.sidearm) this._switchWeapon();
+  if (this._edge.switchWeapon) this._switchWeapon();
   if (this._edge.skill1) this._useSkill(0);
   if (this._edge.skill2) this._useSkill(1);
   if (this._edge.search) this._trySearchContainer();
@@ -2710,10 +2720,14 @@ _updateProtection(dt){
 }
 
   _startReload(){
-  const p = this.player;
-  const w = this.currentWeapon;
-  if (!w || !p.alive) return;
-  if (this.actionProcess.isRunning()) return;
+const p = this.player;
+const w = this.currentWeapon;
+if (!w || !p.alive) return;
+if (w.isFist || (w.def && w.def.melee)) {
+  this._log('当前武器无法换弹', 'y');
+  return;
+}
+if (this.actionProcess.isRunning()) return;
   if (w.mag >= w.magCap) {
     this._log('弹匣已满', 'y');
     return;
@@ -3122,7 +3136,7 @@ _applyArmorLayers(entity, energy, pen, hitPart) {
   return { remaining, snapshot };
 }
    
-_damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true){
+_damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType = 'ballistic'){
   if (!enemy.alive) return;
   if (hitPart === true) hitPart = 'head';
   else if (hitPart === false || hitPart === undefined) hitPart = 'thorax';
@@ -3135,7 +3149,7 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true){
   let armorSnapshot = null;
 
   if (enemy.spec && enemy.spec.prazer && enemy.protectionHold && enemy.coupling > 0) {
-    const coup = CombatSystem.applyCoupling(enemy, remaining, 'ballistic');
+  const coup = CombatSystem.applyCoupling(enemy, remaining, damageType);
     if (coup.cost > 0) enemy.coupling = Math.max(0, enemy.coupling - coup.cost);
     if (coup.absorbed > 0) couplingSnapshot = { level: enemy.protection || '?', absorbed: coup.absorbed, cost: coup.cost };
     remaining = coup.remaining;
@@ -3196,7 +3210,7 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true){
   }
 }
    
-_damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null){
+_damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null, damageType = 'ballistic'){
   if (!player.alive) return;
 
   if (part === true) part = 'head';
@@ -3207,7 +3221,7 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
   const profile = this.engine.profile;
   const hpBefore = player.status.healthQuality;
 
-  const coup = CombatSystem.applyCoupling(player, energy, 'ballistic');
+  const coup = CombatSystem.applyCoupling(player, energy, damageType);
   if (coup.cost > 0) player.coupling = Math.max(0, player.coupling - coup.cost);
   const couplingSnapshot = (coup.absorbed > 0) ? { level: player.protection || '?', absorbed: coup.absorbed, cost: coup.cost } : null;
   let remaining = coup.remaining;
