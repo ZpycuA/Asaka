@@ -108,6 +108,11 @@ export default {
 'content.backpack.large.desc': '大型背包。24 格容量，适合长时间独立作战，但会明显增加负重。',
 'content.chestRig.small.desc': '小型胸挂。4 格容量，快速取用弹药与消耗品。',
 'content.chestRig.large.desc': '大型胸挂。6 格容量，可携带更多弹药与应急物资。',
+  'content.melee.knife.name': '战术匕首',
+'content.melee.knife.desc': '标准战术匕首。刀身约 18cm，双刃直柄设计，重心靠前，适合快速刺击与划割。近战中能造成严重创伤，但需要贴近敌人。',
+'content.melee.fist.name': '空手',
+'content.melee.fist.desc': '空手状态。以双拳和肘部发动攻击。伤害远低于任何武器，但胜在无需装备。',
+
   'content.enemy.grunt.name': '尼珀斯尔·士兵',
   'content.enemy.rifleman.name': '尼珀斯尔·步枪兵',
   'content.enemy.smgman.name': '尼珀斯尔·突击兵',
