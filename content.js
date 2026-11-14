@@ -102,6 +102,7 @@ const VEST_FIBER = {
 c.registerAll('vestFiber', VEST_FIBER);
 
 const VEST_PLATE = {
+  lv3: { name: 'content.vestPlate.lv3.name', desc: 'content.vestPlate.lv3.desc', w: 2, h: 2, armorLv: 3, maxDur: 100, value: 600, rarity: 'L1', stackLimit: 1 },
   lv4: { name: 'content.vestPlate.lv4.name', desc: 'content.vestPlate.lv4.desc', w: 2, h: 2, armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
   lv5: { name: 'content.vestPlate.lv5.name', desc: 'content.vestPlate.lv5.desc', w: 2, h: 2, armorLv: 5, maxDur: 100, value: 2400, rarity: 'L3', stackLimit: 1 },
 };
@@ -133,15 +134,15 @@ c.registerAll('chestRig', CHEST_RIG);
     name: 'content.enemy.grunt.name',
     hp: 75, speed: 4.5, acc: 0.55, faction: 'nipsel', weapon: 'p9',
     color: 0x8a5a5a, radius: 1.2,
-    ai: { aggression: 0.3, composure: 0.2, perception: 0.4, opportunism: 0.2 }, // 新兵：胆小、反应慢、不会找掩体
+    ai: { aggression: 0.3, composure: 0.2, perception: 0.4, opportunism: 0.2 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv4', lv: 4 } } },
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
   },
   rifleman: {
     name: 'content.enemy.rifleman.name',
     hp: 100, speed: 5.0, acc: 0.68, faction: 'nipsel', weapon: 'ar556',
     color: 0x9a6a4a, radius: 1.2,
-    ai: { aggression: 0.5, composure: 0.6, perception: 0.6, opportunism: 0.6 }, // 老兵：标准战术素质
+    ai: { aggression: 0.5, composure: 0.6, perception: 0.6, opportunism: 0.6 },
     prazer: false, A: 0,
     gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv4', lv: 4 } } },
   },
@@ -149,15 +150,15 @@ c.registerAll('chestRig', CHEST_RIG);
     name: 'content.enemy.smgman.name',
     hp: 85, speed: 5.5, acc: 0.60, faction: 'nipsel', weapon: 'smg45',
     color: 0xa05050, radius: 1.2,
-    ai: { aggression: 0.9, composure: 0.4, perception: 0.5, opportunism: 0.3 }, // 突击兵：莽夫，喜欢冲脸
+    ai: { aggression: 0.9, composure: 0.4, perception: 0.5, opportunism: 0.3 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv4', lv: 4 } } },
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
   },
   sniper: {
     name: 'content.enemy.sniper.name',
     hp: 68, speed: 3.8, acc: 0.86, faction: 'nipsel', weapon: 'sr762',
     color: 0x6a5a8a, radius: 1.1,
-    ai: { aggression: 0.2, composure: 0.9, perception: 0.9, opportunism: 0.8 }, // 狙击手：冷静、视力极好、极度依赖掩体
+    ai: { aggression: 0.2, composure: 0.9, perception: 0.9, opportunism: 0.8 },
     prazer: false, A: 0,
     gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
   },
@@ -165,7 +166,7 @@ c.registerAll('chestRig', CHEST_RIG);
     name: 'content.enemy.elite.name',
     hp: 160, speed: 5.2, acc: 0.82, faction: 'nipsel', weapon: 'ak762',
     color: 0xc04a4a, radius: 1.3,
-    ai: { aggression: 0.9, composure: 0.9, perception: 0.8, opportunism: 0.9 }, // 精锐：六边形战士，战斗机器
+    ai: { aggression: 0.9, composure: 0.9, perception: 0.8, opportunism: 0.9 },
     prazer: false, A: 0,
     gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
   },
