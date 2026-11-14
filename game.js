@@ -2661,9 +2661,11 @@ _updateProtection(dt){
     if (this.player) this.player.protectionHold = false;
   }
 
- _switchWeapon(){
+_switchWeapon(){
   const p = this.player;
   if (!p) return;
+
+  this._syncWeaponsFromInventory();
 
   const slots = ['primary', 'secondary', 'melee'];
   const available = slots.filter(s => p.weapons[s] !== null);
