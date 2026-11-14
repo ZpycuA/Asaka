@@ -127,10 +127,11 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #protect-group{position:absolute;left:12px;bottom:260px;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
 .protect-btn{width:60px;padding:8px 2px;border-radius:8px;font-size:11px;font-weight:700;border:1.5px solid;background:rgba(0,0,0,.5);cursor:pointer;color:#fff}
 .protect-btn.active{background:rgba(255,255,255,.22);box-shadow:0 0 16px currentColor}
-#action-progress{position:absolute;left:50%;top:57%;transform:translateX(-50%);width:180px;display:none;text-align:center;pointer-events:none;z-index:22}
+#action-progress{position:fixed;left:50%;top:57%;transform:translateX(-50%);width:180px;display:none;text-align:center;pointer-events:none;z-index:600}
 #action-progress.on{display:block}
 #action-progress-bar{height:6px;background:rgba(0,0,0,.6);border-radius:3px;overflow:hidden;border:1px solid rgba(255,200,80,.4)}
 #action-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,#ffd93d,#ffe880);transition:width .05s}
+#action-progress-cancel{pointer-events:auto}
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
 #extract-fill{height:100%;width:0%;background:linear-gradient(90deg,#3fd0ff,#a2f0ff);transition:width .1s}
@@ -332,12 +333,15 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div style="width:260px;height:8px;background:rgba(0,0,0,.7);border-radius:4px;overflow:hidden;border:1px solid rgba(120,220,255,.4)"><div id="extract-fill"></div></div>
     </div>
 
-    <div id="action-progress">
-      <div id="action-progress-label" style="font-size:11px;color:#ffe8a8;margin-bottom:4px">换弹</div>
-      <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
-      <div id="action-progress-time" style="font-size:10px;color:#cfe8ff;margin-top:3px">0.0s</div>
-      <button id="action-progress-cancel" style="margin-top:4px;padding:2px 10px;font-size:10px;border-radius:3px;border:1px solid rgba(255,150,150,.4);background:rgba(80,30,30,.6);color:#ffb0b0;cursor:pointer">取消</button>
-    </div>
+     </div>  <!-- hud 内其他内容 -->
+
+  </div>  <!-- #hud 闭合 -->
+
+  <div id="action-progress">
+    <div id="action-progress-label" style="font-size:11px;color:#ffe8a8;margin-bottom:4px">换弹</div>
+    <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
+    <div id="action-progress-time" style="font-size:10px;color:#cfe8ff;margin-top:3px">0.0s</div>
+    <button id="action-progress-cancel" style="margin-top:4px;padding:2px 10px;font-size:10px;border-radius:3px;border:1px solid rgba(255,150,150,.4);background:rgba(80,30,30,.6);color:#ffb0b0;cursor:pointer">取消</button>
   </div>
 
   <button id="pause-btn" style="position:absolute;right:12px;top:12px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.92);border:1px solid rgba(105,170,235,.5);color:#cfe8ff;font-size:16px;z-index:60;cursor:pointer;display:flex;align-items:center;justify-content:center">❚❚</button>
