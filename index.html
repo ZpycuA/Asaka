@@ -122,8 +122,21 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .armor-bar>i{display:block;height:100%;background:#6fe07a}
 .armor-lv{font-size:8px;color:#8fb0cc;margin-top:2px}
 #bottom-right{position:absolute;right:16px;bottom:16px;text-align:right;pointer-events:none}
-.weapon-name{font-size:12px;color:var(--dim)}
-.ammo-text{font-size:32px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
+.weapon-box{display:inline-block;text-align:right;padding:8px 12px;background:rgba(14,22,34,.78);border:1px solid rgba(105,170,235,.4);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.5);backdrop-filter:blur(2px)}
+.weapon-box .wb-top{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.weapon-name{font-size:13px;font-weight:700;color:#cfe6ff;letter-spacing:1px}
+.next-ammo{font-size:11px;color:#ffd93d;margin-top:2px}
+.ammo-text{font-size:28px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
+.fire-mode-btn{pointer-events:auto;padding:3px 10px;font-size:11px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.55);border:1px solid rgba(120,190,255,.7);color:#e0f0ff;font-family:inherit}
+/* 当前状态图标（屏幕最下方，图标显示，绿=正面 / 红=负面） */
+#status-bar{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26}
+#status-bar .status-chip{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+#status-bar .status-chip.neg{background:rgba(180,40,40,.42);border:1px solid rgba(255,110,110,.65);color:#fff}
+#status-bar .status-chip.pos{background:rgba(40,160,90,.42);border:1px solid rgba(120,255,170,.65);color:#fff}
+/* 屏幕中上：警觉度提示（位置暴露等），横向排列，溢出省略 */
+#alert-bar{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26;max-width:72%;overflow:hidden}
+#alert-bar .alert-chip{flex-shrink:0;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:1px;background:rgba(200,140,30,.5);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;box-shadow:0 2px 8px rgba(0,0,0,.4);backdrop-filter:blur(2px)}
+#alert-bar .alert-more{flex-shrink:0;font-size:15px;color:#ffe8b0;font-weight:700}
 #protect-group{position:absolute;left:12px;bottom:260px;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
 .protect-btn{width:60px;padding:8px 2px;border-radius:8px;font-size:11px;font-weight:700;border:1.5px solid;background:rgba(0,0,0,.5);cursor:pointer;color:#fff}
 .protect-btn.active{background:rgba(255,255,255,.22);box-shadow:0 0 16px currentColor}
@@ -157,6 +170,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   #weapon-bar .wb-slot{flex:1;min-width:0;padding:5px 4px;font-size:10px;gap:3px;justify-content:center}
   #nearby-list{right:8px;top:42%;max-width:150px;max-height:100px;overflow-y:auto}
   #protect-group{left:8px;bottom:250px}
+  #status-bar{bottom:46px}
 }
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
@@ -330,7 +344,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
           <span>状态</span>
           <div class="bar"><div id="hp-bar" style="background:#5fd47a;width:100%"></div><span id="hp-text">健康</span></div>
         </div>
-        <div id="effect-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px"></div>
+        <div id="effect-bar" style="display:none"></div>
         <div class="stat-row"><span style="color:#ffd93d">体力</span><div class="bar" style="height:6px"><div id="stamina-bar" style="background:#ffd93d;width:100%"></div></div></div>
         <div class="stat-row" id="cp-row"><span>耦合</span><div class="bar"><div id="cp-bar" style="background:#3fa8ff"></div><span id="cp-text">100%</span></div></div>
         <div class="armor-row" id="armor-row">
@@ -343,13 +357,21 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
     </div>
     
     <div id="bottom-right">
-      <div class="weapon-name" id="weapon-name"></div>
-      <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
-      <div style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
+      <div class="weapon-box">
+        <div class="wb-top">
+          <span class="weapon-name" id="weapon-name"></span>
+          <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
+        </div>
+        <div class="next-ammo" id="next-ammo"></div>
+        <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
+        <div style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
+      </div>
     </div>
 
      <div id="weapon-bar"></div>
 <div id="nearby-list"></div>
+<div id="status-bar"></div>
+<div id="alert-bar"></div>
      
     <div id="protect-group">
       <button class="protect-btn l1" data-level="L1"><div>L1</div><div style="font-size:8px;font-weight:400">冷兵器</div></button>

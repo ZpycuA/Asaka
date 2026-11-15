@@ -72,6 +72,10 @@ const ACTION_MAP = {
     label: '换弹',
     mobile: { right: '20px', bottom: '180px', size: 60, color: 'rgba(200,200,200,.3)', border: 'rgba(255,255,255,.6)', mode: 'hold' },
   },
+  fireMode: {
+    keys: ['v'],
+    label: '开火模式',
+  },
   jump: {
     keys: [' '],
     label: '跳跃',
@@ -307,6 +311,10 @@ const PART_MAX_HP = {
 
 // 单次动能对应的伤口等级
 const WOUND_ENERGY_THRESHOLD = [0, 100, 350, 700, 1200];
+// 每部位最多伤口数 / 伤口等级上限 / 燃烧档位上限
+const MAX_WOUNDS_PER_PART = 3;
+const MAX_WOUND_LEVEL = 4;
+const MAX_BURN_LEVEL = 3;
 
 class EntityStatus {
   constructor(entity, isPrazer) {
@@ -317,7 +325,7 @@ class EntityStatus {
     
     this.parts = {};
     for (const p in PART_MAX_HP) {
-      this.parts[p] = { hp: PART_MAX_HP[p], maxHp: PART_MAX_HP[p], wound: 0, fracture: 0 };
+      this.parts[p] = { hp: PART_MAX_HP[p], maxHp: PART_MAX_HP[p], wounds: [], fracture: 0 };
     }
     
     this.effects = new Map();
@@ -337,6 +345,37 @@ class EntityStatus {
   removeEffect(id) { this.effects.delete(id); }
   hasEffect(id) { return this.effects.has(id); }
 
+  // ★ 部位伤口对象：数量有限制、等级有限制
+  addWound(part, level) {
+    const p = this.parts[part];
+    if (!p) return;
+    level = Math.max(1, Math.min(MAX_WOUND_LEVEL, level | 0));
+    if (!p.wounds) p.wounds = [];
+    if (p.wounds.length < MAX_WOUNDS_PER_PART) {
+      p.wounds.push({ level });
+    } else {
+      // 已达上限：只提升最低等级伤口，避免"一个手几十个伤口"
+      let minIdx = 0;
+      for (let i = 1; i < p.wounds.length; i++) {
+        if (p.wounds[i].level < p.wounds[minIdx].level) minIdx = i;
+      }
+      if (p.wounds[minIdx].level < level) p.wounds[minIdx].level = level;
+    }
+    p.wound = Math.max(p.wound || 0, level); // 兼容旧字段：最大伤口等级
+  }
+
+  // 全身伤口总等级（用于流血）
+  totalWoundLevel() {
+    let s = 0;
+    for (const k in this.parts) s += (this.parts[k].wound || 0);
+    return s;
+  }
+
+  // ★ 点燃：分档强度，随 tick 扩散升级（最高 3 档）
+  ignite(part, strength) {
+    this.addEffect('burning', 12, Math.max(1, Math.min(MAX_BURN_LEVEL, strength | 0)));
+  }
+
   takeDamage(part, energy, pen) {
     if (!this.parts[part]) part = 'thorax';
     if (part === 'rarm') part = 'larm'; 
@@ -352,20 +391,19 @@ class EntityStatus {
     const instantBleed = energy * 0.4;
     this.blood = Math.max(0, this.blood - instantBleed);
 
-    // 伤口等级判定
+    // 伤口等级判定 → 作为部位伤口对象附加
     let newWound = 0;
     for (let i = 1; i < WOUND_ENERGY_THRESHOLD.length; i++) {
       if (energy >= WOUND_ENERGY_THRESHOLD[i]) newWound = i;
     }
-    p.wound = Math.max(p.wound, newWound);
-    
-    if (p.wound > 0) {
-      // 持续流血：每秒流 5ml * 伤口等级（致命伤流得极快）
-      this.addEffect('bleeding', 30, Math.max(p.wound, this.effects.get('bleeding')?.strength || 0));
+    if (newWound > 0) {
+      this.addWound(part, newWound);
+      // 持续流血：按全身伤口总等级，更致命
+      this.addEffect('bleeding', 999, this.totalWoundLevel());
       this.addEffect('pain', 10, 1);
     }
     
-    // 骨折判定
+    // 骨折判定（部位被彻底摧毁）
     if (p.hp <= 0 && p.fracture === 0) {
       p.fracture = 1; // 骨折
       this.addEffect('fracture', 999, 1);
@@ -379,13 +417,34 @@ class EntityStatus {
   }
 
   tick(dt) {
-    let bleedRate = 0;
+    // 1. 伤口持续流血（按全部伤口总等级驱动，伤口不消失流血不停）
+    const totalWound = this.totalWoundLevel();
+    if (totalWound > 0) this.addEffect('bleeding', 999, totalWound);
+    else this.removeEffect('bleeding');
+    const bleedRate = totalWound * 10; // 每秒每级伤口流 10ml
+
+    // 2. 燃烧：分档灼烧 + 火势扩散（升档）
+    const burn = this.effects.get('burning');
+    if (burn) {
+      const dmg = burn.strength * 40; // 每秒灼烧焦耳
+      const keys = Object.keys(this.parts);
+      const tgt = keys[Math.floor(Math.random() * keys.length)];
+      const pp = this.parts[tgt];
+      if (pp) {
+        pp.hp = Math.max(-pp.maxHp * 2, pp.hp - dmg * dt);
+        if (pp.hp <= 0 && pp.fracture === 0) { pp.fracture = 1; this.addEffect('fracture', 999, 1); }
+      }
+      this.blood = Math.max(0, this.blood - burn.strength * 6 * dt);
+      if (burn.strength < MAX_BURN_LEVEL && Math.random() < 0.4 * dt) burn.strength += 1;
+    }
+
+    // 3. 其余效果倒计时（bleeding 由伤口驱动，不在这里扣减）
     for (const [id, eff] of this.effects) {
-      if (id === 'bleeding') bleedRate += eff.strength * 5; // 每秒流 5ml 血
+      if (id === 'bleeding') continue;
       eff.duration -= dt;
       if (eff.duration <= 0) this.effects.delete(id);
     }
-    
+
     this.blood = Math.max(0, this.blood - bleedRate * dt);
     
     if (this.blood < this.maxBlood * 0.5) {
@@ -985,12 +1044,21 @@ this._renderEffects(p);
 const cw = this.world.currentWeapon;
 if (cw) {
   this._setText('weapon-name', this.engine.i18n.t(cw.def.name));
-  if (cw.isFist || (cw.def && cw.def.melee)) {
+  const isMeleeLike = cw.isFist || (cw.def && cw.def.melee);
+  if (isMeleeLike) {
     this._setText('ammo-mag', '—');
     this._setText('ammo-reserve', '—');
+    this._setText('next-ammo', '');
+    this._setFireModeBtn(null);
   } else {
     this._setText('ammo-mag', String(cw.mag));
     this._setText('ammo-reserve', String(cw.reserve));
+    // 下一发子弹名称（彩虹子弹队列的第一发）
+    let nextId = cw.def.ammoType;
+    if (cw.loaded && cw.loaded.queue && cw.loaded.queue.length > 0) nextId = cw.loaded.queue[0];
+    const nextDef = this.engine.content.get('ammo', nextId);
+    this._setText('next-ammo', nextDef ? ('下一发 · ' + this.engine.i18n.t(nextDef.name)) : '');
+    this._setFireModeBtn(cw);
   }
 }
 
@@ -1382,21 +1450,22 @@ _updateCouplingFX(p) {
   }
    
   _renderEffects(p) {
-  const el = document.getElementById('effect-bar');
+  const el = document.getElementById('status-bar');
   if (!el) return;
   if (!p.status) { el.innerHTML = ''; return; }
   
-  // 如果效果没有变化，跳过重绘
-  const sig = Array.from(p.status.effects.keys()).join(',');
+  // 效果 + 强度变化才重绘
+  const sig = Array.from(p.status.effects.entries()).map(([id, eff]) => id + ':' + eff.strength).join(',');
   if (this._lastEffectSig === sig) return;
   this._lastEffectSig = sig;
   
   let html = '';
   for (const [id, eff] of p.status.effects) {
     const def = this.engine.content.get('effects', id);
-    if (def) {
-      html += `<div title="${def.name} 强度:${eff.strength}" style="padding:2px 6px;background:rgba(200,50,50,.4);border:1px solid rgba(255,100,100,.5);border-radius:4px;font-size:12px;">${def.icon} ${def.name}</div>`;
-    }
+    if (!def) continue;
+    const cls = def.positive ? 'pos' : 'neg';
+    const lvTag = eff.strength > 1 ? `<span style="font-size:10px;font-weight:700">×${eff.strength}</span>` : '';
+    html += `<div class="status-chip ${cls}" title="${def.name} 强度:${eff.strength}">${def.icon}${lvTag}</div>`;
   }
   el.innerHTML = html;
   }
@@ -1510,6 +1579,27 @@ _updateCouplingFX(p) {
     if (el) el.style[prop] = value;
     this._cache[key] = value;
   }
+
+  // ★ 开火模式按钮：只显示在有多种模式的枪械上，点一下轮换
+  _setFireModeBtn(cw){
+    const btn = document.getElementById('fire-mode-btn');
+    if (!btn) return;
+    if (!this._fireModeBound) {
+      this._fireModeBound = true;
+      btn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (this.world) this.world._cycleFireMode();
+      });
+    }
+    const modes = cw ? (cw.fireModes || []) : [];
+    const show = !!(cw && !cw.isFist && !(cw.def && cw.def.melee) && modes.length > 1);
+    btn.style.display = show ? '' : 'none';
+    if (show) {
+      const label = this.world._fireModeLabel(cw.fireMode);
+      if (btn.textContent !== label) btn.textContent = label;
+    }
+  }
 }
 
 /* ============================================================
@@ -1573,6 +1663,7 @@ this._enemySpawnPositions = null;
   this.lastHitDir = 0;
   this.lastHitTime = -10;
   this.soundEvents = []; 
+  this._alerts = []; // 屏幕中上警觉提示（位置暴露等）
 }
 
   start(){
@@ -1753,6 +1844,7 @@ _spawnContainerAt(cx, cz){
   this.containers.push({
     x: cx, z: cz, mesh, body: cBody,
     opened: false, loot: null, revealed: [], searched: false,
+    label: '物资容器',
   });
     this.pois.push({ x: cx, z: cz, type: 'container', color: '#ffcc33' });
 }
@@ -1977,6 +2069,8 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   reserve: magCap * 3,
   fireCd: 0,
   reloading: 0,
+  fireModes: def.fireModes || (def.auto ? ['auto'] : ['semi']),
+  fireMode: (def.fireModes && def.fireModes[0]) || (def.auto ? 'auto' : 'semi'),
   get mag() { return this.loaded.qty; },
   set mag(v) { this.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
 };}
@@ -2003,7 +2097,10 @@ return {
   magCap: def.mag,
   fireCd: 0,
   reloading: 0,
-  // ★ 修复：正确指向 item.loaded.qty
+  fireModes: def.fireModes || (def.auto ? ['auto'] : ['semi']),
+  fireMode: (def.fireModes && def.fireModes[0]) || (def.auto ? 'auto' : 'semi'),
+  // ★ 修复：正确指向 item.loaded.qty，并暴露 loaded 供开火取队列子弹
+  get loaded() { return this.item.loaded; },
   get mag() { return this.item.loaded.qty; },
   set mag(v) { this.item.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
   get reserve() { return self._countAmmoInInventory(inv, def.ammoType); },
@@ -2373,6 +2470,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
 this._updateNearbyList();
   this._updateTracers(dt);
   this._updateMobileButtons();
+  this._tickAlerts(dt);
 
   // ★ 5. 物理同步与渲染
   this.physics.step(dt);
@@ -2560,13 +2658,16 @@ const reloading = this.actionProcess.isRunning('reload');
 if (!this._searching && !isDowned) {
   if (p.fireCd > 0) p.fireCd -= dt;
   const cw = this.currentWeapon;
-  if (!reloading && e.input.isActive('fire') && p.fireCd <= 0 && cw) {
+  if (!reloading && p.fireCd <= 0 && cw) {
   if (cw.isFist || (cw.def && cw.def.melee)) {
-    this._meleeAttack(p, cw);
+    if (e.input.isActive('fire')) this._meleeAttack(p, cw);
   } else if (cw.mag <= 0) {
     this._startReload();
   } else {
-    this._fireWeapon(p, cw, true);
+    // ★ 开火模式：全自动按住连发，单发/半自动/泵动按一下打一发
+    const mode = cw.fireMode || (cw.def && cw.def.auto ? 'auto' : 'semi');
+    const wantFire = mode === 'auto' ? e.input.isActive('fire') : this._edge.fire;
+    if (wantFire) this._fireWeapon(p, cw, true);
   }
 }
 }
@@ -2575,6 +2676,7 @@ if (!this._searching && !isDowned) {
 if (!this._searching && !isDowned) {
   if (this._edge.reload) this._startReload();
   if (this._edge.switchWeapon) this._switchWeapon();
+  if (this._edge.fireMode) this._cycleFireMode();
   if (this._edge.skill1) this._useSkill(0);
   if (this._edge.skill2) this._useSkill(1);
   if (this._edge.weaponSlot1) this._switchToSlot('primary');
@@ -2677,7 +2779,7 @@ _updateSpeedFeedback(dt, isMoving) {
 _refreshEdges() {
   if (!this._actionPrev) this._actionPrev = {};
   if (!this._edge) this._edge = {};
-  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0'];
+  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode'];
   for (let i = 0; i < names.length; i++) {
     const a = names[i];
     const cur = !!this.engine.input.isActive(a);
@@ -2817,6 +2919,20 @@ _switchWeapon(){
   if (!p) return null;
   return p.activeWeapon;
 }
+
+  _fireModeLabel(mode) {
+    return { single: '单发', semi: '半自动', auto: '全自动', pump: '泵动' }[mode] || mode || '—';
+  }
+
+  _cycleFireMode(){
+    const w = this.currentWeapon;
+    if (!w || w.isFist || (w.def && w.def.melee)) return;
+    const modes = w.fireModes || [];
+    if (modes.length <= 1) return;
+    const idx = modes.indexOf(w.fireMode);
+    w.fireMode = modes[(idx + 1) % modes.length];
+    this._log('开火模式：' + this._fireModeLabel(w.fireMode), 'p');
+  }
 
   _startReload(){
 const p = this.player;
@@ -3125,7 +3241,9 @@ const effectiveRange = weaponDef.range || 100;
 const energy = CombatSystem.energyAtRange(baseEnergy, actualDist, effectiveRange, decayK);
 
 // 2. 穿透力衰减：超出有效射程 80% 后，每超出一个有效射程降 1 点
-const basePen = (ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0;
+// ★ 冲压（impulse）是额外穿透加成，与初速动能解耦（如未来的穿甲弹）
+const basePen = ((ammoDef && typeof ammoDef.pen === 'number') ? ammoDef.pen : 0)
+              + ((ammoDef && typeof ammoDef.impulse === 'number') ? ammoDef.impulse : 0);
 let currentPen = basePen;
 if (basePen > 0) {
   const decayStart = effectiveRange * 0.8;
@@ -3726,11 +3844,17 @@ _updateNearbyList() {
   const el = document.getElementById('nearby-list');
   if (!el) return;
   if (!this.player || !this.player.alive) {
-    el.innerHTML = '';
+    if (this._nearbySig !== '') { this._nearbySig = ''; el.innerHTML = ''; }
     return;
   }
 
   const list = this._scanNearby();
+
+  // ★ 只有列表内容变化时才重绘，避免每帧重建 DOM 干扰点击
+  const sig = list.map(i => i.kind + ':' + Math.round(i.dist) + ':' + (i.ref.label || '')).join('|');
+  if (sig === this._nearbySig) return;
+  this._nearbySig = sig;
+
   if (list.length === 0) {
     el.innerHTML = '';
     return;
@@ -3779,72 +3903,118 @@ _openNearbyContainer(entry) {
     return;
   }
 
-  if (entry.kind === 'ground') {
-    const inv = this.engine.app.inventory;
-    if (!target.grid) {
-      target.grid = new GridContainer(4, 4);
-      inv.containers.loot = target.grid;
-      const items = target.loot || [];
-      for (const spec of items) {
-        const extras = { searched: false, qty: spec.qty || 1 };
-        if (spec.extras) Object.assign(extras, spec.extras);
-        if (spec.dur !== undefined) extras.dur = spec.dur;
-        if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
-        if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
-        if (spec.attachments) extras.attachments = spec.attachments;
-        const uid = inv.createItem(spec.table, spec.defId, extras);
-        if (uid) inv.addToContainer('loot', uid);
-      }
-      target.loot = [];
-      target.revealed = [];
-      target.searched = true;
-    }
-    inv.containers.loot = target.grid;
-    for (const uid of target.grid.items.keys()) {
-      inv.parentOf.set(uid, 'c:loot');
-    }
-    this.engine.app.bagUI.openLoot(target);
+  const inv = this.engine.app.inventory;
+  const grid = this._ensureLootGrid(target, entry.kind === 'ground' ? 4 : 8, entry.kind === 'ground' ? 4 : 6);
+
+  // ★ 切到当前容器网格：旧容器里未取走的物品会先解除 c:loot 归属，
+  //   避免"上一个容器物品变成幽灵、这个容器显示不出来"的反复 bug。
+  this._bindLootGrid(grid);
+
+  if (grid.items.size === 0 && target.searched) {
+    this._log('容器已空', 'y');
     return;
   }
 
-  if (entry.kind === 'container') {
-    const inv = this.engine.app.inventory;
-    const gridEmpty = !target.grid || target.grid.items.size === 0;
-    if (target.searched && target.revealed && target.revealed.length === 0 && (!target.loot || target.loot.length === 0) && gridEmpty) {
-      this._log('容器已空', 'y');
-      return;
-    }
-
-    if (!target.grid) {
-      target.grid = new GridContainer(8, 6);
-      inv.containers.loot = target.grid;
-      let items = [];
-      if (target.loot && target.loot.length > 0) items = target.loot;
-      else if (target.revealed && target.revealed.length > 0) items = target.revealed;
-      else if (!target.searched) items = this._generateLootSpecs();
-      for (const spec of items) {
-        const extras = { searched: false, qty: spec.qty || 1 };
-        if (spec.extras) Object.assign(extras, spec.extras);
-        if (spec.dur !== undefined) extras.dur = spec.dur;
-        if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
-        if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
-        if (spec.attachments) extras.attachments = spec.attachments;
-        const uid = inv.createItem(spec.table, spec.defId, extras);
-        if (uid) inv.addToContainer('loot', uid);
-      }
-      target.loot = [];
-      target.revealed = [];
-      target.searched = true;
-    }
-
-    inv.containers.loot = target.grid;
-    for (const uid of target.grid.items.keys()) {
-      inv.parentOf.set(uid, 'c:loot');
-    }
-    this.engine.app.bagUI.openLoot(target);
-    return;
-  }
+  this.engine.app.bagUI.openLoot(target);
 }
+
+  // 生成（或复用）容器/地面物品网格，返回网格
+  _ensureLootGrid(target, w, h) {
+    if (target.grid) return target.grid;
+    const inv = this.engine.app.inventory;
+    // ★ 生成新网格前，先解除旧 loot 网格物品的 c:loot 归属（防幽灵物品）
+    const old = inv.containers.loot;
+    if (old && old !== target.grid) {
+      for (const uid of old.items.keys()) {
+        if (inv.parentOf.get(uid) === 'c:loot') inv.parentOf.set(uid, null);
+      }
+    }
+    target.grid = new GridContainer(w, h);
+    inv.containers.loot = target.grid;
+
+    let items = [];
+    if (target.loot && target.loot.length > 0) items = target.loot;
+    else if (target.revealed && target.revealed.length > 0) items = target.revealed;
+    else if (!target.searched) items = this._generateLootSpecs();
+
+    for (const spec of items) {
+      const extras = { searched: false, qty: spec.qty || 1 };
+      if (spec.extras) Object.assign(extras, spec.extras);
+      if (spec.dur !== undefined) extras.dur = spec.dur;
+      if (spec.loaded && spec.loaded.qty !== undefined) extras.loadedQty = spec.loaded.qty;
+      if (spec.loadedQueue) extras.loadedQueue = spec.loadedQueue;
+      if (spec.attachments) extras.attachments = spec.attachments;
+      const uid = inv.createItem(spec.table, spec.defId, extras);
+      if (uid) inv.addToContainer('loot', uid);
+    }
+    target.loot = [];
+    target.revealed = [];
+    target.searched = true;
+    target.opened = true;
+    return target.grid;
+  }
+
+  // 把指定网格绑定为当前 loot 容器，并维护 parentOf 一致性
+  _bindLootGrid(grid) {
+    const inv = this.engine.app.inventory;
+    if (inv.containers.loot !== grid) {
+      const old = inv.containers.loot;
+      if (old) {
+        for (const uid of old.items.keys()) {
+          if (inv.parentOf.get(uid) === 'c:loot') inv.parentOf.set(uid, null);
+        }
+      }
+      inv.containers.loot = grid;
+    }
+    for (const uid of grid.items.keys()) {
+      inv.parentOf.set(uid, 'c:loot');
+    }
+  }
+
+  // ★ 警觉提示系统（屏幕中上）：level 为警觉度门槛，低于角色警觉度才会显示
+  addAlert(level, text, duration = 3) {
+    // 去重：相同文案刷新持续时间
+    const existing = this._alerts.find(a => a.text === text);
+    if (existing) { existing.ttl = Math.max(existing.ttl, duration); existing.level = level; return; }
+    this._alerts.push({ level, text, ttl: duration });
+  }
+
+  _tickAlerts(dt) {
+    // 敌人进入交战状态 → 位置暴露提示（警觉度 >= 1 可感知）
+    const p = this.player;
+    if (p && p.alive && p.charSpec) {
+      const engaged = this.enemies.some(e => e.alive && e.state === 'combat' && e.targetEntity === p);
+      if (engaged) this.addAlert(1, '位置暴露', 1.5);
+    }
+    for (let i = this._alerts.length - 1; i >= 0; i--) {
+      this._alerts[i].ttl -= dt;
+      if (this._alerts[i].ttl <= 0) this._alerts.splice(i, 1);
+    }
+    this._renderAlerts();
+  }
+
+  _renderAlerts() {
+    const el = document.getElementById('alert-bar');
+    if (!el) return;
+    const p = this.player;
+    const alertness = (p && p.charSpec && p.charSpec.alertness) || 1;
+    const visible = this._alerts.filter(a => a.level <= alertness);
+
+    const sig = visible.map(a => a.level + ':' + a.text).join('|');
+    if (this._alertSig === sig) return;
+    this._alertSig = sig;
+
+    if (visible.length === 0) { el.innerHTML = ''; return; }
+
+    // 横向排列，超过 3 条时右边用三点省略
+    const MAX = 3;
+    let html = '';
+    for (let i = 0; i < Math.min(visible.length, MAX); i++) {
+      html += `<div class="alert-chip">⚠ ${this._esc(visible[i].text)}</div>`;
+    }
+    if (visible.length > MAX) html += `<div class="alert-more">…</div>`;
+    el.innerHTML = html;
+  }
 
    _esc(s){
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -4386,7 +4556,7 @@ _applySkillEffect(p, def){
     if (!this._lastEffectsSet.has(id)) {
       const def = this.engine.content.get('effects', id);
       if (def) {
-        const isPositive = (id === 'moving_speed_up' || id === 'aim_buff');
+        const isPositive = !!def.positive;
         this._showEffectPopup(def.name, def.icon, isPositive);
       }
     }
@@ -4399,16 +4569,17 @@ _applySkillEffect(p, def){
   if (!container) {
     container = document.createElement('div');
     container.id = 'effect-popups';
-    container.style.cssText = 'position:absolute; left:50%; bottom:220px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none; z-index:60;';
+    // ★ 产生时提示：中下靠左、半透明方块，避免长条遮挡
+    container.style.cssText = 'position:absolute; left:20%; bottom:180px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:flex-start; gap:6px; pointer-events:none; z-index:60;';
     const hud = document.getElementById('hud');
     if (hud) { hud.appendChild(container); } else { document.body.appendChild(container); }
   }
   
   const el = document.createElement('div');
-  const bg = isPositive ? 'rgba(80,200,120,.9)' : 'rgba(200,50,50,.9)';
-  const border = isPositive ? 'rgba(120,255,160,.8)' : 'rgba(255,100,100,.8)';
-  el.style.cssText = 'padding:6px 16px; background:' + bg + '; border:1px solid ' + border + '; border-radius:6px; color:#fff; font-size:13px; font-weight:700; letter-spacing:1px; box-shadow:0 4px 12px rgba(0,0,0,.5); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform:translateY(20px) scale(0.9); display:flex; align-items:center; gap:6px;';
-  el.innerHTML = `<span>${icon}</span><span>${name}</span>`;
+  const bg = isPositive ? 'rgba(40,160,90,.45)' : 'rgba(180,40,40,.45)';
+  const border = isPositive ? 'rgba(120,255,170,.6)' : 'rgba(255,110,110,.6)';
+  el.style.cssText = 'padding:8px 12px; background:' + bg + '; border:1px solid ' + border + '; border-radius:8px; color:#fff; font-size:13px; font-weight:700; letter-spacing:1px; box-shadow:0 4px 14px rgba(0,0,0,.45); backdrop-filter:blur(2px); opacity:0; transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform:translateY(16px) scale(0.92); display:flex; align-items:center; gap:8px;';
+  el.innerHTML = `<span style="font-size:16px">${icon}</span><span>${name}</span>`;
   container.appendChild(el);
   
   requestAnimationFrame(() => {
@@ -4417,7 +4588,7 @@ _applySkillEffect(p, def){
   });
   setTimeout(() => {
     el.style.opacity = '0';
-    el.style.transform = 'translateY(-20px) scale(0.9)';
+    el.style.transform = 'translateY(-16px) scale(0.92)';
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
   }, 2500);
 }
@@ -4920,7 +5091,7 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   }
   
   const content = this.engine.content;
-  const tables = ['weapons', 'ammo', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
+  const tables = ['weapons', 'ammo', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
   let html = '';
   
   for (const t of tables) {
@@ -4977,7 +5148,41 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
         p.coupling = p.maxCoupling;
         p.limbDamage = 0;
         p.speedMul = 1;
+        if (p.status) {
+          p.status.blood = p.status.maxBlood;
+          p.status.effects.clear();
+          for (const k in p.status.parts) {
+            const part = p.status.parts[k];
+            part.hp = part.maxHp; part.wound = 0; part.fracture = 0;
+            if (part.wounds) part.wounds = [];
+          }
+          p.status.updateOverallHealth();
+        }
         return 'HP 与耦合能已回满';
+      }
+    });
+
+    dc.register('burn', {
+      desc: '点燃自己测试燃烧效果，用法：burn [档位1-3]',
+      usage: 'burn [1-3]',
+      fn: (args) => {
+        if (!this.world || !this.world.player) return '当前无对局';
+        const s = Math.min(3, Math.max(1, parseInt(args[0], 10) || 1));
+        this.world.player.status.ignite('thorax', s);
+        return '已点燃 ' + s + ' 档燃烧';
+      }
+    });
+
+    dc.register('wound', {
+      desc: '给自己加伤口测试，用法：wound <部位> <等级1-4>',
+      usage: 'wound <part> <level>',
+      fn: (args) => {
+        if (!this.world || !this.world.player) return '当前无对局';
+        const part = args[0] || 'thorax';
+        const lv = Math.min(4, Math.max(1, parseInt(args[1], 10) || 1));
+        this.world.player.status.addWound(part, lv);
+        this.world.player.status.addEffect('bleeding', 999, this.world.player.status.totalWoundLevel());
+        return '已添加 ' + part + ' 伤口 Lv' + lv;
       }
     });
 

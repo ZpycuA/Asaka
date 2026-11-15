@@ -625,6 +625,19 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     if (def.rpm) {
       html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
     }
+    // ★ 开火模式预览
+    if (def.fireModes && def.fireModes.length) {
+      const labels = { single: '单发', semi: '半自动', auto: '全自动', pump: '泵动' };
+      const modeText = def.fireModes.map(m => labels[m] || m).join(' / ');
+      html += `<div>开火模式：${this._esc(modeText)}</div>`;
+    }
+    // ★ 冲压（弹药额外穿透加成）与脚本层效果预览
+    if (typeof def.impulse === 'number' && def.impulse > 0) {
+      html += `<div>冲压：+${def.impulse} 穿透</div>`;
+    }
+    if (def.effects && def.effects.length) {
+      html += `<div>效果：${this._esc(def.effects.map(e => (e && e.name ? e.name : e)).join(' · '))}</div>`;
+    }
 
     if (item.table === 'weapons') {
       if (!item.loaded) {
@@ -1368,6 +1381,17 @@ _swapEquipmentSlots(inv, srcSlot, dstSlot) {
     const def = inv.getDef(target);
     const ammoDef = inv.getDef(item);
     if (def && ammoDef && def.ammoType === ammoDef.caliber) {
+      // ★ 战局内把子弹拖进手持武器 → 走换弹动作（吃换弹时间惩罚），
+      //   避免绕过 realisticReload / 换弹打断等机制。
+      const world = this.engine.app && this.engine.app.world;
+      if (world && world.running && inv === this.inv) {
+        const cw = world.currentWeapon;
+        if (cw && !cw.isFist && !(cw.def && cw.def.melee) && cw.item === target) {
+          world._startReload();
+          return;
+        }
+      }
+      // 仓库 / 非手持武器：直接压弹
       const space = (def.mag || 0) - target.loaded.qty;
       if (space > 0) {
         const take = Math.min(item.qty, space);
