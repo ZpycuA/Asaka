@@ -102,6 +102,9 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #fx-skill-lines{opacity:0;z-index:14;mix-blend-mode:screen;background-repeat:repeat;background-size:220px 220px;background-image:repeating-linear-gradient(115deg,transparent 0 18px,var(--sk-color,rgba(255,90,190,.55)) 18px 19px,transparent 19px 48px);animation:sk-lines 2.2s linear infinite}
 #fx-skill-lines.on{opacity:.55}
 #fx-skill-lines.fast{animation-duration:1.1s}
+#drone-interference{position:fixed;inset:0;z-index:414;pointer-events:none;opacity:0;transition:opacity .12s;background:repeating-linear-gradient(0deg,rgba(80,220,255,.10) 0 2px,transparent 2px 5px);mix-blend-mode:screen}
+#drone-interference.on{opacity:.7;animation:drone-glitch .16s steps(2) infinite}
+@keyframes drone-glitch{0%{transform:translate(0,0);filter:none}50%{transform:translate(-2px,1px);filter:hue-rotate(25deg)}100%{transform:translate(2px,-1px);filter:none}}
 @keyframes sk-lines{from{background-position:0 0}to{background-position:220px 220px}}
 #dmg-indicator{position:absolute;inset:0;pointer-events:none;z-index:15}
 #crosshair{position:absolute;left:50%;top:50%;width:24px;height:24px;transform:translate(-50%,-50%);pointer-events:none;z-index:20}
@@ -211,6 +214,23 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   #skill-bar{display:none}
   #throwable-hint{display:none!important}
 }
+/* 死亡回放：保留玩家同款 HUD，只隐藏战局专属面板 */
+#hud.replay-hud #top-left,
+#hud.replay-hud #minimap-container,
+#hud.replay-hud #kill-feed,
+#hud.replay-hud #nearby-list,
+#hud.replay-hud #weapon-bar,
+#hud.replay-hud #skill-bar,
+#hud.replay-hud #alert-bar,
+#hud.replay-hud #protect-group,
+#hud.replay-hud #extract-progress,
+#hud.replay-hud #nade-wheel-btn,
+#hud.replay-hud #fiber-pull-btn,
+#hud.replay-hud #throwable-hint,
+#hud.replay-hud #drone-panel,
+#hud.replay-hud #drone-hud,
+#hud.replay-hud #training-attack-panel,
+#hud.replay-hud #training-settings-btn{display:none!important}
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
 #extract-fill{height:100%;width:0%;background:linear-gradient(90deg,#3fd0ff,#a2f0ff);transition:width .1s}
@@ -354,7 +374,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 <div id="game-screen" class="screen">
   <canvas id="game-canvas"></canvas>
   <div id="hud">
-    <div id="fx-filter"></div><div id="fx-vignette"></div><div id="fx-coupling"></div><div id="fx-hit-flash"></div><div id="fx-skill"></div><div id="fx-skill-lines"></div>
+    <div id="fx-filter"></div><div id="fx-vignette"></div><div id="fx-coupling"></div><div id="fx-hit-flash"></div><div id="fx-skill"></div><div id="fx-skill-lines"></div><div id="drone-interference"></div>
     <canvas id="dmg-indicator"></canvas>
     <canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16"></canvas>
     
@@ -376,8 +396,13 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
     <div id="top-left">
       <div class="task-panel"><div class="panel-title">📋 任务</div><div id="task-list"></div></div>
     </div>
+    <div id="training-attack-panel" style="display:none;position:absolute;left:12px;top:178px;width:214px;padding:8px 10px;background:rgba(8,18,28,.86);border:1px solid rgba(120,190,255,.4);border-radius:8px;color:#cfe4f8;font-size:10px;line-height:1.6;z-index:27;pointer-events:none;font-family:ui-monospace,monospace">
+      <div style="color:#7fe8ff;font-weight:800;letter-spacing:2px;margin-bottom:3px">靶场攻击数据</div>
+      <div id="training-attack-body">—</div>
+    </div>
+    <button id="training-settings-btn" style="display:none;position:absolute;left:12px;top:340px;z-index:28;pointer-events:auto;padding:5px 10px;border-radius:6px;background:rgba(40,80,130,.8);border:1px solid rgba(110,180,255,.55);color:#cfe8ff;font-size:10px;font-family:inherit;cursor:pointer;touch-action:manipulation">靶场设置</button>
     <div id="drone-panel" style="display:none;position:absolute;left:12px;top:160px;padding:8px 10px;background:rgba(10,20,32,.88);border:1px solid rgba(80,200,255,.5);border-radius:8px;color:#bfe8ff;font-size:11px;line-height:1.6;z-index:27;pointer-events:none;min-width:170px"></div>
-    <div id="drone-hud"><div class="dh-title">🛸 侦察无人机</div><div id="drone-hud-stats">电量 100% · 耐久 70/70</div><div class="dh-line">攻击键：光学标记 · G / 按钮：投掷标记信标 · 空格升 / C 降 · Y 退出</div><button id="drone-throw-btn" style="margin-top:5px;pointer-events:auto;padding:3px 10px;border-radius:5px;background:rgba(80,160,220,.55);border:1px solid rgba(120,220,255,.7);color:#dff6ff;font-size:10px;font-family:inherit;cursor:pointer">投掷标记信标</button></div>
+    <div id="drone-hud"><div class="dh-title">🛸 侦察无人机</div><div id="drone-hud-stats">电量 100% · 耐久 70/70</div><div class="dh-line">攻击键：光学标记 · 空格升 / C 降 · Y 退出</div><div style="display:flex;gap:4px;justify-content:center;margin-top:5px"><button id="drone-frag-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(200,100,60,.65);border:1px solid rgba(255,160,100,.8);color:#ffe0d0;font-size:10px;font-family:inherit;cursor:pointer">手雷 ×2</button><button id="drone-emp-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(80,200,180,.55);border:1px solid rgba(120,255,220,.8);color:#dffeff;font-size:10px;font-family:inherit;cursor:pointer">EMP ×2</button><button id="drone-throw-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(80,160,220,.55);border:1px solid rgba(120,220,255,.7);color:#dff6ff;font-size:10px;font-family:inherit;cursor:pointer">标记信标</button></div></div>
     
     <div id="bottom-left">
       <div class="player-panel">
@@ -459,6 +484,38 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
     <div style="display:flex;gap:12px">
       <button class="btn" id="btn-again" style="padding:10px 30px">再来一次</button>
       <button class="btn primary" id="btn-menu" style="padding:10px 30px">返回菜单</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="training-modal" style="z-index:80">
+    <div style="width:min(520px,92vw);max-height:82vh;overflow-y:auto;padding:16px 20px;background:rgba(10,18,30,.98);border:1px solid rgba(110,180,255,.45);border-radius:12px;text-align:left">
+      <h2 style="font-size:18px;letter-spacing:4px;margin:0 0 12px;color:#a8d8ff">靶场设置</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;font-size:12px;color:#cfe4f8">
+        <label><input type="checkbox" id="tr-show-damage"> 显示伤害数字</label>
+        <label><input type="checkbox" id="tr-show-panel"> 显示攻击数据面板</label>
+        <label><input type="checkbox" id="tr-infinite-ammo"> 无限子弹</label>
+        <label><input type="checkbox" id="tr-infinite-nades"> 无限投掷物</label>
+        <label><input type="checkbox" id="tr-skills"> 启用技能</label>
+        <label><input type="checkbox" id="tr-nocd"> 技能无冷却</label>
+        <label><input type="checkbox" id="tr-dummy-move"> 人偶移动</label>
+        <div></div>
+        <label>人偶血量
+          <select id="tr-dummy-hp" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px">
+            <option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option>
+          </select>
+        </label>
+        <label>人偶护甲
+          <select id="tr-dummy-armor" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px">
+            <option value="0" selected>无</option><option value="3">3 级</option><option value="4">4 级</option><option value="5">5 级</option>
+          </select>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn ghost" id="tr-refill" style="padding:8px 16px;font-size:12px">补满配装</button>
+        <button class="btn ghost" id="tr-restart" style="padding:8px 16px;font-size:12px">重开靶场</button>
+        <button class="btn primary" id="tr-apply" style="padding:8px 18px;font-size:12px">应用</button>
+        <button class="btn ghost" id="tr-close" style="padding:8px 16px;font-size:12px">关闭</button>
+      </div>
     </div>
   </div>
 </div>
