@@ -622,6 +622,21 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     if (item.durMax > 0) {
       html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;
     }
+    // ★ 重量
+    const unitW = item.weight || def.weight || 0;
+    if (unitW > 0) {
+      const totalW = unitW * (item.qty || 1);
+      html += `<div>重量：${unitW.toFixed(2)} kg${item.qty > 1 ? `（合计 ${totalW.toFixed(2)} kg）` : ''}</div>`;
+    }
+    // ★ 弹药数值
+    if (item.table === 'ammo') {
+      const parts = [];
+      if (def.caliber) parts.push('口径 ' + def.caliber);
+      if (def.massG !== undefined) parts.push('弹头 ' + def.massG + 'g');
+      if (def.v0 !== undefined) parts.push('初速 ' + def.v0 + 'm/s');
+      if (def.pen !== undefined) parts.push('穿透 ' + def.pen);
+      if (parts.length) html += `<div>${this._esc(parts.join(' · '))}</div>`;
+    }
     if (def.rpm) {
       html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
     }
@@ -636,7 +651,9 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       html += `<div>冲压：+${def.impulse} 穿透</div>`;
     }
     if (def.effects && def.effects.length) {
-      html += `<div>效果：${this._esc(def.effects.map(e => (e && e.name ? e.name : e)).join(' · '))}</div>`;
+      const effNames = { incendiary: '燃烧', glassfiber: '玻纤滞留' };
+      const effText = def.effects.map(e => (e && e.name ? e.name : (effNames[e] || e))).join(' · ');
+      html += `<div>效果：${this._esc(effText)}</div>`;
     }
 
     if (item.table === 'weapons') {
@@ -1193,6 +1210,13 @@ _swapEquipmentSlots(inv, srcSlot, dstSlot) {
 
   _handleEquipDrop(uid, slot, targetInv) {
     targetInv = targetInv || this.inv;
+    // ★ 叶·拟载：被拟载覆盖的护具槽位锁定（只能查看，不能替换）
+    const world = this.engine.app && this.engine.app.world;
+    const pl = world && world.player;
+    if (pl && pl._mimicLock && ['helmetShell', 'helmetVisor', 'vestFiber', 'vestPlate'].includes(slot)) {
+      if (world._log) world._log('拟载护具锁定，无法替换', 'y');
+      return false;
+    }
     const srcInv = this.inv.items.has(uid)
       ? this.inv
       : (this.viewInv && this.viewInv.items.has(uid) ? this.viewInv : null);
@@ -1407,6 +1431,20 @@ _swapEquipmentSlots(inv, srcSlot, dstSlot) {
 
   const targetParent = inv.parentOf.get(targetUid);
   const srcParent = inv.parentOf.get(uid);
+
+  // ★ 同种可堆叠物（弹药等）拖到同种堆上：直接合并数量，不交换位置
+  if (item.table === target.table && item.defId === target.defId && (target.stackLimit || 1) > 1) {
+    const limit = target.stackLimit || 1;
+    const space = limit - target.qty;
+    if (space > 0) {
+      const take = Math.min(item.qty, space);
+      target.qty += take;
+      item.qty -= take;
+      if (item.qty <= 0) inv.destroyItem(uid);
+      this.refresh();
+      return;
+    }
+  }
 
   if (item.table === target.table) {
     if (targetParent && targetParent.startsWith('eq:')) {

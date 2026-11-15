@@ -60,6 +60,15 @@ const CONTAINER_DEFAULTS = {
 
 const WEAPON_ATTACH_SLOTS = ['muzzle', 'sight', 'mag', 'grip'];
 
+// 未显式配置重量时的兜底（单位：kg；弹药为单发重量）
+const DEFAULT_ITEM_WEIGHT = {
+  weapons: 3.0, ammo: 0.012, melee: 0.5,
+  helmetShell: 1.3, helmetVisor: 0.7, helmetEar: 0.12,
+  vestFiber: 3.0, vestPlate: 2.6,
+  backpack: 1.5, chestRig: 0.9,
+  nade: 0.6, cons: 0.1, attach: 0.3,
+};
+
 /* ====================== GridContainer ====================== */
 export class GridContainer {
   constructor(w = 0, h = 0) {
@@ -139,6 +148,9 @@ export class Inventory {
       effects: [],
       valueMul,
       stackLimit: def.stackLimit || STACK_LIMITS[table] || 1,
+      // ★ 重量（kg；弹药为单发重量，堆叠时乘以数量）
+      weight: extras.weight !== undefined ? extras.weight
+        : (def.weight !== undefined ? def.weight : (DEFAULT_ITEM_WEIGHT[table] || 0.2)),
       // ★ 网格字段
       w: def.w || 1,
       h: def.h || 1,
@@ -275,6 +287,53 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
       total += this.getContainerValue(name);
     }
     return total;
+  }
+
+  /* ====================== 重量 ====================== */
+  // 单件物品重量（含配件与内部容器物品）
+  getItemWeight(itemOrUid) {
+    const item = typeof itemOrUid === 'string' ? this.items.get(itemOrUid) : itemOrUid;
+    if (!item) return 0;
+    const def = this.getDef(item);
+    const unit = item.weight !== undefined ? item.weight
+      : (def && def.weight !== undefined ? def.weight : (DEFAULT_ITEM_WEIGHT[item.table] || 0.2));
+    let w = unit * (item.qty || 1);
+    if (item.attachments) {
+      for (const k in item.attachments) {
+        if (item.attachments[k]) w += this.getItemWeight(item.attachments[k]);
+      }
+    }
+    if (item.innerGrid) {
+      for (const [uid] of item.innerGrid.items) w += this.getItemWeight(uid);
+    }
+    return w;
+  }
+
+  getContainerWeight(name) {
+    const c = this.containers[name];
+    if (!c) return 0;
+    let w = 0;
+    for (const uid of c.items.keys()) w += this.getItemWeight(uid);
+    return w;
+  }
+
+  // 携带重量：装备槽（背包/胸挂只算本体，内容物由 chest/bag 容器统计）+ chest/pocket/bag/safe
+  getCarryWeight() {
+    let w = 0;
+    const eqSlots = ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
+    for (const slot of eqSlots) {
+      const uid = this.equipped[slot];
+      if (!uid) continue;
+      const item = this.items.get(uid);
+      if (!item) continue;
+      if (slot === 'backpack' || slot === 'chestRig') {
+        w += (item.weight || 0) * (item.qty || 1);
+      } else {
+        w += this.getItemWeight(item);
+      }
+    }
+    for (const name of ['chest', 'pocket', 'bag', 'safe']) w += this.getContainerWeight(name);
+    return w;
   }
 
   /* ====================== 网格辅助 ====================== */

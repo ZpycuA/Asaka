@@ -25,11 +25,13 @@ export function registerDefaultContent(engine) {
    ⚠ 这两者独立：tier 高不代表穿透高，反之亦然
    ========================================================== */
 const AMMO = {
-  '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    w: 1, h: 1, caliber: '9mm', massG: 8.0,  v0: 360, tier: 0, pen: 0, impulse: 0, effects: [], value: 15, rarity: 'L0', stackLimit: 999 },
-  '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    w: 1, h: 1, caliber: '5.56', massG: 4.0,  v0: 940, tier: 2, pen: 3, impulse: 1, effects: [], value: 60, rarity: 'L1', stackLimit: 999 },
-'7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, caliber: '7.62', massG: 8.0,  v0: 800, tier: 2, pen: 5, impulse: 2, effects: [], value: 80, rarity: 'L2', stackLimit: 999 }, // ★ v0 从 730 提到 800
-'.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, caliber: '.45acp', massG: 14.9, v0: 290, tier: 0, pen: 1, impulse: 1, effects: [], value: 25, rarity: 'L0', stackLimit: 999 },
-  '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   w: 1, h: 1, caliber: '12ga', massG: 3.5,  v0: 410, tier: 0, pen: 0, impulse: 0, effects: [], value: 40, rarity: 'L0', stackLimit: 999 },
+  '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    w: 1, h: 1, weight: 0.008, caliber: '9mm', massG: 8.0,  v0: 360, tier: 0, pen: 0, impulse: 0, effects: [], value: 15, rarity: 'L0', stackLimit: 999 },
+  '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    w: 1, h: 1, weight: 0.012, caliber: '5.56', massG: 4.0,  v0: 940, tier: 2, pen: 3, impulse: 1, effects: [], value: 60, rarity: 'L1', stackLimit: 999 },
+'7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, weight: 0.016, caliber: '7.62', massG: 8.0,  v0: 800, tier: 2, pen: 5, impulse: 2, effects: [], value: 80, rarity: 'L2', stackLimit: 999 }, // ★ v0 从 730 提到 800
+'.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, weight: 0.015, caliber: '.45acp', massG: 14.9, v0: 290, tier: 0, pen: 1, impulse: 1, effects: [], value: 25, rarity: 'L0', stackLimit: 999 },
+  '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   w: 1, h: 1, weight: 0.045, caliber: '12ga', massG: 3.5,  v0: 410, tier: 0, pen: 0, impulse: 0, effects: [], value: 40, rarity: 'L0', stackLimit: 999 },
+  'dragon': { name: 'content.ammo.dragon.name', desc: 'content.ammo.dragon.desc', w: 1, h: 1, weight: 0.05, caliber: '12ga', massG: 3.5, v0: 410, tier: 2, pen: 0, impulse: 0, effects: ['incendiary'], burn: 1, burnLevel: 2, value: 180, rarity: 'L2', stackLimit: 999 },
+  'glassfiber': { name: 'content.ammo.glassfiber.name', desc: 'content.ammo.glassfiber.desc', w: 1, h: 1, weight: 0.014, caliber: '5.56', massG: 4.0, v0: 940, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, value: 420, rarity: 'L4', stackLimit: 999 },
 };
   c.registerAll('ammo', AMMO);
 
@@ -46,12 +48,12 @@ const AMMO = {
      pellets:   每次射击弹丸数（霰弹 > 1）
      ========================================================== */
   const WEAPONS = {
-  p9:    { name: 'content.weapon.p9.name',    desc: 'content.weapon.p9.desc',    w: 2, h: 1, ammoType: '9mm',    rpm: 420, mag: 15, reload: 1.5, range: 80,  spread: 0.032, auto: false, fireModes: ['semi'], pellets: 1, color: 0x6a6a7a, value: 600,  rarity: 'L0', stackLimit: 1, recoil: 20, stability: 50, handling: 80, adsSpread: 0.01, drop: 0.01, falloff: 0.5 },
-  smg45: { name: 'content.weapon.smg45.name', desc: 'content.weapon.smg45.desc', w: 3, h: 1, ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  fireModes: ['auto'], pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1, recoil: 30, stability: 40, handling: 75, adsSpread: 0.02, drop: 0.015, falloff: 0.6 },
-  ar556: { name: 'content.weapon.ar556.name', desc: 'content.weapon.ar556.desc', w: 4, h: 2, ammoType: '5.56',   rpm: 850, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  fireModes: ['semi', 'auto'], pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1, recoil: 40, stability: 60, handling: 65, adsSpread: 0.005, drop: 0.02, falloff: 0.4 },
-ak762: { name: 'content.weapon.ak762.name', desc: 'content.weapon.ak762.desc', w: 4, h: 2, ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  fireModes: ['auto', 'semi'], pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1, recoil: 55, stability: 45, handling: 55, adsSpread: 0.01, drop: 0.025, falloff: 0.5 },
-sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w: 5, h: 2, ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 350, spread: 0.002, auto: false, fireModes: ['single'], pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1, recoil: 80, stability: 95, handling: 30, adsSpread: 0.0, drop: 0.005, falloff: 0.1 }, // ★ range 250->350
-  sg12:  { name: 'content.weapon.sg12.name',  desc: 'content.weapon.sg12.desc',  w: 4, h: 2, ammoType: '12ga',   rpm: 85,  mag: 6,  reload: 3.0, range: 35,  spread: 0.100, auto: false, fireModes: ['pump'], pellets: 9, color: 0x5a4a2a, value: 2500, rarity: 'L3', stackLimit: 1, recoil: 70, stability: 50, handling: 50, adsSpread: 0.05, drop: 0.01, falloff: 0.8 },
+  p9:    { name: 'content.weapon.p9.name',    desc: 'content.weapon.p9.desc',    w: 2, h: 1, weight: 0.8, ammoType: '9mm',    rpm: 420, mag: 15, reload: 1.5, range: 80,  spread: 0.032, auto: false, fireModes: ['semi'], pellets: 1, color: 0x6a6a7a, value: 600,  rarity: 'L0', stackLimit: 1, recoil: 20, stability: 50, handling: 80, adsSpread: 0.01, drop: 0.01, falloff: 0.5 },
+  smg45: { name: 'content.weapon.smg45.name', desc: 'content.weapon.smg45.desc', w: 3, h: 1, weight: 2.5, ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  fireModes: ['auto'], pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1, recoil: 30, stability: 40, handling: 75, adsSpread: 0.02, drop: 0.015, falloff: 0.6 },
+  ar556: { name: 'content.weapon.ar556.name', desc: 'content.weapon.ar556.desc', w: 4, h: 2, weight: 3.6, ammoType: '5.56',   rpm: 850, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  fireModes: ['semi', 'auto'], pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1, recoil: 40, stability: 60, handling: 65, adsSpread: 0.005, drop: 0.02, falloff: 0.4 },
+ak762: { name: 'content.weapon.ak762.name', desc: 'content.weapon.ak762.desc', w: 4, h: 2, weight: 4.0, ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  fireModes: ['auto', 'semi'], pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1, recoil: 55, stability: 45, handling: 55, adsSpread: 0.01, drop: 0.025, falloff: 0.5 },
+sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w: 5, h: 2, weight: 6.5, ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 350, spread: 0.002, auto: false, fireModes: ['single'], pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1, recoil: 80, stability: 95, handling: 30, adsSpread: 0.0, drop: 0.005, falloff: 0.1 }, // ★ range 250->350
+  sg12:  { name: 'content.weapon.sg12.name',  desc: 'content.weapon.sg12.desc',  w: 4, h: 2, weight: 3.8, ammoType: '12ga',   rpm: 85,  mag: 6,  reload: 3.0, range: 35,  spread: 0.100, auto: false, fireModes: ['pump'], pellets: 9, color: 0x5a4a2a, value: 2500, rarity: 'L3', stackLimit: 1, recoil: 70, stability: 50, handling: 50, adsSpread: 0.05, drop: 0.01, falloff: 0.8 },
 };
   c.registerAll('weapons', WEAPONS);
 
@@ -132,7 +134,7 @@ const MELEE = {
   knife: {
     name: 'content.melee.knife.name',
     desc: 'content.melee.knife.desc',
-    w: 2, h: 1,
+    w: 2, h: 1, weight: 0.25,
     damage: 700,
     range: 3,
     cooldown: 0.65,
@@ -155,14 +157,56 @@ const NADES = {
   frag: {
     name: 'content.nade.frag.name',
     desc: 'content.nade.frag.desc',
-    w: 1, h: 1,
+    w: 1, h: 1, weight: 0.6,
     damage: 1800,
     radius: 6,
     fuse: 3,
+    effect: 'frag',
     value: 300,
     rarity: 'L1',
     stackLimit: 3,
     color: 0x3a3a3a,
+  },
+  flashbang: {
+    name: 'content.nade.flash.name',
+    desc: 'content.nade.flash.desc',
+    w: 1, h: 1, weight: 0.35,
+    damage: 0,
+    radius: 12,
+    fuse: 1.6,
+    effect: 'flash',
+    flashDuration: 2.6,
+    value: 250,
+    rarity: 'L2',
+    stackLimit: 3,
+    color: 0xd8d8d8,
+  },
+  stun: {
+    name: 'content.nade.stun.name',
+    desc: 'content.nade.stun.desc',
+    w: 1, h: 1, weight: 0.45,
+    damage: 0,
+    radius: 9,
+    fuse: 1.6,
+    effect: 'stun',
+    stunDuration: 3,
+    value: 220,
+    rarity: 'L2',
+    stackLimit: 3,
+    color: 0x8a8ad8,
+  },
+  emp: {
+    name: 'content.nade.emp.name',
+    desc: 'content.nade.emp.desc',
+    w: 1, h: 1, weight: 0.5,
+    damage: 0,
+    radius: 14,
+    fuse: 2,
+    effect: 'emp',
+    value: 260,
+    rarity: 'L3',
+    stackLimit: 3,
+    color: 0x66ffcc,
   },
 };
 c.registerAll('nade', NADES);
@@ -235,7 +279,8 @@ c.registerAll('nade', NADES);
     weapon: 'ar556', sidearm: 'p9',
     prazer: false, A: 0, alertness: 1,
     color: 0x5a6b7c,
-    skills: ['drone', 'rally'],
+    skills: ['drone', 'inspire'],
+    passive: 'intuition',
     staminaRegen: { move: 1.5, idle: 6 },
     sprintCost: 2.5,
   },
@@ -245,7 +290,8 @@ c.registerAll('nade', NADES);
     weapon: 'sr762', sidearm: 'p9',
     prazer: true, A: 3, alertness: 4,
     color: 0xff9ec4,
-    skills: ['jump', 'aimbuff'],
+    skills: ['srdispte', 'catleap'],
+    passive: 'stress',
     staminaRegen: { move: 2.0, idle: 8 },
     sprintCost: 2.0,
   },
@@ -255,7 +301,8 @@ c.registerAll('nade', NADES);
     weapon: 'ar556', sidearm: 'smg45',
     prazer: true, A: 3, alertness: 2,
     color: 0xffb066,
-    skills: ['dash', 'suppress'],
+    skills: ['hate', 'suppress'],
+    passive: 'covey',
     staminaRegen: { move: 2.0, idle: 8 },
     sprintCost: 2.0,
   },
@@ -265,7 +312,9 @@ c.registerAll('nade', NADES);
     weapon: 'sg12', sidearm: 'p9',
     prazer: false, A: 0, alertness: 1,
     color: 0xc8e05a,
-    skills: ['shield', 'taunt'],
+    skills: ['radiantReturn', 'backflash'],
+    passive: 'adapt',
+    carryBonus: 0.25,
     staminaRegen: { move: 1.5, idle: 6 },
     sprintCost: 2.5,
   },
@@ -309,11 +358,60 @@ c.registerAll('nade', NADES);
      cd:   冷却（秒）
      ========================================================== */
   const SKILLS = {
+    // ================= 队长 · 侦察/辅助 =================
+    drone: {
+      name: 'content.skill.drone.name',
+      kind: 'drone',
+      cd: 90, cost: 0, duration: 30,
+      batteryDrain: 3.3, maxDurability: 60,
+      markRadius: 28, markInterval: 8, alertLevel: 3,
+    },
+    inspire: {
+      name: 'content.skill.inspire.name',
+      kind: 'inspire',
+      cd: 45, cost: 10, duration: 8,
+      negativeResist: 0.3, handlingBonus: 0.25,
+    },
+    // ================= 凯特 · 突击/狙击 =================
+    srdispte: {
+      name: 'content.skill.srdispte.name',
+      kind: 'srdispte',
+      cd: 90, cost: 20, minCoupling: 60, drain: 2,
+      speedMul: 1.25, adsSpreadMul: 0.5,
+    },
+    catleap: {
+      name: 'content.skill.catleap.name',
+      kind: 'catleap',
+      cd: 8, cost: 5, maxCharges: 2, leap: 6, chargeRecover: 12,
+    },
+    // ================= 玲娜 · 突击 =================
+    hate: {
+      name: 'content.skill.hate.name',
+      kind: 'hate',
+      cd: 90, cost: 20, minCoupling: 60, drain: 3,
+      speedMul: 1.35, reloadMul: 0.35, fireRateMul: 1.4,
+    },
+    suppress: {
+      name: 'content.skill.suppress.name',
+      kind: 'suppress',
+      cd: 30, cost: 10, duration: 8,
+    },
+    // ================= 叶 · 拟载 =================
+    radiantReturn: {
+      name: 'content.skill.radiantReturn.name',
+      kind: 'mimicArmor',
+      cd: 100, cost: 0, duration: 20,
+      armorLv: 7, durability: 400,
+    },
+    backflash: {
+      name: 'content.skill.backflash.name',
+      kind: 'backflash',
+      cd: 20, cost: 0, duration: 6, flashRadius: 9, speedMul: 1.2,
+    },
+    // ================= 兼容旧 id（当前角色未使用） =================
     jump:     { name: 'content.skill.jump.name',     kind: 'dash',       cd: 20, cost: 10, distance: 5,  invuln: 0.3 },
     aimbuff:  { name: 'content.skill.aimbuff.name',  kind: 'timedBuff',  cd: 45, cost: 15, duration: 3,  effect: 'aimBuff' },
     dash:     { name: 'content.skill.dash.name',     kind: 'timedBuff',  cd: 25, cost: 12, duration: 5,  effect: 'speedBuff' },
-    suppress: { name: 'content.skill.suppress.name', kind: 'timedBuff',  cd: 60, cost: 20, duration: 4,  effect: 'suppress' },
-    drone:    { name: 'content.skill.drone.name',    kind: 'drone',      cd: 30, cost: 0,  duration: 25, markRadius: 20, markDuration: 15 },
     rally:    { name: 'content.skill.rally.name',    kind: 'healPercent',cd: 75, cost: 0,  percent: 0.15 },
     shield:   { name: 'content.skill.shield.name',   kind: 'timedBuff',  cd: 30, cost: 0,  duration: 5,  effect: 'shield' },
     taunt:    { name: 'content.skill.taunt.name',    kind: 'taunt',      cd: 60, cost: 0,  duration: 3 },
@@ -370,6 +468,10 @@ c.registerAll('nade', NADES);
   hypovolemia:   { name: '失血过多', icon: '💔', positive: false, awareness: 0 },
   pain:          { name: '疼痛',     icon: '💢', positive: false, awareness: 0 },
   burning:       { name: '燃烧',     icon: '🔥', positive: false, awareness: 0 },
+  fiber_acute:   { name: '玻纤滞留·急性', icon: '🧪', positive: false, awareness: 0 },
+  fiber_chronic: { name: '玻纤滞留·慢性', icon: '🧬', positive: false, awareness: 0 },
+  blind:         { name: '闪光失明', icon: '😵', positive: false, awareness: 0 },
+  stun:          { name: '震撼',     icon: '💫', positive: false, awareness: 0 },
   moving_speed_up:{ name: '加速',     icon: '💨', positive: true,  awareness: 0 },
   aim_buff:      { name: '精准',     icon: '🎯', positive: true,  awareness: 0 },
 };

@@ -387,11 +387,21 @@ export class CombatLog {
     }));
 
     /* ---- 状态 ---- */
-    this.register('downed', e => ({
-      cls: 'down',
-      head: `💀 倒地`,
-      body: `HP ${fmtNum(e.hp)}/${fmtNum(e.maxHp)}`,
-    }));
+    this.register('downed', e => {
+      if (e.self) {
+        return {
+          cls: 'down',
+          head: `💀 我方倒地`,
+          body: '丧失行动能力，等待救援或结算',
+        };
+      }
+      const tgt = e.target ? (e.target.name || '?') : '?';
+      return {
+        cls: 'down',
+        head: `💀 击倒 ${esc(tgt)}`,
+        body: '失去行动能力',
+      };
+    });
 
     this.register('revived', e => ({
       cls: 'revive',

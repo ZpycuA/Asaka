@@ -102,10 +102,10 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #crosshair .line-h{position:absolute;top:11px;width:6px;height:2px;background:#fff;box-shadow:0 0 2px #000}
 #crosshair .line-v{position:absolute;left:11px;width:2px;height:6px;background:#fff;box-shadow:0 0 2px #000}
 #hit-marker{position:absolute;inset:0;opacity:0;transition:opacity 0.1s}
-#armor-hit-indicator{position:absolute;left:50%;top:50%;width:42px;height:42px;transform:translate(-50%,-50%);border:2px solid rgba(255,255,255,.85);border-radius:50%;display:none;align-items:center;justify-content:center;background:rgba(20,30,44,.55);box-sizing:border-box}
+#armor-hit-indicator{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);border:1.5px solid rgba(255,255,255,.85);border-radius:50%;display:none;align-items:center;justify-content:center;background:transparent;box-sizing:border-box;pointer-events:none}
 #armor-hit-indicator.on{display:flex}
 #armor-hit-indicator.broken{border-style:dashed;border-color:rgba(255,140,140,.95)}
-#armor-hit-icon{font-size:18px;line-height:1;text-shadow:0 1px 2px #000}
+#armor-hit-icon{font-size:13px;line-height:1;text-shadow:0 1px 2px #000}
 #minimap-container{position:absolute;right:12px;top:64px;width:150px;height:150px;border-radius:8px;overflow:hidden;border:2px solid rgba(100,160,220,.5);background:rgba(230,236,244,.92);z-index:25;display:none}
 #kill-feed{position:absolute;right:176px;top:64px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:280px;z-index:25;pointer-events:none;font-size:12px;color:#fff;text-shadow:0 1px 3px #000}
 #top-left{position:absolute;left:12px;top:12px;pointer-events:auto}
@@ -131,13 +131,20 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .weapon-name{font-size:13px;font-weight:700;color:#cfe6ff;letter-spacing:1px}
 .next-ammo{font-size:11px;color:#ffd93d;margin-top:2px}
 .ammo-text{font-size:28px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
-.fire-mode-btn{pointer-events:auto;padding:3px 10px;font-size:11px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.75);border:1px solid rgba(120,190,255,.8);color:#e0f0ff;font-family:inherit}
-#fire-mode-btn{position:absolute;right:16px;bottom:152px;z-index:40}
+.fire-mode-btn{pointer-events:auto;padding:2px 8px;font-size:10.5px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.75);border:1px solid rgba(120,190,255,.8);color:#e0f0ff;font-family:inherit}
 /* 当前状态图标（屏幕最下方，图标显示，绿=正面 / 红=负面） */
 #status-bar{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26}
 #status-bar .status-chip{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #status-bar .status-chip.neg{background:rgba(180,40,40,.42);border:1px solid rgba(255,110,110,.65);color:#fff}
 #status-bar .status-chip.pos{background:rgba(40,160,90,.42);border:1px solid rgba(120,255,170,.65);color:#fff}
+/* 技能栏：Q/E 名称 + 冷却 */
+#skill-bar{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);display:flex;gap:8px;z-index:26;pointer-events:none}
+.skill-slot{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:rgba(14,22,34,.82);border:1px solid rgba(80,125,175,.3);font-size:11px;color:#6f8fae;min-width:104px}
+.skill-slot.ready{border-color:rgba(120,190,255,.7);color:#e0f0ff}
+.skill-slot .sk-key{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:rgba(0,0,0,.45);font-size:9px;color:#a8d8ff;flex-shrink:0}
+.skill-slot .sk-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-slot .sk-cd{font-size:10px;color:#ffd93d;font-family:ui-monospace,monospace;flex-shrink:0}
+#throwable-hint{position:absolute;left:50%;bottom:196px;transform:translateX(-50%);z-index:27;pointer-events:none;padding:4px 12px;background:rgba(20,30,44,.85);border:1px solid rgba(255,200,90,.5);border-radius:6px;color:#ffe8b0;font-size:12px;display:none;white-space:nowrap}
 /* 屏幕中上：警觉度提示（位置暴露等），横向排列，溢出省略 */
 #alert-bar{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26;max-width:72%;overflow:hidden}
 #alert-bar .alert-chip{flex-shrink:0;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:1px;background:rgba(200,140,30,.5);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;box-shadow:0 2px 8px rgba(0,0,0,.4);backdrop-filter:blur(2px)}
@@ -176,7 +183,14 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   #nearby-list{right:8px;top:42%;max-width:150px;max-height:100px;overflow-y:auto}
   #protect-group{left:8px;bottom:250px}
   #status-bar{bottom:46px}
-  #fire-mode-btn{left:8px;right:auto;bottom:48px}
+  /* 移动端武器框压缩，给下方操作键让位 */
+  .weapon-box{padding:4px 8px}
+  .weapon-box .carry-line{display:none}
+  .weapon-box .ammo-text{font-size:22px}
+  .weapon-box .next-ammo{font-size:10px}
+  .weapon-box .weapon-name{font-size:11px}
+  #skill-bar{display:none}
+  #throwable-hint{display:none!important}
 }
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
@@ -353,6 +367,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
         </div>
         <div id="effect-bar" style="display:none"></div>
         <div class="stat-row"><span style="color:#ffd93d">体力</span><div class="bar" style="height:6px"><div id="stamina-bar" style="background:#ffd93d;width:100%"></div></div></div>
+        <div class="stat-row" id="weight-row"><span style="color:#8fb0cc">负重</span><span id="carry-weight" style="font-size:11px;color:#cfe4f8">0.0 / 24 kg</span><span id="load-state" style="font-size:10px;color:#6fe07a;margin-left:auto">正常</span></div>
         <div class="stat-row" id="cp-row"><span>耦合</span><div class="bar"><div id="cp-bar" style="background:#3fa8ff"></div><span id="cp-text">100%</span></div></div>
         <div class="armor-row" id="armor-row">
           <div class="armor-cell" data-slot="shell"><div class="armor-icon">⛑</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
@@ -367,16 +382,20 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div class="weapon-box">
         <div class="wb-top">
           <span class="weapon-name" id="weapon-name"></span>
+          <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
         </div>
         <div class="next-ammo" id="next-ammo"></div>
         <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
-        <div style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
+        <div class="carry-line" style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
       </div>
     </div>
 
      <div id="weapon-bar"></div>
 <div id="nearby-list"></div>
 <div id="status-bar"></div>
+<div id="skill-bar"></div>
+<div id="throwable-hint"></div>
+<button id="fiber-pull-btn" style="display:none;position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.75);border:1px solid rgba(255,120,120,.7);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">拔除玻纤</button>
 <div id="alert-bar"></div>
      
     <div id="protect-group">
@@ -393,9 +412,6 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
      </div>  <!-- hud 内其他内容 -->
 
   </div>  <!-- #hud 闭合 -->
-
-  <!-- 开火模式：独立于 HUD 层，避免被移动端虚拟按键/其它 HUD 遮挡 -->
-  <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
 
   <div id="action-progress">
     <div id="action-progress-label" style="font-size:11px;color:#ffe8a8;margin-bottom:4px">换弹</div>
