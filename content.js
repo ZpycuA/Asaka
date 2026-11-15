@@ -396,19 +396,19 @@ c.registerAll('nade', NADES);
   factory: {
     name: 'content.map.factory.name',
     desc: 'content.map.factory.desc',
-    size: 200, obstacleCount: 60, enemyCount: 18,
+    size: 200, obstacleCount: 60, enemyCount: 24,
     layoutUrl: 'maps/factory.json',
   },
   desert: {
     name: 'content.map.desert.name',
     desc: 'content.map.desert.desc',
-    size: 240, obstacleCount: 45, enemyCount: 22,
+    size: 240, obstacleCount: 45, enemyCount: 28,
     layoutUrl: 'maps/desert.json',
   },
   lab: {
     name: 'content.map.lab.name',
     desc: 'content.map.lab.desc',
-    size: 180, obstacleCount: 80, enemyCount: 20,
+    size: 180, obstacleCount: 80, enemyCount: 22,
     layoutUrl: 'maps/lab.json',
   },
 };
@@ -562,6 +562,8 @@ c.registerAll('nade', NADES);
   intuition:     { name: '直觉与回忆', icon: '👁', positive: true, awareness: 0 },
   adapt:         { name: '适应',     icon: '🧩', positive: true,  awareness: 0 },
   suppressed:    { name: '被压制',   icon: '😖', positive: false, awareness: 0 },
+  weakness:      { name: '精力虚弱', icon: '🥀', positive: false, awareness: 0 },
+  hate_backlash: { name: '血液反噬', icon: '🩸', positive: false, awareness: 0 },
   melee_ready:   { name: '白刃',     icon: '🔪', positive: true,  awareness: 0 },
 };
 c.registerAll('effects', EFFECTS);

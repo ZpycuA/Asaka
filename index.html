@@ -153,6 +153,18 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .skill-slot .sk-cd{font-size:10px;color:#ffd93d;font-family:ui-monospace,monospace;flex-shrink:0}
 #throwable-hint{position:absolute;left:50%;bottom:196px;transform:translateX(-50%);z-index:27;pointer-events:none;padding:4px 12px;background:rgba(20,30,44,.85);border:1px solid rgba(255,200,90,.5);border-radius:6px;color:#ffe8b0;font-size:12px;display:none;white-space:nowrap}
 /* 屏幕中上：警觉度提示（位置暴露等），横向排列，溢出省略 */
+/* 无人机操控：隐藏人类武器/投掷 UI，换成无人机专用 HUD */
+#hud.drone-mode #bottom-right,
+#hud.drone-mode #weapon-bar,
+#hud.drone-mode #nade-wheel-btn,
+#hud.drone-mode #throwable-hint,
+#hud.drone-mode #protect-group,
+#hud.drone-mode #skill-bar{display:none!important}
+#drone-hud{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:27;pointer-events:none;padding:8px 16px;border-radius:8px;background:rgba(8,22,36,.9);border:1px solid rgba(80,200,255,.6);color:#bfe8ff;font-size:11px;letter-spacing:1px;display:none;text-align:center;box-shadow:0 0 18px rgba(50,180,255,.18)}
+#drone-hud.on{display:block}
+#drone-hud .dh-title{font-size:12px;font-weight:800;color:#7be8ff;letter-spacing:3px;margin-bottom:4px}
+#drone-hud .dh-line{color:#8fb0c8;font-size:10px;margin-top:3px}
+#drone-hud b{color:#e0f8ff}
 #alert-bar{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26;max-width:72%;overflow:hidden}
 #alert-bar .alert-chip{flex-shrink:0;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:1px;background:rgba(200,140,30,.5);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;box-shadow:0 2px 8px rgba(0,0,0,.4);backdrop-filter:blur(2px)}
 #alert-bar .alert-more{flex-shrink:0;font-size:15px;color:#ffe8b0;font-weight:700}
@@ -365,6 +377,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div class="task-panel"><div class="panel-title">📋 任务</div><div id="task-list"></div></div>
     </div>
     <div id="drone-panel" style="display:none;position:absolute;left:12px;top:160px;padding:8px 10px;background:rgba(10,20,32,.88);border:1px solid rgba(80,200,255,.5);border-radius:8px;color:#bfe8ff;font-size:11px;line-height:1.6;z-index:27;pointer-events:none;min-width:170px"></div>
+    <div id="drone-hud"><div class="dh-title">🛸 侦察无人机</div><div id="drone-hud-stats">电量 100% · 耐久 70/70</div><div class="dh-line">攻击键：光学标记 · G / 按钮：投掷标记信标 · 空格升 / C 降 · Y 退出</div><button id="drone-throw-btn" style="margin-top:5px;pointer-events:auto;padding:3px 10px;border-radius:5px;background:rgba(80,160,220,.55);border:1px solid rgba(120,220,255,.7);color:#dff6ff;font-size:10px;font-family:inherit;cursor:pointer">投掷标记信标</button></div>
     
     <div id="bottom-left">
       <div class="player-panel">
