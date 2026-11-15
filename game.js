@@ -2386,7 +2386,7 @@ this.trainingStats = config.kind === 'training' ? {
   fightStart: 0, lastTtk: null, kills: 0,
 } : null;
 
-this.mapSpec  = engine.content.get('maps', this.mapId);
+this.mapSpec  = config.mapSpec || engine.content.get('maps', this.mapId);
 this.charSpec = engine.content.get('characters', this.charId);
 this.modeConfig = engine.modeRegistry.get(this.modeId);
 
@@ -2438,6 +2438,14 @@ this._enemySpawnPositions = null;
   this._replayBuf = [];
   this._replayShots = [];
   this._replayFps = 10;
+  // ★ 死亡回放：与快照同时间轴的表现事件（爆炸/闪光/屏幕闪白等）。
+  //   状态类效果（致盲/震撼/燃烧…）直接读实体快照里的 effects，
+  //   以后新增持续效果只要写入 status.effects 就会自动出现在回放里。
+  this._replayFx = [];
+  this._replayFxMuted = false;
+  this._replayBadges = new Map();
+  this._replayBadgeTextures = new Map();
+  this._nadeWheelOpen = false;
 }
 
   start(){
@@ -3460,6 +3468,9 @@ _updatePlayer(dt){
   const e = this.engine;
   this._refreshEdges();
   this._updateSkillStates(dt);
+  // ★ 投掷轮盘打开时冻结玩家输入：避免点击轮盘触发开火/切枪，
+  //   同时用 _refreshEdges 吃掉这一帧的边沿，关闭后不会补放技能。
+  if (this._nadeWheelOpen) return;
   if (this.training) {
     // 靶场默认保持满耦合/满体力，便于反复测试技能与移动
     p.coupling = p.maxCoupling;
@@ -4337,7 +4348,8 @@ _meleeAttack(owner, weapon) {
     }
   }
 
-  _spawnExplosionFX(x, y, z) {
+  _spawnExplosionFX(x, y, z, silent) {
+    if (!silent && !this._replayFxMuted) this._recordReplayFx('explosion', { x, y, z });
     const geo = new THREE.SphereGeometry(0.5, 12, 8);
     const mat = new THREE.MeshBasicMaterial({ color: 0xffaa44, transparent: true, opacity: 0.8 });
     const mesh = new THREE.Mesh(geo, mat);
@@ -4373,7 +4385,7 @@ _meleeAttack(owner, weapon) {
     }
   }
 
-  _blindOverlay(duration, intensity) {
+  _ensureBlindOverlay() {
     let el = document.getElementById('blind-overlay');
     if (!el) {
       el = document.createElement('div');
@@ -4381,6 +4393,11 @@ _meleeAttack(owner, weapon) {
       el.style.cssText = 'position:fixed;inset:0;z-index:410;pointer-events:none;opacity:0;transition:opacity .12s;background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.95) 0%, rgba(255,255,255,.85) 18%, rgba(0,0,0,.98) 55%, #000 100%)';
       document.body.appendChild(el);
     }
+    return el;
+  }
+
+  _blindOverlay(duration, intensity) {
+    const el = this._ensureBlindOverlay();
     el.style.transition = 'opacity .12s';
     el.style.opacity = String(Math.min(0.98, 0.4 + intensity * 0.6));
     setTimeout(() => {
@@ -4433,98 +4450,291 @@ _meleeAttack(owner, weapon) {
     return false;
   }
 
+  /* ===================== 投掷物轮盘（径向） =====================
+     设计目标：
+       1. 中心圆 + 上/右/下/左（多物品时自动扩展为 8 向）大扇区，
+          不再是一列小按钮，避免“点不到/点空”。
+       2. PC 端保持 Pointer Lock，用鼠标位移推动虚拟摇杆，松手/点击确认；
+          不再反复 exitPointerLock/requestPointerLock，杜绝闪屏。
+       3. 触屏端直接在任意位置按下、拖向扇区、松手确认；中间圆取消。
+     ============================================================ */
   _buildNadeWheel() {
-    if (document.getElementById('nade-wheel')) return;
-    if (!document.getElementById('nade-wheel-css')) {
-      const st = document.createElement('style');
+    let st = document.getElementById('nade-wheel-css');
+    if (!st) {
+      st = document.createElement('style');
       st.id = 'nade-wheel-css';
-      st.textContent = `
-        #nade-wheel{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;pointer-events:none;background:rgba(4,8,14,.55)}
-        #nade-wheel.on{display:flex;pointer-events:auto}
-        #nade-wheel .nw-box{width:min(340px,86vw);max-height:72vh;display:flex;flex-direction:column;padding:12px;background:rgba(10,18,30,.97);border:1px solid rgba(255,200,90,.6);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.7);pointer-events:auto}
-        #nade-wheel .nw-title{color:#ffe8b0;font-size:13px;font-weight:800;letter-spacing:3px;margin-bottom:8px;text-align:center}
-        #nade-wheel .nw-items{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:60px}
-        #nade-wheel .nw-item{width:100%;padding:10px 12px;border-radius:7px;background:rgba(30,42,58,.95);border:1px solid rgba(255,200,90,.45);color:#ffe8b0;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;text-align:left;pointer-events:auto;touch-action:manipulation}
-        #nade-wheel .nw-item:hover{background:rgba(75,60,25,.98);border-color:rgba(255,220,100,.95)}
-        #nade-wheel .nw-close{margin-top:8px;padding:7px;border-radius:6px;background:rgba(40,80,130,.8);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;font-size:12px;font-family:inherit;cursor:pointer;pointer-events:auto}
-        #nade-wheel .nw-empty{color:#6f8fae;font-size:12px;text-align:center;padding:14px}
-      `;
       document.head.appendChild(st);
     }
-    const el = document.createElement('div');
-    el.id = 'nade-wheel';
-    el.innerHTML = '<div class="nw-box"><div class="nw-title">投掷物 · T 关闭</div><div class="nw-items"></div><button class="nw-close" id="nw-close">关闭</button></div>';
-    document.body.appendChild(el);
-    const closeWheel = () => {
-      el.classList.remove('on');
-      const canvas = this.engine.renderer.canvas;
-      if (canvas && typeof canvas.requestPointerLock === 'function') {
-        try { canvas.requestPointerLock(); } catch (_) {}
-      }
-    };
-    el.addEventListener('click', (e) => { if (e.target === el) closeWheel(); });
-    const closeBtn = document.getElementById('nw-close');
-    if (closeBtn) closeBtn.onclick = closeWheel;
-    this._closeNadeWheel = closeWheel;
+    // 每次都覆盖旧样式，避免历史版本缓存导致新轮盘仍走旧布局
+    st.textContent = `
+      #nade-wheel{position:fixed;inset:0;z-index:9999;display:none;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;background:radial-gradient(circle at 50% 50%,rgba(4,8,14,.24) 0%,rgba(4,8,14,.68) 72%)}
+      #nade-wheel.on{display:block}
+      #nade-wheel .nw-hint{position:absolute;left:50%;top:calc(50% - 214px);transform:translateX(-50%);color:#ffd98a;font-size:11px;letter-spacing:2px;font-weight:700;white-space:nowrap;text-shadow:0 1px 4px #000;pointer-events:none;opacity:.9}
+      #nade-wheel .nw-center{position:absolute;left:50%;top:50%;width:108px;height:108px;transform:translate(-50%,-50%);border-radius:50%;background:rgba(10,18,30,.97);border:2px solid rgba(255,200,90,.55);box-shadow:0 0 0 6px rgba(255,200,90,.06),0 10px 34px rgba(0,0,0,.7);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;pointer-events:none;z-index:3}
+      #nade-wheel .nw-center-title{color:#ffe8b0;font-size:12px;font-weight:800;letter-spacing:1px;max-width:92px;text-align:center;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      #nade-wheel .nw-center-sub{color:#8fa6bd;font-size:9px;letter-spacing:1px;max-width:92px;text-align:center;line-height:1.2}
+      #nade-wheel .nw-slots{position:absolute;inset:0;pointer-events:none;z-index:2}
+      #nade-wheel .nw-slot{position:absolute;left:50%;top:50%;width:clamp(96px,19vw,132px);min-height:64px;transform:translate(-50%,-50%) translate(var(--x),var(--y));display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:rgba(14,24,38,.96);border:1px solid rgba(255,200,90,.4);color:#ffe8b0;box-shadow:0 6px 20px rgba(0,0,0,.55);transition:transform .12s,background .12s,border-color .12s,box-shadow .12s;pointer-events:none}
+      #nade-wheel .nw-slot.active{background:rgba(86,63,18,.98);border-color:rgba(255,226,120,1);box-shadow:0 0 0 2px rgba(255,210,90,.4),0 0 26px rgba(255,180,60,.5);transform:translate(-50%,-50%) translate(var(--x),var(--y)) scale(1.08)}
+      #nade-wheel .nw-icon{font-size:22px;line-height:1;flex:0 0 auto}
+      #nade-wheel .nw-text{display:flex;flex-direction:column;min-width:0;text-align:left}
+      #nade-wheel .nw-name{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:88px}
+      #nade-wheel .nw-qty{font-size:10px;color:#c8a860;line-height:1.4}
+      #nade-wheel .nw-aim{position:absolute;left:50%;top:50%;height:2px;width:0;transform:translateY(-50%) rotate(0rad);transform-origin:0 50%;background:linear-gradient(90deg,rgba(255,220,120,.08),rgba(255,220,120,.85));border-radius:2px;opacity:.22;pointer-events:none;z-index:1}
+    `;
+
+    let el = document.getElementById('nade-wheel');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'nade-wheel';
+      document.body.appendChild(el);
+    }
+    // 兼容旧版本残留的 list 轮盘 DOM
+    if (!el.querySelector('.nw-slots')) {
+      el.innerHTML =
+        '<div class="nw-hint">移动鼠标 / 手指选择 · 松开或点击确认</div>' +
+        '<div class="nw-aim"></div>' +
+        '<div class="nw-slots"></div>' +
+        '<div class="nw-center"><div class="nw-center-title">投掷物</div><div class="nw-center-sub">取消</div></div>';
+    }
+
+    if (!this._wheelBound) {
+      this._wheelBound = true;
+      const canvas = () => this.engine.renderer.canvas;
+      this._onWheelPointerMove = (ev) => {
+        if (!this._nadeWheelOpen) return;
+        if (document.pointerLockElement === canvas()) {
+          this._updateWheelAim(ev.movementX || 0, ev.movementY || 0, false);
+        } else {
+          this._updateWheelAim(ev.clientX, ev.clientY, true);
+        }
+      };
+      this._onWheelPointerDown = (ev) => {
+        if (!this._nadeWheelOpen) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._wheelPressing = true;
+        if (document.pointerLockElement !== canvas()) {
+          this._updateWheelAim(ev.clientX, ev.clientY, true);
+        }
+      };
+      this._onWheelPointerUp = (ev) => {
+        if (!this._nadeWheelOpen) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (document.pointerLockElement !== canvas()) {
+          this._updateWheelAim(ev.clientX, ev.clientY, true);
+        }
+        this._wheelPressing = false;
+        this._wheelPick();
+      };
+      this._onWheelKey = (ev) => {
+        if (!this._nadeWheelOpen) return;
+        const k = ev.key;
+        if (k === 'Escape' || k.toLowerCase() === 't') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          this._closeNadeWheel();
+          return;
+        }
+        if (/^[1-9]$/.test(k)) {
+          const idx = parseInt(k, 10) - 1;
+          if (this._wheelItems && this._wheelItems[idx]) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._selectThrowable(this._wheelItems[idx].defId);
+          }
+        }
+      };
+      this._onWheelPointerCancel = () => {
+        if (this._nadeWheelOpen) this._closeNadeWheel();
+      };
+      // Pointer Lock 下个别浏览器只派发 mouse 事件，补一层 mouse 兜底；
+      // 重复触发时第二次会因为 _nadeWheelOpen 已 false 而直接返回。
+      this._onWheelMouseDown = (ev) => {
+        if (!this._nadeWheelOpen) return;
+        this._wheelPressing = true;
+        if (document.pointerLockElement !== canvas()) {
+          this._updateWheelAim(ev.clientX, ev.clientY, true);
+        }
+      };
+      this._onWheelMouseUp = (ev) => {
+        if (!this._nadeWheelOpen) return;
+        if (document.pointerLockElement !== canvas()) {
+          this._updateWheelAim(ev.clientX, ev.clientY, true);
+        }
+        this._wheelPressing = false;
+        this._wheelPick();
+      };
+      document.addEventListener('pointermove', this._onWheelPointerMove, true);
+      document.addEventListener('pointerdown', this._onWheelPointerDown, true);
+      document.addEventListener('pointerup', this._onWheelPointerUp, true);
+      document.addEventListener('pointercancel', this._onWheelPointerCancel, true);
+      document.addEventListener('mousedown', this._onWheelMouseDown, true);
+      document.addEventListener('mouseup', this._onWheelMouseUp, true);
+      window.addEventListener('keydown', this._onWheelKey, true);
+    }
   }
 
   _toggleNadeWheel() {
+    if (this.replayMode) return;
+    const p = this.player;
+    if (!p || !p.alive) return;
     this._buildNadeWheel();
+    if (this._nadeWheelOpen) { this._closeNadeWheel(); return; }
+    this._openNadeWheel();
+  }
+
+  _openNadeWheel() {
     const el = document.getElementById('nade-wheel');
     if (!el) return;
-    if (el.classList.contains('on')) {
-      el.classList.remove('on');
-      // 关闭后恢复鼠标锁定
-      const canvas = this.engine.renderer.canvas;
-      if (canvas && typeof canvas.requestPointerLock === 'function') {
-        try { canvas.requestPointerLock(); } catch (_) {}
-      }
-      return;
-    }
-    // 打开轮盘必须先释放指针锁定，否则没有鼠标指针可点
-    if (document.pointerLockElement) document.exitPointerLock();
+    this._nadeWheelOpen = true;
+    this._wheelPressing = false;
+    this._wheelActive = -1;
+    this._wheelAim = { x: 0, y: 0 };
+    // 打开轮盘时取消正在按住的投掷瞄准，避免关闭后立刻把手雷扔出去
+    if (this.player) this.player._throwAiming = false;
+    this._clearThrowPreview();
+    this._wheelHadLock = document.pointerLockElement === this.engine.renderer.canvas;
     this._renderNadeWheel();
     el.classList.add('on');
+    this._updateWheelAim(0, 0, false);
   }
 
   _renderNadeWheel() {
     const el = document.getElementById('nade-wheel');
     if (!el) return;
-    const wrap = el.querySelector('.nw-items');
-    wrap.innerHTML = '';
+    const wrap = el.querySelector('.nw-slots');
+    if (wrap) wrap.innerHTML = '';
     const list = this._getThrowableList();
-    if (list.length === 0) {
-      wrap.innerHTML = '<div class="nw-empty">背包里没有投掷物</div>';
+    this._wheelItems = list;
+    this._wheelCenterX = window.innerWidth / 2;
+    this._wheelCenterY = window.innerHeight / 2;
+    this._wheelRadius = Math.max(122, Math.min(178, Math.min(window.innerWidth, window.innerHeight) * 0.27));
+    const n = list.length;
+    // 上/右/下/左为默认四向；3 个时自动均分，5~8 个时扩展为环形
+    this._wheelAngles = n > 0
+      ? Array.from({ length: n }, (_, i) => -Math.PI / 2 + i * (Math.PI * 2 / n))
+      : [];
+    const centerTitle = el.querySelector('.nw-center-title');
+    const centerSub = el.querySelector('.nw-center-sub');
+    if (n === 0) {
+      if (centerTitle) centerTitle.textContent = '没有投掷物';
+      if (centerSub) centerSub.textContent = '点击任意处关闭';
+      this._wheelActive = -1;
       return;
     }
-    for (const it of list) {
-      const btn = document.createElement('button');
-      btn.className = 'nw-item';
-      btn.type = 'button';
-      const icon = it.def.effect === 'flash' ? '⚡' : (it.def.effect === 'stun' ? '💫' : (it.def.effect === 'emp' ? '📡' : '💣'));
-      btn.textContent = icon + ' ' + this.engine.i18n.t(it.def.name) + ' ×' + it.qty;
-      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
-      btn.addEventListener('click', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        this._selectThrowable(it.defId);
-      });
-      wrap.appendChild(btn);
+    if (centerTitle) centerTitle.textContent = '投掷物';
+    if (centerSub) centerSub.textContent = '中间取消';
+    for (let i = 0; i < n; i++) {
+      const it = list[i];
+      const ang = this._wheelAngles[i];
+      const x = Math.cos(ang) * this._wheelRadius;
+      const y = Math.sin(ang) * this._wheelRadius;
+      const icon = it.def.effect === 'flash' ? '⚡'
+        : (it.def.effect === 'stun' ? '💫'
+        : (it.def.effect === 'emp' ? '📡' : '💣'));
+      const slot = document.createElement('div');
+      slot.className = 'nw-slot';
+      slot.dataset.index = String(i);
+      slot.style.setProperty('--x', x.toFixed(1) + 'px');
+      slot.style.setProperty('--y', y.toFixed(1) + 'px');
+      slot.innerHTML =
+        '<div class="nw-icon">' + icon + '</div>' +
+        '<div class="nw-text"><div class="nw-name">' + this._esc(String(this.engine.i18n.t(it.def.name))) + '</div>' +
+        '<div class="nw-qty">×' + (it.qty || 1) + '</div></div>';
+      if (wrap) wrap.appendChild(slot);
     }
+  }
+
+  _updateWheelAim(dx, dy, absolute) {
+    if (!this._nadeWheelOpen) return;
+    const el = document.getElementById('nade-wheel');
+    if (!el) return;
+    const centerX = this._wheelCenterX || window.innerWidth / 2;
+    const centerY = this._wheelCenterY || window.innerHeight / 2;
+    if (absolute) {
+      this._wheelAim = { x: dx - centerX, y: dy - centerY };
+    } else {
+      this._wheelAim.x += dx;
+      this._wheelAim.y += dy;
+    }
+    const maxR = Math.max(50, (this._wheelRadius || 140) * 1.05);
+    let ax = this._wheelAim.x;
+    let ay = this._wheelAim.y;
+    const rawLen = Math.hypot(ax, ay);
+    if (rawLen > maxR) {
+      ax = ax / rawLen * maxR;
+      ay = ay / rawLen * maxR;
+    }
+    this._wheelAim = { x: ax, y: ay };
+    const dist = Math.hypot(ax, ay);
+    let active = -1;
+    if (dist > 34 && this._wheelItems && this._wheelItems.length) {
+      const ang = Math.atan2(ay, ax);
+      let best = Infinity;
+      for (let i = 0; i < this._wheelAngles.length; i++) {
+        let d = Math.abs(ang - this._wheelAngles[i]);
+        while (d > Math.PI) d = Math.abs(d - Math.PI * 2);
+        if (d < best) { best = d; active = i; }
+      }
+    }
+    this._wheelActive = active;
+    const slots = el.querySelectorAll('.nw-slot');
+    for (let i = 0; i < slots.length; i++) slots[i].classList.toggle('active', i === active);
+    const aim = el.querySelector('.nw-aim');
+    if (aim) {
+      aim.style.width = dist.toFixed(1) + 'px';
+      aim.style.transform = 'translateY(-50%) rotate(' + Math.atan2(ay, ax).toFixed(3) + 'rad)';
+      aim.style.opacity = active >= 0 ? '1' : '0.22';
+    }
+    const centerTitle = el.querySelector('.nw-center-title');
+    const centerSub = el.querySelector('.nw-center-sub');
+    if (active >= 0 && this._wheelItems && this._wheelItems[active]) {
+      if (centerTitle) centerTitle.textContent = this.engine.i18n.t(this._wheelItems[active].def.name);
+      if (centerSub) centerSub.textContent = '松开 / 点击确认';
+    } else {
+      if (centerTitle) centerTitle.textContent = (this._wheelItems && this._wheelItems.length) ? '投掷物' : '没有投掷物';
+      if (centerSub) centerSub.textContent = (this._wheelItems && this._wheelItems.length) ? '移到扇区选择' : '点击任意处关闭';
+    }
+  }
+
+  _wheelPick() {
+    if (!this._nadeWheelOpen) return;
+    if (this._wheelActive >= 0 && this._wheelItems && this._wheelItems[this._wheelActive]) {
+      this._selectThrowable(this._wheelItems[this._wheelActive].defId);
+    } else {
+      this._closeNadeWheel();
+    }
+  }
+
+  _closeNadeWheel(restoreLock = true) {
+    const wasOpen = this._nadeWheelOpen;
+    this._nadeWheelOpen = false;
+    this._wheelPressing = false;
+    this._wheelActive = -1;
+    this._wheelItems = [];
+    const el = document.getElementById('nade-wheel');
+    if (el) el.classList.remove('on');
+    if (wasOpen && restoreLock && this._wheelHadLock) {
+      const canvas = this.engine.renderer.canvas;
+      if (canvas && !document.pointerLockElement && typeof canvas.requestPointerLock === 'function') {
+        try {
+          const p = canvas.requestPointerLock();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch (_) {}
+      }
+    }
+    this._wheelHadLock = false;
   }
 
   _selectThrowable(defId) {
     const p = this.player;
     const def = this.engine.content.get('nade', defId);
-    if (!p || !def) return;
+    if (!p || !def) { this._closeNadeWheel(); return; }
     p.activeThrowable = defId;
     p._throwAiming = false;
-    const el = document.getElementById('nade-wheel');
-    if (el) el.classList.remove('on');
-    // 选完恢复鼠标锁定（点击扇区是用户手势）
-    const canvas = this.engine.renderer.canvas;
-    if (canvas && typeof canvas.requestPointerLock === 'function') {
-      try { canvas.requestPointerLock(); } catch (_) {}
-    }
+    this._closeNadeWheel();
     this._log('已选择投掷物：' + this.engine.i18n.t(def.name) + '（长按攻击键瞄准，松手投出）', 'p');
   }
 
@@ -5494,8 +5704,7 @@ if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
 }
 this._removeHeldThrowable();
 this._clearThrowPreview();
-const _nw = document.getElementById('nade-wheel');
-if (_nw) _nw.classList.remove('on');
+this._closeNadeWheel(false);
 // 死亡瞬间关闭技能屏幕特效，避免闭眼/回放时残留粉色/橙色滤镜
 const _fxS = document.getElementById('fx-skill');
 if (_fxS) { _fxS.style.opacity = '0'; _fxS.style.boxShadow = ''; }
@@ -5528,7 +5737,12 @@ if (replayFrames.length) {
   const last = replayFrames[replayFrames.length - 1];
   const fall = {
     t: last.t + 0.28,
-    p: { x: last.p.x, y: last.p.y, z: last.p.z, angle: last.p.angle, alive: false, downed: true },
+    p: {
+      x: last.p.x, y: last.p.y, z: last.p.z, angle: last.p.angle,
+      alive: false, downed: true,
+      hp: last.p.hp, blood: last.p.blood,
+      effects: Array.isArray(last.p.effects) ? last.p.effects.slice() : [],
+    },
     enemies: last.enemies.map(e => ({ ...e })),
   };
   replayFrames.push(fall);
@@ -5539,6 +5753,7 @@ this._deathRecord = {
   killerIdx,
   frames: replayFrames.length >= 2 ? replayFrames : [],
   shots: this._replayShots.slice(-120),
+  fx: this._replayFx.slice(-160),
   time: this.time,
   killerFaction: kc && kc.spec ? kc.spec.faction : '',
 };
@@ -5653,6 +5868,57 @@ _clearEyelids() {
     if (bottom) bottom.style.transition = 'none';
   }, 200);
 }
+
+  // ★ 统一清空全屏表现层。
+  //   死亡时 _updateDeathCamera 会把 fx-filter 写成暗红蒙版、把眼皮合上；
+  //   回放/重开/退出时必须一次性复位，否则回放会带着“自己重伤”的 HUD 蒙版。
+  _resetScreenFx() {
+    this._clearEyelids();
+    const filterEl = document.getElementById('fx-filter');
+    if (filterEl) {
+      filterEl.style.background = '';
+      filterEl.style.opacity = '';
+      filterEl.style.backdropFilter = '';
+    }
+    const vignEl = document.getElementById('fx-vignette');
+    if (vignEl) vignEl.style.opacity = '0';
+    const couplingEl = document.getElementById('fx-coupling');
+    if (couplingEl) {
+      couplingEl.style.boxShadow = 'none';
+      couplingEl.style.opacity = '';
+    }
+    const hitEl = document.getElementById('fx-hit-flash');
+    if (hitEl) {
+      hitEl.style.opacity = '0';
+      hitEl.style.background = '';
+    }
+    const skillEl = document.getElementById('fx-skill');
+    if (skillEl) {
+      skillEl.style.opacity = '0';
+      skillEl.style.boxShadow = '';
+      skillEl.style.background = '';
+    }
+    const linesEl = document.getElementById('fx-skill-lines');
+    if (linesEl) linesEl.classList.remove('on', 'fast');
+    const blindEl = document.getElementById('blind-overlay');
+    if (blindEl) blindEl.style.opacity = '0';
+    const flashEl = document.getElementById('flash-overlay');
+    if (flashEl) flashEl.style.opacity = '0';
+    const droneEl = document.getElementById('drone-interference');
+    if (droneEl) {
+      droneEl.classList.remove('on');
+      droneEl.style.opacity = '0';
+    }
+    document.getElementById('action-progress')?.classList.remove('on');
+    document.getElementById('extract-progress')?.classList.remove('on');
+    const dmgCanvas = document.getElementById('dmg-indicator');
+    if (dmgCanvas) {
+      const ctx = dmgCanvas.getContext && dmgCanvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, dmgCanvas.width, dmgCanvas.height);
+    }
+    const hitMarker = document.getElementById('hit-marker');
+    if (hitMarker) hitMarker.style.opacity = '0';
+  }
 
 // ★ 死亡相机每帧驱动：快速后仰倒地 + 撞击震屏 + 闭眼
 _updateDeathCamera(dt) {
@@ -5804,18 +6070,26 @@ _updateDeathCamera(dt) {
   }
 
   // ===================== 死亡回放（整场快照重建） =====================
-  _startReplay(frames, killerName, shots, killerIdx){
+  _startReplay(frames, killerName, shots, killerIdx, fxEvents){
     if (!frames || frames.length < 2) return false;
+    if (this._nadeWheelOpen) this._closeNadeWheel(false);
+    if (document.pointerLockElement) document.exitPointerLock();
+    this._hideKillcamLabel();
+    // ★ 关键：死亡时残留的眼皮、暗红蒙版、受击闪光、技能滤镜必须先清掉
+    this._resetScreenFx();
     this._replayFrames = frames;
     this._replayName = killerName || '敌人';
     this._replayShots = (shots || []).slice();
+    this._replayFxEvents = (fxEvents || []).slice();
     this._replayKillerIdx = (killerIdx !== undefined && killerIdx !== null) ? killerIdx : -1;
     this._replayT = 0;
     this._replayDur = Math.min(12, (frames.length - 1) / (this._replayFps || 10));
     this._replayStartT = frames[0].t;
     this._replayShotCursor = 0;
+    this._replayFxCursor = 0;
     this._replayRecoil = 0;
     this._replayLastHp = null;
+    this._replayDmgTimer = null;
     this.lastHitTime = -10;
     this._replayKillerFaction = '';
     const killerEnt = this._replayKillerIdx >= 0 ? this.enemies[this._replayKillerIdx] : null;
@@ -5826,8 +6100,7 @@ _updateDeathCamera(dt) {
     // 回放时把玩家实体显示出来：击杀者视角必须能看见“我”
     if (this.player && this.player.mesh) this.player.mesh.visible = true;
     this._removeHeldThrowable();
-    const nw = document.getElementById('nade-wheel');
-    if (nw) nw.classList.remove('on');
+    this._closeNadeWheel(false);
     // 第一人称枪模挂在相机上，回放必须隐藏，否则画面里会飘着一把枪
     if (this.player && this.player.weaponGroup) {
       this._replayWeaponVisible = this.player.weaponGroup.visible;
@@ -5895,6 +6168,156 @@ _updateDeathCamera(dt) {
     if (this._replayHiddenKiller && this._replayHiddenKiller.mesh) {
       this._replayHiddenKiller.mesh.visible = false;
     }
+    this._applyReplayEffects(A, B, a);
+  }
+
+  // 状态 → 角色身上的发光颜色。以后新增持续效果时，在这里补一条即可；
+  // 即使不补，也会以默认红色显示，并且头顶状态图标仍然自动出现。
+  _replayEffectTint(ids){
+    if (!ids || !ids.length) return null;
+    const has = (id) => ids.indexOf(id) >= 0;
+    if (has('blind')) return { color: 0xffffff, intensity: 0.62 };
+    if (has('stun')) return { color: 0x9f8cff, intensity: 0.52 };
+    if (has('burning')) return { color: 0xff6a2a, intensity: 0.55 };
+    if (has('bleeding') || has('hypovolemia') || has('fracture') || has('pain')) {
+      return { color: 0x9a2020, intensity: 0.30 };
+    }
+    if (has('fiber_acute') || has('fiber_chronic')) return { color: 0x9a6a20, intensity: 0.28 };
+    return { color: 0x6a5a8a, intensity: 0.22 };
+  }
+
+  _setReplayTint(mesh, ids){
+    if (!mesh) return;
+    const tint = this._replayEffectTint(ids);
+    mesh.traverse((o) => {
+      if (!o.isMesh || !o.material || !o.material.emissive) return;
+      if (tint) {
+        o.material.emissive.setHex(tint.color);
+        o.material.emissiveIntensity = tint.intensity;
+      } else {
+        o.material.emissive.setHex(0x000000);
+        o.material.emissiveIntensity = 0;
+      }
+    });
+  }
+
+  // 状态图标纹理按 effectId 缓存，避免每次回放重复建 canvas
+  _replayBadgeTexture(effectId){
+    if (this._replayBadgeTextures.has(effectId)) return this._replayBadgeTextures.get(effectId);
+    const def = this.engine.content.get('effects', effectId) || {};
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, 64, 64);
+      ctx.beginPath();
+      ctx.arc(32, 32, 27, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(8,14,22,.82)';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = def.positive ? 'rgba(110,224,122,.9)' : 'rgba(255,139,106,.9)';
+      ctx.stroke();
+      ctx.font = '34px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(def.icon || '●', 32, 34);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    this._replayBadgeTextures.set(effectId, tex);
+    return tex;
+  }
+
+  _updateReplayBadges(A, B, a){
+    if (!this._replayBadges) this._replayBadges = new Map();
+    const entries = [];
+    const pSnapA = A && A.p ? A.p : null;
+    const pSnapB = B && B.p ? B.p : null;
+    if (pSnapA && pSnapB) {
+      entries.push({
+        key: '__player',
+        effects: (pSnapB.effects || pSnapA.effects || []).slice(0, 4),
+        x: this._lerp(pSnapA.x, pSnapB.x, a),
+        y: this._lerp(pSnapA.y, pSnapB.y, a) + 1.55,
+        z: this._lerp(pSnapA.z, pSnapB.z, a),
+        visible: !!(pSnapA.alive || pSnapB.alive || pSnapA.downed || pSnapB.downed),
+      });
+    }
+    for (let i = 0; i < this.enemies.length; i++) {
+      // 击杀者就是回放摄像机本人，头顶图标会贴在相机上，跳过
+      if (i === this._replayKillerIdx) continue;
+      const sa = A && A.enemies ? A.enemies[i] : null;
+      const sb = B && B.enemies ? B.enemies[i] : null;
+      if (!sa || !sb) continue;
+      entries.push({
+        key: 'e' + i,
+        effects: (sb.effects || sa.effects || []).slice(0, 4),
+        x: this._lerp(sa.x, sb.x, a),
+        y: this._lerp(sa.y, sb.y, a) + 1.35,
+        z: this._lerp(sa.z, sb.z, a),
+        visible: !!(sa.alive || sb.alive || sa.downed || sb.downed),
+      });
+    }
+
+    const seen = new Set();
+    for (const en of entries) {
+      seen.add(en.key);
+      let list = this._replayBadges.get(en.key);
+      if (!list) { list = []; this._replayBadges.set(en.key, list); }
+      for (let j = 0; j < list.length; j++) list[j].visible = false;
+      if (!en.visible) continue;
+      for (let j = 0; j < en.effects.length; j++) {
+        const id = en.effects[j];
+        let sprite = list[j];
+        if (!sprite) {
+          sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+            transparent: true, depthTest: false, depthWrite: false,
+          }));
+          sprite.scale.set(0.58, 0.58, 1);
+          sprite.renderOrder = 999;
+          this.engine.renderer.scene.add(sprite);
+          list[j] = sprite;
+        }
+        if (sprite.userData.effectId !== id) {
+          sprite.userData.effectId = id;
+          sprite.material.map = this._replayBadgeTexture(id);
+          sprite.material.needsUpdate = true;
+        }
+        sprite.visible = true;
+        const off = (j - (en.effects.length - 1) / 2) * 0.52;
+        sprite.position.set(en.x + off, en.y, en.z);
+      }
+    }
+    for (const [key, list] of this._replayBadges) {
+      if (seen.has(key)) continue;
+      for (const s of list) s.visible = false;
+    }
+  }
+
+  _applyReplayEffects(A, B, a){
+    const pA = A && A.p ? A.p : null;
+    const pB = B && B.p ? B.p : null;
+    if (pA && pB) this._setReplayTint(this.player && this.player.mesh, pB.effects || pA.effects);
+    for (let i = 0; i < this.enemies.length; i++) {
+      const sa = A && A.enemies ? A.enemies[i] : null;
+      const sb = B && B.enemies ? B.enemies[i] : null;
+      if (!sa || !sb) continue;
+      this._setReplayTint(this.enemies[i].mesh, sb.effects || sa.effects);
+    }
+    this._updateReplayBadges(A, B, a);
+  }
+
+  _clearReplayBadges(){
+    if (!this._replayBadges) return;
+    for (const list of this._replayBadges.values()) {
+      for (const s of list) {
+        this.engine.renderer.scene.remove(s);
+        if (s.material) s.material.dispose();
+      }
+    }
+    this._replayBadges.clear();
   }
 
   _updateReplay(dt){
@@ -5965,6 +6388,7 @@ _updateDeathCamera(dt) {
     cam.fov = 68;
     cam.updateProjectionMatrix();
     this._updateReplayHUD(A, B, a);
+    this._applyReplayScreenFx(A, B, a);
 
     // 回放这段时间内发生的射击：补上曳光弹
     const nowWorldT = this._replayStartT + this._replayT;
@@ -5995,6 +6419,14 @@ _updateDeathCamera(dt) {
         }
       }
     }
+
+    // 回放这段时间内的瞬时表现：爆炸、闪光球、屏幕闪白
+    const fxEvents = this._replayFxEvents || [];
+    while (this._replayFxCursor < fxEvents.length &&
+           fxEvents[this._replayFxCursor].t <= nowWorldT) {
+      this._playReplayFxEvent(fxEvents[this._replayFxCursor++], nowWorldT);
+    }
+
     if (this._replayGun) {
       this._replayGun.position.z = -0.38 + this._replayRecoil * 1.8;
       this._replayGun.rotation.x = this._replayRecoil * 2.2;
@@ -6014,9 +6446,44 @@ _updateDeathCamera(dt) {
 
   _updateReplayHUD(A, B, a){
     const ki = this._replayKillerIdx;
-    if (ki < 0) return;
+    // 没有击杀者（爆炸/坠落/环境死亡）：不要沿用玩家倒地时的濒死 HUD，
+    // 清成中性状态，避免回放里还挂着“我”的重伤面板。
+    if (ki < 0 || !A.enemies[ki] || !B.enemies[ki]) {
+      const nameEl = document.getElementById('player-name');
+      if (nameEl) nameEl.textContent = '死亡回放';
+      const tagEl = document.getElementById('player-tag');
+      if (tagEl) { tagEl.textContent = '无击杀者'; tagEl.style.color = 'var(--dim)'; }
+      const hpBar = document.getElementById('hp-bar');
+      if (hpBar) { hpBar.style.width = '0%'; hpBar.style.background = '#666'; }
+      const hpTxt = document.getElementById('hp-text');
+      if (hpTxt) hpTxt.textContent = '—';
+      const stam = document.getElementById('stamina-bar');
+      if (stam) stam.style.width = '0%';
+      const statusBar = document.getElementById('status-bar');
+      if (statusBar) statusBar.innerHTML = '';
+      const weaponName = document.getElementById('weapon-name');
+      if (weaponName) weaponName.textContent = '—';
+      const magEl = document.getElementById('ammo-mag');
+      if (magEl) magEl.textContent = '0';
+      const resEl = document.getElementById('ammo-reserve');
+      if (resEl) resEl.textContent = '0';
+      const cpRow = document.getElementById('cp-row');
+      if (cpRow) cpRow.style.display = 'none';
+      const weightRow = document.getElementById('weight-row');
+      if (weightRow) weightRow.style.display = 'none';
+      const effBar = document.getElementById('effect-bar');
+      if (effBar) { effBar.innerHTML = ''; effBar.style.display = 'none'; }
+      const cells = document.querySelectorAll('#armor-row .armor-cell');
+      for (let i = 0; i < cells.length; i++) {
+        const bar = cells[i].querySelector('.armor-bar > i');
+        if (bar) bar.style.width = '0%';
+        const lv = cells[i].querySelector('.armor-lv');
+        if (lv) lv.textContent = '—';
+        cells[i].classList.add('empty');
+      }
+      return;
+    }
     const sa = A.enemies[ki], sb = B.enemies[ki];
-    if (!sa || !sb) return;
     const hp = this._lerp(sa.hp || 0, sb.hp || 0, a);
     const blood = this._lerp(sa.blood || 0, sb.blood || 0, a);
 
@@ -6095,6 +6562,7 @@ _updateDeathCamera(dt) {
       if (hit) hit.style.opacity = '0.18';
       clearTimeout(this._replayDmgTimer);
       this._replayDmgTimer = setTimeout(() => {
+        this._replayDmgTimer = null;
         if (vig) vig.style.opacity = '0';
         if (hit) hit.style.opacity = '0';
       }, 220);
@@ -6102,11 +6570,49 @@ _updateDeathCamera(dt) {
     this._replayLastHp = hp;
   }
 
+  // 击杀者视角的持续屏幕效果：失明、燃烧、失血。
+  // 状态来自快照 effects，因此新增状态只要写入 effects 就会自动生效。
+  _applyReplayScreenFx(A, B, a){
+    const ki = this._replayKillerIdx;
+    if (ki < 0) return;
+    const sa = A && A.enemies ? A.enemies[ki] : null;
+    const sb = B && B.enemies ? B.enemies[ki] : null;
+    if (!sa || !sb) return;
+    const ids = sb.effects || sa.effects || [];
+    const has = (id) => ids.indexOf(id) >= 0;
+    const hp = this._lerp(sa.hp || 0, sb.hp || 0, a);
+    const blood = this._lerp(sa.blood || 0, sb.blood || 0, a);
+
+    // 失明：直接复用玩家闪光弹的全屏白/黑蒙版
+    const blindEl = has('blind') ? this._ensureBlindOverlay() : document.getElementById('blind-overlay');
+    if (blindEl) {
+      blindEl.style.transition = 'opacity .12s';
+      blindEl.style.opacity = has('blind') ? '0.82' : '0';
+    }
+
+    // 失血/低血量：轻度边缘红雾；燃烧时加强
+    const vig = document.getElementById('fx-vignette');
+    if (vig) {
+      let op = 0;
+      if (hp > 0 && hp < 70) op = Math.min(0.55, (70 - hp) / 70 * 0.55);
+      if (blood > 0 && blood < 45) op = Math.max(op, Math.min(0.62, (45 - blood) / 45 * 0.62));
+      if (has('hypovolemia')) op = Math.max(op, 0.55);
+      if (has('burning')) op = Math.max(op, 0.42);
+      // 受击闪红由 _updateReplayHUD 的 220ms 计时器控制，这里只做持续底噪
+      if (!this._replayDmgTimer) vig.style.opacity = String(op);
+    }
+  }
+
   _endReplay(){
     if (!this.replayMode) return;
     this.replayMode = false;
     this.running = false;
     this._replayFrames = null;
+    this._replayFxEvents = null;
+    this._clearReplayBadges();
+    this._resetScreenFx();
+    this._setReplayTint(this.player && this.player.mesh, null);
+    for (const e of this.enemies) this._setReplayTint(e.mesh, null);
     if (this.player && this.player.mesh) this.player.mesh.visible = false;
     if (this.player && this.player.weaponGroup) {
       this.player.weaponGroup.visible = this._replayWeaponVisible !== false;
@@ -6123,6 +6629,8 @@ _updateDeathCamera(dt) {
     this._replayHiddenKiller = null;
     clearTimeout(this._replayHitTimer);
     clearTimeout(this._replayDmgTimer);
+    this._replayDmgTimer = null;
+    this._replayHitTimer = null;
     const hud = document.getElementById('hud');
     if (hud) { hud.style.visibility = ''; hud.classList.remove('replay-hud'); }
     const vig = document.getElementById('fx-vignette');
@@ -6207,6 +6715,7 @@ _updateDeathCamera(dt) {
     const cutoff = this.time - 15;
     while (this._replayBuf.length && this._replayBuf[0].t < cutoff) this._replayBuf.shift();
     while (this._replayShots.length && this._replayShots[0].t < cutoff) this._replayShots.shift();
+    while (this._replayFx.length && this._replayFx[0].t < cutoff) this._replayFx.shift();
   }
 
   // 记录一次敌方开火事件，回放时重放曳光弹
@@ -6226,6 +6735,37 @@ _updateDeathCamera(dt) {
       hitPlayer: !!hitPlayer,
     });
     if (this._replayShots.length > 300) this._replayShots.shift();
+  }
+
+  // 记录一次“表现事件”，回放时按时间轴重放。
+  // 与快照里的 effects 分工：持续性状态读 effects，瞬时表现走这里。
+  _recordReplayFx(type, data){
+    if (!this._replayFx) this._replayFx = [];
+    this._replayFx.push({ t: this.time, type, data: data || {} });
+    if (this._replayFx.length > 240) this._replayFx.shift();
+  }
+
+  _playReplayFxEvent(ev, nowWorldT){
+    if (!ev || !ev.data) return;
+    const d = ev.data;
+    const age = nowWorldT - ev.t;
+    if (age < 0 || age > 0.9) return;
+    // 静默播放：不再次写回录像
+    const prevMuted = this._replayFxMuted;
+    this._replayFxMuted = true;
+    try {
+      if (ev.type === 'explosion') {
+        this._spawnExplosionFX(d.x, d.y, d.z, true);
+      } else if (ev.type === 'flash') {
+        this._spawnFlashFX(d.x, d.y, d.z, d.color, true);
+      } else if (ev.type === 'screenflash') {
+        this._flashScreen(d.intensity);
+      } else if (ev.type === 'aura') {
+        this._spawnSkillAura({ body: { position: { x: d.x, y: d.y, z: d.z }, halfH: d.halfH || 0.9 } }, d.color, d.duration);
+      }
+    } finally {
+      this._replayFxMuted = prevMuted;
+    }
   }
 
   // ★ 敌人视角录像：约 12.5Hz，保留最近约 3.6 秒，供死亡回放
@@ -7143,6 +7683,16 @@ _trySearchContainer(){
   // 技能/状态激活瞬间：脚下扩散光环 + 竖向能量柱（廉价但有效）
   _spawnSkillAura(p, color, duration = 1.0){
     if (!p || !p.body) return;
+    if (!this._replayFxMuted) {
+      this._recordReplayFx('aura', {
+        x: p.body.position.x,
+        y: p.body.position.y,
+        z: p.body.position.z,
+        halfH: p.body.halfH || 0.9,
+        color: color || 0xffffff,
+        duration,
+      });
+    }
     const scene = this.engine.renderer.scene;
     const group = new THREE.Group();
     const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
@@ -7721,7 +8271,8 @@ _trySearchContainer(){
     }, 380);
   }
 
-  _spawnFlashFX(x, y, z, color){
+  _spawnFlashFX(x, y, z, color, silent){
+    if (!silent && !this._replayFxMuted) this._recordReplayFx('flash', { x, y, z, color: color || 0xffffff });
     const geo = new THREE.SphereGeometry(0.35, 10, 8);
     const mat = new THREE.MeshBasicMaterial({ color: color || 0xffffff, transparent: true, opacity: 0.95 });
     const mesh = new THREE.Mesh(geo, mat);
@@ -8327,8 +8878,8 @@ this._hideKillcamLabel();
 if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
   this.engine.cameraCtl.resetDeathPose();
 }
-// ★ 收起眼皮
-this._clearEyelids();
+// ★ 收起眼皮 + 清掉死亡暗红蒙版/受击闪光/技能滤镜
+this._resetScreenFx();
 try { this._processModeHook('onMatchEnd', success); }
   catch (e) { console.error('[Mode] onMatchEnd:', e); }
   if (this.modeConfig && this.modeConfig.teardown) {
@@ -8356,6 +8907,29 @@ try { this._processModeHook('onMatchEnd', success); }
 destroy(){
 this.running = false;
 this.paused = false;
+// ★ 轮盘监听器属于本世界，退出时解绑，避免多局叠加
+if (this._wheelBound) {
+  try {
+    document.removeEventListener('pointermove', this._onWheelPointerMove, true);
+    document.removeEventListener('pointerdown', this._onWheelPointerDown, true);
+    document.removeEventListener('pointerup', this._onWheelPointerUp, true);
+    document.removeEventListener('pointercancel', this._onWheelPointerCancel, true);
+    document.removeEventListener('mousedown', this._onWheelMouseDown, true);
+    document.removeEventListener('mouseup', this._onWheelMouseUp, true);
+    window.removeEventListener('keydown', this._onWheelKey, true);
+  } catch (_) {}
+  this._wheelBound = false;
+}
+if (this._replayBadgeTextures) {
+  for (const tex of this._replayBadgeTextures.values()) { try { tex.dispose(); } catch (_) {} }
+  this._replayBadgeTextures.clear();
+}
+this._clearReplayBadges();
+// ★ 如果正在回放时退出，别把回放 HUD/遮罩带进菜单或下一局
+this.replayMode = false;
+document.getElementById('replay-overlay')?.remove();
+const _replayHud = document.getElementById('hud');
+if (_replayHud) _replayHud.classList.remove('replay-hud');
 // ★ 退出战局时一并复位暂停蒙版，避免下一局开局卡在暂停界面
 const _pause = document.getElementById('pause-screen');
 if (_pause) _pause.classList.remove('on');
@@ -8363,8 +8937,8 @@ if (_pause) _pause.classList.remove('on');
 if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
   this.engine.cameraCtl.resetDeathPose();
 }
-// ★ 收起眼皮
-this._clearEyelids();
+// ★ 收起眼皮 + 清掉全屏滤镜
+this._resetScreenFx();
 if (this._searching) this._closeSearch();
    // ★ 新增：死亡时关闭 bagUI
 if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
@@ -9165,11 +9739,23 @@ async startMatch(kind){
 
   // 尝试加载外置地图；训练场固定使用独立靶场，不随菜单地图选择变化
   let layout = null;
-  const matchMapId = kind === 'training' ? 'training' : this.menuState.map;
-  const mapSpec = e.content.get('maps', matchMapId);
-  if (mapSpec && mapSpec.layoutUrl) {
+  const matchMapId = kind === 'training' ? 'training' : (this.menuState.map || 'factory');
+  // ★ 训练场保底：即使 content 表被外部覆盖/旧缓存漏掉 training，
+  //   也必须能进入靶场，而不是抛「地图不存在」。
+  let mapSpec = e.content.get('maps', matchMapId);
+  if (!mapSpec && kind === 'training') mapSpec = this._trainingMapSpec();
+  if (!mapSpec) {
+    if (loadingEl) loadingEl.style.display = 'none';
+    this._clearMatchUI();
+    this._showScreen('menu');
+    alert('找不到地图：' + matchMapId + '\n可用地图：' + e.content.all('maps').map(m => m.id).join('、'));
+    return;
+  }
+  if (mapSpec.layoutUrl) {
     try {
-      const res = await fetch(mapSpec.layoutUrl, { cache: 'no-cache' });
+      // 相对 game.js 解析，避免页面 URL 没有结尾斜杠时 maps/ 被解析到站点根目录
+      const layoutUrl = new URL(mapSpec.layoutUrl, import.meta.url).href;
+      const res = await fetch(layoutUrl, { cache: 'no-cache' });
       if (res.ok) {
         layout = await res.json();
       } else {
@@ -9179,10 +9765,16 @@ async startMatch(kind){
       console.warn('[Map] layoutUrl fetch 异常，回退随机生成：', err);
     }
   }
+  // ★ 训练场布局加载失败时用内置布局，而不是随机障碍；
+  //   保证“靶场”永远是可测试的固定靶位，而不是报错/空图。
+  if (kind === 'training' && (!layout || !Array.isArray(layout.obstacles))) {
+    layout = this._trainingFallbackLayout();
+  }
 
   try {
     this.world = new GameWorld(e, {
       mapId: matchMapId,
+      mapSpec,
       charId: this.menuState.char,
       diffId: this.menuState.diff,
       modeId: this.menuState.mode,
@@ -9220,6 +9812,47 @@ setTimeout(() => {
     this._showScreen('menu');
   }
 }
+
+  // 训练场的保底地图定义：与 content.js / maps/training.json 保持同一语义。
+  _trainingMapSpec(){
+    return {
+      id: 'training',
+      name: 'content.map.training.name',
+      desc: 'content.map.training.desc',
+      size: 120,
+      obstacleCount: 20,
+      enemyCount: 6,
+      layoutUrl: 'maps/training.json',
+      training: true,
+    };
+  }
+
+  // 训练场 JSON 不可用时的内置布局：外墙 + 三道矮墙 + 固定靶位。
+  // 只用于兜底，正常情况下优先读取 maps/training.json。
+  _trainingFallbackLayout(){
+    const dummy = (x, z) => ({
+      x, z, spec: 'training_dummy', squad: 'dummy', patrolRadius: 2,
+    });
+    return {
+      id: 'training',
+      size: 120,
+      playerSpawn: { x: 0, z: 46, angle: 0 },
+      obstacles: [
+        { x: 0, z: -52, w: 100, d: 1, yMin: 0, yMax: 3, type: 'highWall' },
+        { x: -50, z: 0, w: 1, d: 104, yMin: 0, yMax: 3, type: 'highWall' },
+        { x: 50, z: 0, w: 1, d: 104, yMin: 0, yMax: 3, type: 'highWall' },
+        { x: 0, z: 20, w: 64, d: 0.6, yMin: 0, yMax: 1, type: 'lowWall' },
+        { x: 0, z: 5, w: 64, d: 0.6, yMin: 0, yMax: 1, type: 'lowWall' },
+        { x: 0, z: -10, w: 64, d: 0.6, yMin: 0, yMax: 1, type: 'lowWall' },
+        { x: 0, z: -46, w: 70, d: 2, yMin: 0, yMax: 5, type: 'building' },
+        { x: -42, z: 34, w: 3, d: 3, yMin: 0, yMax: 1.6, type: 'crate' },
+        { x: 42, z: 34, w: 3, d: 3, yMin: 0, yMax: 1.6, type: 'crate' },
+      ],
+      containers: [{ x: -10, z: 40 }, { x: 10, z: 40 }, { x: 0, z: 30 }],
+      extracts: [],
+      enemySpawns: [dummy(0, 18), dummy(-12, 3), dummy(12, 3), dummy(0, -12), dummy(-12, -12), dummy(12, -12)],
+    };
+  }
 
 _onMatchEnd(success, stats){
 try {
@@ -9500,6 +10133,7 @@ this._showScreen('menu');
   // 统一清理战局内的临时 DOM 状态（进入/退出战局都要调用）
   _clearMatchUI(){
     if (document.pointerLockElement) document.exitPointerLock();
+    if (this.world && this.world._closeNadeWheel) this.world._closeNadeWheel(false);
 
     for (const id of ['pause-screen', 'result-screen', 'bagui-overlay', 'search-panel', 'training-modal']) {
       document.getElementById(id)?.classList.remove('on');
@@ -9570,7 +10204,8 @@ this._showScreen('menu');
       w._deathRecord.frames,
       w._deathRecord.killerName,
       w._deathRecord.shots,
-      w._deathRecord.killerIdx
+      w._deathRecord.killerIdx,
+      w._deathRecord.fx
     );
     if (!ok) alert('录像数据不足');
   }
@@ -9657,6 +10292,8 @@ _bindCameraControls() {
     }, sig);
 
     document.addEventListener('mousemove', (ev) => {
+      // ★ 轮盘打开时鼠标位移用于推轮盘虚拟摇杆，不能再转视角
+      if (this.world && this.world._nadeWheelOpen) return;
       if (document.pointerLockElement === canvas) {
         e.cameraCtl.rotate(ev.movementX || 0, ev.movementY || 0);
         return;
