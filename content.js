@@ -81,12 +81,14 @@ sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w
    cap:      容器容量（仅背包/胸挂）
    ========================================================== */
 const HELMET_SHELL = {
+  lv2: { name: 'content.helmetShell.lv2.name', desc: 'content.helmetShell.lv2.desc', w: 2, h: 2, armorLv: 2, maxDur: 100, value: 450,  rarity: 'L1', stackLimit: 1 },
   lv3: { name: 'content.helmetShell.lv3.name', desc: 'content.helmetShell.lv3.desc', w: 2, h: 2, armorLv: 3, maxDur: 100, value: 800,  rarity: 'L1', stackLimit: 1 },
   lv4: { name: 'content.helmetShell.lv4.name', desc: 'content.helmetShell.lv4.desc', w: 2, h: 2, armorLv: 4, maxDur: 100, value: 1500, rarity: 'L2', stackLimit: 1 },
 };
 c.registerAll('helmetShell', HELMET_SHELL);
 
 const HELMET_VISOR = {
+  lv2: { name: 'content.helmetVisor.lv2.name', desc: 'content.helmetVisor.lv2.desc', w: 2, h: 1, armorLv: 2, maxDur: 100, value: 350,  rarity: 'L1', stackLimit: 1 },
   lv3: { name: 'content.helmetVisor.lv3.name', desc: 'content.helmetVisor.lv3.desc', w: 2, h: 1, armorLv: 3, maxDur: 100, value: 600,  rarity: 'L1', stackLimit: 1 },
   lv4: { name: 'content.helmetVisor.lv4.name', desc: 'content.helmetVisor.lv4.desc', w: 2, h: 1, armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
 };

@@ -7641,11 +7641,16 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
 
   document.getElementById('btn-loadout-ticket')?.addEventListener('click', () => {
     if (!this.inventory) return;
-    this._ensureInitialInventory(true);
-    if (this.bagUI) this.bagUI.refresh();
-    const charSpec = this.engine.content.get('characters', this.menuState.char);
-    const charName = charSpec ? this.engine.i18n.t(charSpec.name) : '当前角色';
-    alert('制式券已发放：' + charName + ' 标准配装。按 B 打开背包查看。');
+    try {
+      this._ensureInitialInventory(true);
+      if (this.bagUI) this.bagUI.refresh();
+      const charSpec = this.engine.content.get('characters', this.menuState.char);
+      const charName = charSpec ? this.engine.i18n.t(charSpec.name) : '当前角色';
+      alert('制式券已发放：' + charName + ' 标准配装。按 B 打开背包查看。');
+    } catch (err) {
+      console.error('[GameApp] 制式券发放失败:', err);
+      alert('制式券发放失败：' + (err && err.message ? err.message : String(err)));
+    }
   });
 
   document.getElementById('btn-stash')?.addEventListener('click', () => {
@@ -7927,6 +7932,22 @@ _ensureStarterThrowables(){
   if (!has('emp')) give('emp', 1);
 }
 
+// ★ GameApp 侧的弹药统计：战局外的配装/制式券也要用它，
+//   不能误调 GameWorld 的同名方法（那会导致 startMatch 在 try 之前抛错、加载遮罩卡死）
+_countAmmoInInventory(inv, ammoType) {
+  if (!inv) return 0;
+  let total = 0;
+  for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
+    const c = inv.containers[cName];
+    if (!c) continue;
+    for (const uid of c.items.keys()) {
+      const item = inv.items.get(uid);
+      if (item && item.table === 'ammo' && item.defId === ammoType) total += item.qty;
+    }
+  }
+  return total;
+}
+
 _ensureInitialInventory(forceReset){
   const inv = this.inventory;
   if (!inv) return;
@@ -8112,16 +8133,30 @@ async startMatch(kind){
   if (this.platform === 'auto') isMobile = 'ontouchstart' in window;
   
   e.input.enableVirtualJoysticks = isMobile;
-  this._setupMobileControls(isMobile);
-  this._bindCameraControls();
+  // 移动按钮/相机绑定失败不应该把整局卡在加载遮罩里
+  try { this._setupMobileControls(isMobile); }
+  catch (err) { console.warn('[GameApp] 移动端控件初始化失败（继续启动）:', err); }
+  try { this._bindCameraControls(); }
+  catch (err) { console.warn('[GameApp] 相机控制初始化失败（继续启动）:', err); }
 
   if (this.world) {
     try { this.world.destroy(); } catch (err) { console.warn(err); }
     this.world = null;
   }
 
-  this._ensureInitialInventory();
-  this._ensureStarterThrowables();
+  // ★ 配装初始化必须在进入战局前完成；任何异常都要收掉加载遮罩并回到菜单，
+  //   否则用户只会看到“进入战区…”一直卡住。
+  try {
+    this._ensureInitialInventory();
+    this._ensureStarterThrowables();
+  } catch (err) {
+    console.error('[GameApp] 配装初始化失败:', err);
+    if (loadingEl) loadingEl.style.display = 'none';
+    this._clearMatchUI();
+    this._showScreen('menu');
+    alert('配装初始化失败：' + (err && err.message ? err.message : String(err)));
+    return;
+  }
 
   // 尝试加载外置地图
   let layout = null;
