@@ -267,7 +267,10 @@ export class BagUI {
     let html = '';
     
     const inv = this.inv; 
-    
+    const world = this.engine.app && this.engine.app.world;
+    const mimicLock = !!(world && world.player && world.player._mimicLock);
+    const mimicSlots = ['helmetShell', 'helmetVisor', 'vestFiber', 'vestPlate'];
+
     html += '<div class="bagui-sec"><h3>我的装备</h3><div class="bagui-grid-wrap" style="width:100%;height:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:center;background:transparent;border:none">';
     const equipList = [
   ['main', '武器一'], ['side', '武器二'], ['melee', '近战'],
@@ -276,6 +279,19 @@ export class BagUI {
   ['backpack', '背包'], ['chestRig', '胸挂'],
 ];
     for (const [slot, label] of equipList) {
+      // ★ 叶·拟载：护具槽显示当前生效的 BYinC 拟载装备（新数值）并锁定
+      if (mimicLock && mimicSlots.includes(slot)) {
+        const armorKey = { helmetShell: 'shell', helmetVisor: 'visor', vestFiber: 'fiber', vestPlate: 'plate' }[slot];
+        const a = (world.player.armor && world.player.armor[armorKey]) || { lv: 7, dur: 520, max: 520 };
+        const pct = Math.max(0, Math.min(100, (a.dur / (a.max || 520)) * 100));
+        html += `<div class="bagui-slot has-item" data-mimic-slot="${slot}" style="width:60px;height:60px;background:linear-gradient(180deg,rgba(255,215,0,.22),rgba(60,45,10,.9));border:1px solid rgba(255,215,0,.85);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;box-shadow:0 0 10px rgba(255,215,0,.35);cursor:not-allowed" title="BYinC 拟载护具 Lv${a.lv} · 原装备已锁定，${Math.round(pct)}% 耐久">
+          <div style="font-size:14px;line-height:1">💎</div>
+          <div style="font-size:8px;color:#ffe066;font-weight:700;white-space:nowrap">Lv${a.lv} BYinC</div>
+          <div style="width:44px;height:3px;background:rgba(0,0,0,.65);border-radius:2px;overflow:hidden;margin-top:2px"><i style="display:block;height:100%;width:${pct}%;background:linear-gradient(90deg,#ffd700,#fff2a0)"></i></div>
+          <div style="font-size:8px;color:#ffb0b0;margin-top:1px">🔒 ${Math.round(a.dur)}/${a.max || 520}</div>
+        </div>`;
+        continue;
+      }
       html += this._equipSlotHtml(inv.equipped[slot], slot, label, inv);
     }
     html += '</div></div>';
@@ -602,6 +618,8 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       el.classList.remove('on');
       return;
     }
+    const world = this.engine.app ? this.engine.app.world : null;
+    const inMatchNow = !!(world && world.running);
     const rawName = def.name || def.n || '?';
     const displayName = this.engine.i18n.t(rawName);
     const rarity = item.rarity || 'L0';
@@ -723,8 +741,21 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       html += `<div style="display:flex;gap:4px;align-items:center;margin-top:8px;font-size:11px">
         <span>拆分</span>
         <input type="number" class="bagui-btn" style="width:60px;margin:0;text-align:center" min="1" max="${item.qty - 1}" value="${halfQty}" data-uid="${uid}">
-        <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">执行</button>
+        <button class="bagui-btn" style="margin:0;width:auto" data-split-btn="${uid}">拆分</button>
       </div>`;
+    }
+
+    // ★ 投掷物：详情里给出明确的「手持 / 投掷」，不再出现含义不明的按钮
+    if (item.table === 'nade' && inv === this.inv) {
+      if (inMatchNow) {
+        html += `<div style="display:flex;gap:6px;margin-top:8px">
+          <button class="bagui-btn" data-nade-hold="${item.defId}" style="margin:0;flex:1;background:rgba(120,90,40,.75);border-color:rgba(255,200,90,.8);color:#ffe8b0">手持</button>
+          <button class="bagui-btn" data-nade-throw="${item.defId}" style="margin:0;flex:1;background:rgba(170,60,30,.75);border-color:rgba(255,140,90,.8);color:#ffd8c0">立即投掷</button>
+        </div>
+        <div style="font-size:10px;color:#8fb0cc;margin-top:4px">手持后攻击键变为投掷：长按显示抛物线，松手掷出。</div>`;
+      } else {
+        html += `<div style="font-size:10px;color:#6f8fae;margin-top:8px">进入战局后可在详情中手持或投掷。</div>`;
+      }
     }
 
     const isInStash = inv.parentOf.get(uid) === 'c:stash';
@@ -765,6 +796,24 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         this.refresh();
       };
     }
+    el.querySelectorAll('.bagui-btn[data-nade-hold]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!world || !world._selectThrowable) return;
+        world._selectThrowable(btn.dataset.nadeHold);
+        this.close();
+      };
+    });
+    el.querySelectorAll('.bagui-btn[data-nade-throw]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!world || !world._selectThrowable) return;
+        world._selectThrowable(btn.dataset.nadeThrow);
+        world._doThrowNow(world.player);
+        this.close();
+      };
+    });
+
     el.querySelectorAll('.bagui-btn[data-split-btn]').forEach(btn => {
       btn.onclick = (e) => {
         e.stopPropagation();

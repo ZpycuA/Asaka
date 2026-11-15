@@ -79,16 +79,22 @@ const ACTION_MAP = {
   holdBreath: {
     keys: ['h'],
     label: '屏息',
-    mobile: { left: '140px', bottom: '300px', size: 45, color: 'rgba(120,200,255,.3)', border: 'rgba(150,220,255,.6)', mode: 'hold' },
+    mobile: { left: '128px', bottom: '246px', size: 45, color: 'rgba(120,200,255,.3)', border: 'rgba(150,220,255,.6)', mode: 'hold' },
   },
   throw: {
     keys: ['g'],
     label: '投掷',
-    mobile: { left: '140px', bottom: '235px', size: 50, color: 'rgba(255,170,60,.32)', border: 'rgba(255,200,90,.65)', mode: 'click' },
+    // ★ 不再常驻独立投掷键：先选投掷物（轮盘/背包），攻击键自动变为投掷
   },
   throwWheel: {
     keys: ['t'],
-    label: '投掷物轮盘',
+    label: '投掷轮盘',
+    mobile: { left: '20px', bottom: '246px', size: 45, color: 'rgba(255,170,60,.3)', border: 'rgba(255,200,90,.65)', mode: 'click' },
+  },
+  droneControl: {
+    keys: ['y'],
+    label: '无人机操控',
+    mobile: { left: '124px', bottom: '300px', size: 48, color: 'rgba(80,200,255,.3)', border: 'rgba(120,220,255,.7)', mode: 'click' },
   },
   jump: {
     keys: [' '],
@@ -132,22 +138,22 @@ ads: {
 lean_left: {
   keys: ['z'],
   label: '左倾',
-  mobile: { left: '30px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
+  mobile: { left: '20px', bottom: '192px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
 },
 lean_right: {
   keys: ['x'],
   label: '右倾',
-  mobile: { left: '85px', bottom: '230px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
+  mobile: { left: '72px', bottom: '192px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
 },
 skill1: {
   keys: ['q'],
-  label: '技能1',
-  mobile: { left: '30px', bottom: '300px', size: 45, color: 'rgba(160,120,255,.3)', border: 'rgba(180,140,255,.6)', mode: 'click' },
+  label: '',
+  mobile: { left: '20px', bottom: '300px', size: 45, color: 'rgba(160,120,255,.3)', border: 'rgba(180,140,255,.6)', mode: 'click' },
 },
 skill2: {
   keys: ['e'],
-  label: '技能2',
-  mobile: { left: '85px', bottom: '300px', size: 45, color: 'rgba(160,120,255,.3)', border: 'rgba(180,140,255,.6)', mode: 'click' },
+  label: '',
+  mobile: { left: '72px', bottom: '300px', size: 45, color: 'rgba(160,120,255,.3)', border: 'rgba(180,140,255,.6)', mode: 'click' },
 },
 };
 
@@ -555,6 +561,10 @@ const AISystem = {
     
     if (target) {
       enemy.targetEntity = target;
+      this._alertSquad(world, enemy, target, dist);
+      this._switchEnemyWeapon(world, enemy, dist, true);
+    } else {
+      enemy.targetEntity = null;
     }
 
     // --- 感知逻辑 ---
@@ -566,7 +576,29 @@ const AISystem = {
     }
 
     // --- 状态机切换 ---
-    if (enemy.awareness >= 1.0 && enemy.state !== 'combat' && enemy.state !== 'flee') {
+    const meleeRange = 2.8;
+    const keep = ai.keepDistance || 0;
+    const stunned = enemy.stunnedUntil && world.time < enemy.stunnedUntil;
+    const blinded = enemy.blindedUntil && world.time < enemy.blindedUntil;
+
+    if (canSee && !stunned && !blinded) {
+      // 贴脸：有近战武器就拔刀/枪托，否则后撤拉开距离
+      if (dist <= meleeRange && enemy.weapons && enemy.weapons.melee &&
+          ((ai.meleeBias || 0) > 0.12 || dist <= 1.8)) {
+        if (enemy.state !== 'melee') { enemy.state = 'melee'; enemy.stateT = 0; enemy.fireCd = Math.min(enemy.fireCd || 0, 0.15); }
+      } else if (keep > 8 && dist < keep * 0.42 && enemy.state !== 'retreat' && enemy.state !== 'flee' && enemy.state !== 'loot' && enemy.state !== 'remove') {
+        enemy.state = 'retreat';
+        enemy.stateT = 0;
+      } else if (enemy.state === 'melee' && dist > meleeRange + 0.8) {
+        enemy.state = 'combat';
+        enemy.stateT = 0;
+      } else if (enemy.state === 'retreat' && dist > keep * 0.8) {
+        enemy.state = 'combat';
+        enemy.stateT = 0;
+      }
+    }
+
+    if (enemy.awareness >= 1.0 && enemy.state !== 'combat' && enemy.state !== 'flee' && enemy.state !== 'melee' && enemy.state !== 'retreat') {
       enemy.state = 'combat';
       const baseReact = 1.5 - ai.composure * 1.2;
       enemy.reactionTimer = baseReact + Math.random() * 0.3; 
@@ -609,9 +641,17 @@ const AISystem = {
       case 'patrol': this._patrol(world, enemy, dt); break;
       case 'investigate': this._investigate(world, enemy, dt); break;
       case 'combat': this._combat(world, enemy, dt, dist, canSee, ai); break;
+      case 'melee': this._meleeCombat(world, enemy, dt, dist, ai); break;
+      case 'retreat': this._retreat(world, enemy, dt, dist, ai); break;
       case 'flee': this._flee(world, enemy, dt, enemy.targetEntity || world.player, ai); break;
       case 'loot': this._loot(world, enemy, dt); break;
       case 'remove': this._removeFiber(world, enemy, dt); break;
+    }
+
+    // 被压制：移动速度明显下降，配合射击散布惩罚形成“抬不起头”的效果
+    if (enemy.suppressedUntil && world.time < enemy.suppressedUntil) {
+      enemy.body.velocity.x *= 0.55;
+      enemy.body.velocity.z *= 0.55;
     }
 
     const half = world.mapSpec.size / 2 - 2;
@@ -619,6 +659,84 @@ const AISystem = {
     enemy.body.position.z = Math.max(-half, Math.min(half, enemy.body.position.z));
 
     if (enemy.hitFlash > 0) enemy.hitFlash -= dt;
+  },
+
+  // 同组同阵营的 AI 共享目标：一个看见玩家，附近队友会进入警戒/交战
+  _alertSquad(world, enemy, target, dist) {
+    if (!enemy.spec || !enemy.spec.faction) return;
+    if (enemy._squadAlertAt && world.time - enemy._squadAlertAt < 2.5) return;
+    enemy._squadAlertAt = world.time;
+    for (const mate of world.enemies) {
+      if (mate === enemy || !mate.alive) continue;
+      if (mate.spec.faction !== enemy.spec.faction) continue;
+      const d = Math.hypot(mate.body.position.x - enemy.body.position.x, mate.body.position.z - enemy.body.position.z);
+      if (d > 34) continue;
+      // 同一小队优先，其次同阵营
+      if (enemy.squad && mate.squad !== enemy.squad && d > 18) continue;
+      if (mate.awareness < 0.75) mate.awareness = 0.75;
+      if (!mate.targetEntity || !mate.targetEntity.alive) mate.targetEntity = target;
+      if (mate.state === 'patrol' || mate.state === 'investigate') {
+        mate.state = 'combat';
+        mate.stateT = 0;
+        mate.reactionTimer = Math.max(mate.reactionTimer || 0, 0.2);
+      }
+      mate.targetPos = { x: target.body.position.x, z: target.body.position.z };
+    }
+  },
+
+  // AI 武器切换：按距离选择最合适的枪，弹尽时换备用武器，贴脸时拔近战
+  _switchEnemyWeapon(world, enemy, dist, canSee) {
+    const slots = enemy.weapons;
+    if (!slots) return;
+    if (enemy._weaponLock && world.time < enemy._weaponLock) return;
+    const ai = enemy.spec.ai || {};
+    const canUse = (w) => !!(w && w.def && !w.def.melee && (w.mag === undefined || w.mag > 0 || (w.reserve || 0) > 0));
+    const idealRange = (w) => {
+      if (!w || !w.def) return 0;
+      const d = w.def;
+      if (d.pellets > 1) return 6;
+      if ((d.range || 0) >= 250) return 42;
+      if ((d.range || 0) >= 100) return 24;
+      if ((d.rpm || 0) >= 700) return 10;
+      return 14;
+    };
+    const current = enemy.currentSlot || 'primary';
+    let want = current;
+
+    // 当前武器没有弹药 → 优先换有弹的枪，再考虑近战
+    const cur = slots[current];
+    const curEmpty = cur && cur.def && !cur.def.melee && cur.mag <= 0 && (cur.reserve || 0) <= 0;
+    if (curEmpty) {
+      if (canUse(slots.secondary)) want = 'secondary';
+      else if (canUse(slots.primary)) want = 'primary';
+      else if (slots.melee) want = 'melee';
+    } else if (canSee) {
+      // 贴脸拔近战；否则按理想距离选主/副武器
+      if (dist <= 2.8 && slots.melee && ((ai.meleeBias || 0) > 0.12 || dist <= 1.8)) {
+        want = 'melee';
+      } else if ((ai.switchBias || 0) >= 0.45) {
+        let best = current;
+        let bestScore = -Infinity;
+        for (const key of ['primary', 'secondary']) {
+          const w = slots[key];
+          if (!canUse(w)) continue;
+          const ideal = idealRange(w);
+          // 距离越接近理想射程分数越高；弹匣打空扣分
+          let score = -Math.abs(dist - ideal);
+          if (w.mag <= 0 && (w.reserve || 0) > 0) score -= 8;
+          if (key === current) score += 3.5; // 不轻易来回切
+          if (score > bestScore) { bestScore = score; best = key; }
+        }
+        want = best;
+      }
+    }
+
+    if (want !== current && slots[want]) {
+      enemy.currentSlot = want;
+      enemy.weapon = slots[want];
+      enemy._weaponLock = world.time + 1.1 + Math.random() * 0.5;
+      enemy.fireCd = Math.max(enemy.fireCd || 0, 0.45);
+    }
   },
 
   _findTarget(world, enemy, ai) {
@@ -694,13 +812,22 @@ const AISystem = {
   _patrol(world, enemy, dt){
     enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
     enemy.wanderT -= dt;
-    if (enemy.wanderT <= 0) {
-      enemy.wanderT = 1.5 + Math.random() * 1.5;
+    const home = enemy.home || enemy.body.position;
+    const dx = enemy.body.position.x - home.x;
+    const dz = enemy.body.position.z - home.z;
+    const away = Math.hypot(dx, dz);
+    if (away > (enemy.patrolRadius || 15)) {
+      // 离出生点太远：先往回走，避免 AI 全图乱窜
+      enemy.wanderDir = Math.atan2(-dz, -dx);
+      enemy.wanderT = Math.max(0.4, enemy.wanderT);
+    } else if (enemy.wanderT <= 0) {
+      enemy.wanderT = 1.8 + Math.random() * 1.8;
       enemy.wanderDir = Math.random() * Math.PI * 2;
     }
     enemy.angle = enemy.wanderDir;
-    enemy.body.velocity.x = Math.cos(enemy.wanderDir) * enemy.spec.speed * 0.4;
-    enemy.body.velocity.z = Math.sin(enemy.wanderDir) * enemy.spec.speed * 0.4;
+    const mul = away > (enemy.patrolRadius || 15) ? 0.7 : 0.4;
+    enemy.body.velocity.x = Math.cos(enemy.wanderDir) * enemy.spec.speed * mul;
+    enemy.body.velocity.z = Math.sin(enemy.wanderDir) * enemy.spec.speed * mul;
   },
 
   // ★ 找附近可搜刮目标（优先未搜过的尸体/已开的容器）
@@ -810,6 +937,12 @@ const AISystem = {
       return;
     }
 
+    // 手里是刀/枪托时走近战分支
+    if (enemy.weapon && enemy.weapon.def && enemy.weapon.def.melee) {
+      this._meleeCombat(world, enemy, dt, dist, ai);
+      return;
+    }
+
     const dx = target.body.position.x - enemy.body.position.x;
     const dz = target.body.position.z - enemy.body.position.z;
     enemy.angle = Math.atan2(dz, dx);
@@ -870,9 +1003,88 @@ const AISystem = {
     }
   },
 
+  // 近战状态：贴脸挥刀；打完一刀按性格决定继续追还是拉开
+  _meleeCombat(world, enemy, dt, dist, ai) {
+    enemy.stateT += dt;
+    enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+    const target = enemy.targetEntity;
+    if (!target || !target.alive) { enemy.state = 'patrol'; return; }
+    const dx = target.body.position.x - enemy.body.position.x;
+    const dz = target.body.position.z - enemy.body.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    enemy.angle = Math.atan2(dz, dx);
+    if (enemy.fireCd > 0) enemy.fireCd -= dt;
+    if (d > 2.2) {
+      enemy.body.velocity.x = dx / d * enemy.spec.speed * 1.08;
+      enemy.body.velocity.z = dz / d * enemy.spec.speed * 1.08;
+    } else {
+      enemy.body.velocity.x = 0;
+      enemy.body.velocity.z = 0;
+      if (enemy.fireCd <= 0) {
+        world._meleeAttack(enemy, enemy.weapon);
+        enemy.fireCd = (enemy.weapon.def.cooldown || 0.65) + 0.15;
+      }
+    }
+    // 近战一轮后：低侵略/高机会主义性格会退开重新拿枪
+    if (enemy.stateT > 2.2 + (1 - (ai.aggression || 0.5)) * 1.5) {
+      if ((ai.meleeBias || 0.3) < 0.65) {
+        enemy.state = 'retreat';
+        enemy.stateT = 0;
+        if (enemy.weapons && enemy.weapons.primary) {
+          enemy.currentSlot = 'primary';
+          enemy.weapon = enemy.weapons.primary;
+          enemy._weaponLock = world.time + 0.9;
+        }
+      } else {
+        enemy.stateT = 0;
+      }
+    }
+  },
+
+  // 后撤状态：保持面向目标，倒着退；狙击手/机枪手被贴脸时使用
+  _retreat(world, enemy, dt, dist, ai) {
+    enemy.stateT += dt;
+    enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+    const target = enemy.targetEntity;
+    if (!target || !target.alive) { enemy.state = 'patrol'; return; }
+    const dx = target.body.position.x - enemy.body.position.x;
+    const dz = target.body.position.z - enemy.body.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    enemy.angle = Math.atan2(dz, dx);
+    const keep = (ai.keepDistance || 20) * 0.75;
+    if (d >= keep || enemy.stateT > 4.5) {
+      enemy.state = 'combat';
+      enemy.stateT = 0;
+      return;
+    }
+    // 后撤方向 + 少量侧移，避免直线倒退被预瞄
+    const side = (enemy.stateT % 2 < 1) ? 1 : -1;
+    const mx = -dx / d + (-dz / d) * side * 0.35;
+    const mz = -dz / d + (dx / d) * side * 0.35;
+    const ml = Math.hypot(mx, mz) || 1;
+    enemy.body.velocity.x = mx / ml * enemy.spec.speed * 0.95;
+    enemy.body.velocity.z = mz / ml * enemy.spec.speed * 0.95;
+    // 后撤时仍会边退边打（精度由 _blindFire/散布惩罚体现）
+    if (enemy.fireCd > 0) enemy.fireCd -= dt;
+    if (enemy.fireCd <= 0 && enemy.weapon && !enemy.weapon.def.melee && enemy.weapon.mag > 0) {
+      enemy._blindFire = true;
+      world.enemyFire(enemy, target);
+      enemy._blindFire = false;
+      enemy.fireCd = Math.max(enemy.fireCd, 0.35);
+    }
+  },
+
   _flee(world, enemy, dt, target, ai){
     enemy.stateT += dt;
     enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+    // 逃太久或伤势稳定后回到巡逻，避免被闪一次就永远逃跑
+    if (enemy.stateT > 7 && (!target || !target.alive || enemy.status.healthQuality > 35)) {
+      enemy.state = 'patrol';
+      enemy.stateT = 0;
+      enemy.awareness = 0;
+      enemy.targetEntity = null;
+      return;
+    }
 
     let moveX = 0, moveZ = 0;
     if (enemy.targetPos) {
@@ -897,7 +1109,7 @@ const AISystem = {
 
     if (ai.opportunism > 0.5 || ai.aggression > 0.6) {
       const distToTarget = Math.hypot(target.body.position.x - enemy.body.position.x, target.body.position.z - enemy.body.position.z);
-      if (distToTarget < 20 && enemy.weapon && enemy.weapon.loaded.qty > 0) {
+      if (distToTarget < 20 && enemy.weapon && enemy.weapon.def && !enemy.weapon.def.melee && enemy.weapon.loaded.qty > 0) {
         if (enemy.fireCd > 0) enemy.fireCd -= dt;
         if (enemy.fireCd <= 0) {
           const origAngle = enemy.angle;
@@ -1225,10 +1437,41 @@ const thHint = document.getElementById('throwable-hint');
 if (thHint) {
   if (p.activeThrowable) {
     const nd = this.engine.content.get('nade', p.activeThrowable);
-    thHint.textContent = '投掷模式 · ' + (nd ? this.engine.i18n.t(nd.name) : p.activeThrowable) + '（攻击键投出 / T 切换）';
+    thHint.textContent = '投掷 · ' + (nd ? this.engine.i18n.t(nd.name) : p.activeThrowable) + '（长按攻击键瞄准，松手投出）';
     thHint.style.display = 'block';
   } else {
     thHint.style.display = 'none';
+  }
+}
+// ★ 投掷物轮盘入口按钮
+const nwb = document.getElementById('nade-wheel-btn');
+if (nwb) {
+  if (!this._nadeBtnBound) {
+    this._nadeBtnBound = true;
+    nwb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.world && this.world._toggleNadeWheel) this.world._toggleNadeWheel();
+    });
+  }
+  const hasNades = !!(this.world && this.world._getThrowableList && this.world._getThrowableList().length > 0);
+  nwb.style.display = hasNades ? 'block' : 'none';
+}
+
+// ★ 无人机面板
+const dp = document.getElementById('drone-panel');
+if (dp) {
+  const wld = this.world;
+  if (wld.drones && wld.drones[0]) {
+    const d = wld.drones[0];
+    const isTouch = (this.world.engine.app && this.world.engine.app.platform === 'mobile') ||
+      (this.world.engine.app && this.world.engine.app.platform === 'auto' && 'ontouchstart' in window);
+    dp.style.display = 'block';
+    dp.innerHTML = '🛸 侦察无人机<br>电量 ' + Math.max(0, Math.round(d.battery)) + '% · 耐久 ' + Math.round(d.durability) + '/' + d.maxDurability +
+      (wld.player && wld.player._controllingDrone
+        ? '<br><span style="color:#7bf5a8">操控中 · ' + (isTouch ? '点「升 / 降 / 退出」' : '空格升 / C 降 / Y 退出') + '</span>'
+        : '<br><span style="color:#8fb0c8">' + (isTouch ? '点小地图或「无人机」接管' : 'Y / 再按技能进入操控') + '</span>');
+  } else {
+    dp.style.display = 'none';
   }
 }
 
@@ -1488,7 +1731,21 @@ ctx.fillRect(0, 0, w, h);
   const mapSize = this.world.mapSpec.size;
   const scale = w / mapSize;
   const cx = w/2, cy = h/2;
-  const px = p.body.position.x, pz = p.body.position.z;
+  const drone = this.world.drones && this.world.drones[0];
+  const controlling = !!(p._controllingDrone && drone);
+  const center = controlling ? drone.mesh.position : p.body.position;
+  const px = center.x, pz = center.z;
+
+  // 小地图点击：有无人机时接管/退出操控
+  if (!canvas._droneBound) {
+    canvas._droneBound = true;
+    canvas.style.pointerEvents = 'auto';
+    canvas.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      const w2 = this.world;
+      if (w2 && w2._toggleDroneControl) w2._toggleDroneControl();
+    });
+  }
 
   // ★ 渲染所有兴趣点 (POI)
   for (const poi of this.world.pois) {
@@ -1513,10 +1770,56 @@ ctx.fillRect(0, 0, w, h);
     }
   }
 
-  // 绘制玩家（始终在中心）
+  // ★ 被标记的敌人（无人机/技能标记）：按阵营着色，带脉冲环
+  const blink = 0.55 + 0.45 * Math.sin(this.world.time * 6);
+  for (const e of this.world.enemies) {
+    if (!e.alive) continue;
+    if (!(e.markedUntil && this.world.time < e.markedUntil)) continue;
+    const sx = cx + (e.body.position.x - px) * scale;
+    const sy = cy + (e.body.position.z - pz) * scale;
+    if (sx < -8 || sx > w + 8 || sy < -8 || sy > h + 8) continue;
+    const fdef = this.engine.content.get('factions', e.spec.faction);
+    const color = (fdef && fdef.css) || '#ff3b3b';
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.9)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = blink;
+    ctx.beginPath(); ctx.arc(sx, sy, 6.5 + blink * 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // ★ 无人机位置 / 操控中位于中心
+  if (drone) {
+    const dm = drone.mesh.position;
+    const sx = controlling ? cx : cx + (dm.x - px) * scale;
+    const sy = controlling ? cy : cy + (dm.z - pz) * scale;
+    if (sx > -8 && sx < w + 8 && sy > -8 && sy < h + 8) {
+      ctx.fillStyle = '#3fd0ff';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 6); ctx.lineTo(sx + 5, sy + 4); ctx.lineTo(sx - 5, sy + 4);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // 无人机侦测半径（缩略）
+      if (controlling) {
+        ctx.strokeStyle = 'rgba(63,208,255,.35)';
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.arc(cx, cy, (drone.def.markRadius || 45) * scale, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // 绘制玩家（非操控时位于中心；操控时显示玩家真实位置）
+  const playerSx = controlling ? cx + (p.body.position.x - px) * scale : cx;
+  const playerSy = controlling ? cy + (p.body.position.z - pz) * scale : cy;
 ctx.fillStyle = '#1a6ab8';
 ctx.beginPath();
-ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+ctx.arc(playerSx, playerSy, 5, 0, Math.PI * 2);
 ctx.fill();
 ctx.strokeStyle = '#ffffff';
 ctx.lineWidth = 1.5;
@@ -1526,9 +1829,17 @@ ctx.stroke();
 ctx.strokeStyle = 'rgba(26,106,184,0.9)';
 ctx.lineWidth = 2;
 ctx.beginPath();
-ctx.moveTo(cx, cy);
-ctx.lineTo(cx + Math.sin(this.engine.cameraCtl.yaw) * 14, cy - Math.cos(this.engine.cameraCtl.yaw) * 14);
+ctx.moveTo(playerSx, playerSy);
+ctx.lineTo(playerSx + Math.sin(this.engine.cameraCtl.yaw) * 14, playerSy - Math.cos(this.engine.cameraCtl.yaw) * 14);
 ctx.stroke();
+
+  if (controlling) {
+    ctx.fillStyle = 'rgba(10,30,50,.75)';
+    ctx.fillRect(4, 4, 74, 15);
+    ctx.fillStyle = '#7be8ff';
+    ctx.font = '10px monospace';
+    ctx.fillText('无人机视角', 8, 15);
+  }
 }
 
 _renderDamageIndicator(){
@@ -1705,19 +2016,27 @@ _updateCouplingFX(p) {
   _renderSkillBar(p){
     const el = document.getElementById('skill-bar');
     if (!el || !p || !p.skills) return;
+    const ICONS = { drone: '🛸', inspire: '🎖', srdispte: '🌪', catleap: '🐾', hate: '🔥', suppress: '🎯', radiantReturn: '💎', backflash: '✨', jump: '↗', aimbuff: '🎯', dash: '💨', rally: '🎖', shield: '🛡', taunt: '📢' };
     if (!this._skillBarBuilt || el.children.length !== p.skills.length) {
-      el.innerHTML = p.skills.map((sk, i) =>
-        `<div class="skill-slot"><span class="sk-key">${i === 0 ? 'Q' : 'E'}</span><span class="sk-name"></span><span class="sk-cd"></span></div>`
+      el.innerHTML = p.skills.map((sk) =>
+        `<div class="skill-slot"><span class="sk-icon"></span><span class="sk-name"></span><span class="sk-cd"></span></div>`
       ).join('');
       this._skillBarBuilt = true;
     }
     p.skills.forEach((sk, i) => {
       const slotEl = el.children[i];
       if (!slotEl) return;
+      const iconEl = slotEl.querySelector('.sk-icon');
       const nameEl = slotEl.querySelector('.sk-name');
       const cdEl = slotEl.querySelector('.sk-cd');
+      const icon = ICONS[sk.id] || '✦';
+      if (iconEl && iconEl.textContent !== icon) iconEl.textContent = icon;
       const name = this.engine.i18n.t(sk.def.name);
       if (nameEl && nameEl.textContent !== name) nameEl.textContent = name;
+      const desc = sk.def.desc ? this.engine.i18n.t(sk.def.desc) : '';
+      const tip = name + (desc ? '\n' + desc : '') +
+        (sk.def.cost ? '\n耦合消耗：' + sk.def.cost + (sk.def.drain ? ' + ' + sk.def.drain + '/s' : '') : '');
+      slotEl.title = tip;
       let cdTxt = '';
       if (sk.def.maxCharges) {
         cdTxt = (sk.charges || 0) + '/' + sk.def.maxCharges + (sk.ready ? '' : ' · ' + Math.ceil(sk.cd) + 's');
@@ -1770,6 +2089,15 @@ _updateCouplingFX(p) {
             `<span class="wb-name">${empty ? '—' : name}</span>` +
             `</div>`;
   }
+  // ★ 选中投掷物时，武器栏额外显示投掷物槽
+  if (p.activeThrowable) {
+    const nd = this.engine.content.get('nade', p.activeThrowable);
+    const ndName = nd ? i18n.t(nd.name) : p.activeThrowable;
+    html += `<div class="wb-slot active" data-slot="throw">` +
+            `<span class="wb-num">💣</span>` +
+            `<span class="wb-name">${ndName}</span>` +
+            `</div>`;
+  }
   el.innerHTML = html;
 
   el.querySelectorAll('.wb-slot').forEach(slotEl => {
@@ -1777,6 +2105,14 @@ _updateCouplingFX(p) {
       ev.preventDefault();
       ev.stopPropagation();
       const slotId = slotEl.dataset.slot;
+      if (slotId === 'throw') {
+        p.activeThrowable = null;
+        p._throwAiming = false;
+        if (this.world._clearThrowPreview) this.world._clearThrowPreview();
+        if (this.world._removeHeldThrowable) this.world._removeHeldThrowable();
+        if (this.world._log) this.world._log('退出投掷模式', 'y');
+        return;
+      }
       if (slotId === 'fist' || p.weapons[slotId]) {
         this.world._switchToSlot(slotId);
       }
@@ -1902,6 +2238,10 @@ this._enemySpawnPositions = null;
   this.lastHitTime = -10;
   this.soundEvents = []; 
   this._alerts = []; // 屏幕中上警觉提示（位置暴露等）
+  // ★ 死亡回放：整场最近约 14 秒的实体快照（10Hz）
+  this._replayBuf = [];
+  this._replayShots = [];
+  this._replayFps = 10;
 }
 
   start(){
@@ -1927,6 +2267,10 @@ this.engine.cameraCtl.follow(
 );
 this.engine.cameraCtl.camera.position.x = this.player.body.position.x;
 this.engine.cameraCtl.camera.position.z = this.player.body.position.z;
+if (this._playerSpawnPos && typeof this._playerSpawnPos.angle === 'number') {
+  this.engine.cameraCtl.yaw = this._playerSpawnPos.angle;
+  this.player.angle = this._playerSpawnPos.angle;
+}
 
     this.hud.update();
     this.running = true;
@@ -1974,6 +2318,8 @@ this.engine.cameraCtl.camera.position.z = this.player.body.position.z;
   if (this.layout && Array.isArray(this.layout.obstacles)) {
     this._buildFromLayout(this.layout);
   } else {
+    // 地图 JSON 加载失败时也不要出生在地图正中心：退到西南角
+    this._playerSpawnPos = { x: -(half - 12), z: half - 12, angle: 0.4 };
     this._buildRandomObstacles(half);
   }
 }
@@ -2036,6 +2382,8 @@ _buildRandomObstacles(half){
     const x = (Math.random() * 2 - 1) * (half - 6);
     const z = (Math.random() * 2 - 1) * (half - 6);
     if (Math.hypot(x, z) < 6) continue;
+    const ps = this._playerSpawnPos;
+    if (ps && Math.hypot(x - ps.x, z - ps.z) < 10) continue;
 
     const mesh = this.engine.meshes.build('obstacle', {
       w, h, d,
@@ -2263,6 +2611,8 @@ const body = this.physics.add(new Body({
 
   fireCd: 0,
   alive: true,
+  _downedLogged: false,
+  _downedAt: 0,
   kills: 0,
   dealt: 0,
   taken: 0,
@@ -2307,7 +2657,7 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   const ammoDef = this.engine.content.get('ammo', def.ammoType);
   const magCap = def.mag || 0;
   return {
-  def, ammoDef,
+  def, defId: id, ammoDef,
   loaded: { ammoType: def.ammoType, qty: magCap, queue: new Array(magCap).fill(def.ammoType) },
   magCap,
   reserve: magCap * 3,
@@ -2511,45 +2861,76 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   _spawnEnemies(){
   const specs = this.engine.content.all('enemies');
   if (!specs.length) return;
-  const count = this.mapSpec.enemyCount || 6;
+  const count = this.mapSpec.enemyCount || 12;
   const half = this.mapSpec.size / 2 - 6;
   const diffMul = { easy: 0.75, normal: 1, hard: 1.25, nightmare: 1.5 }[this.diffId] || 1;
+  const playerSpawn = this._playerSpawnPos || { x: 0, z: 0 };
+  const minPlayerDist = 42;
 
+  // ★ 地图 JSON 提供了具体兵种/小队/防区时，按布置生成
   if (this._enemySpawnPositions && this._enemySpawnPositions.length) {
     const spawnList = this._enemySpawnPositions;
-    for (let i = 0; i < count; i++) {
-      const spec = specs[i % specs.length];
-      const pos = spawnList[i % spawnList.length];
-      this._spawnEnemy(spec, pos.x, pos.z, diffMul);
+    for (const pos of spawnList) {
+      let spec = pos.spec ? this.engine.content.get('enemies', pos.spec) : null;
+      if (!spec && pos.faction) {
+        const pool = specs.filter(s => s.faction === pos.faction);
+        if (pool.length) spec = pool[Math.floor(Math.random() * pool.length)];
+      }
+      if (!spec) spec = specs[Math.floor(Math.random() * specs.length)];
+      this._spawnEnemy(spec, pos.x, pos.z, diffMul, pos);
     }
     return;
   }
 
+  // 无布局时的兜底：尽量远离出生点，并按阵营轮换
+  const factions = ['nipsel', 'bank', 'unknown'];
   for (let i = 0; i < count; i++) {
-    const spec = specs[i % specs.length];
+    const faction = factions[i % factions.length];
+    const pool = specs.filter(s => s.faction === faction);
+    const spec = pool.length ? pool[Math.floor(Math.random() * pool.length)] : specs[i % specs.length];
     let ex, ez, tries = 0;
     do {
       ex = (Math.random() * 2 - 1) * half;
       ez = (Math.random() * 2 - 1) * half;
       tries++;
-    } while (Math.hypot(ex, ez) < 25 && tries < 60);
-    this._spawnEnemy(spec, ex, ez, diffMul);
+    } while ((Math.hypot(ex - playerSpawn.x, ez - playerSpawn.z) < minPlayerDist) && tries < 80);
+    this._spawnEnemy(spec, ex, ez, diffMul, { faction });
   }
 }
 
-  _spawnEnemy(spec, x, z, diffMul){
+  _spawnEnemy(spec, x, z, diffMul, spawnInfo = {}){
   const assessment = this.engine.profile.assess();
   const profileMul = 0.5 + assessment.score;
 
   const mesh = this.engine.meshes.build('enemy', spec);
-  
   mesh.traverse(obj => {
-    if (obj.isMesh) {
-      obj.material = obj.material.clone();
-    }
+    if (obj.isMesh) obj.material = obj.material.clone();
   });
-  
   this.engine.renderer.scene.add(mesh);
+
+  // 阵营识别：头顶悬浮一个非常小的 [N]/[B]/[?] 标牌，远处也能分清派系
+  const fDef = this.engine.content.get('factions', spec.faction);
+  if (fDef && fDef.css && typeof document !== 'undefined') {
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = 96; cv.height = 40;
+      const c2 = cv.getContext('2d');
+      c2.fillStyle = 'rgba(0,0,0,.62)';
+      c2.fillRect(0, 0, 96, 40);
+      c2.strokeStyle = fDef.css; c2.lineWidth = 3;
+      c2.strokeRect(1.5, 1.5, 93, 37);
+      c2.fillStyle = fDef.css;
+      c2.font = 'bold 20px sans-serif';
+      c2.textAlign = 'center'; c2.textBaseline = 'middle';
+      const tag = spec.faction === 'nipsel' ? 'N' : (spec.faction === 'bank' ? 'B' : '?');
+      c2.fillText(tag, 48, 21);
+      const tex = new THREE.CanvasTexture(cv);
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+      spr.scale.set(0.85, 0.36, 1);
+      spr.position.y = 2.62;
+      mesh.add(spr);
+    } catch (e) { /* 头顶标牌失败不影响生成 */ }
+  }
 
   // ★ 碰撞高度与视觉模型对齐（视觉 2.325，碰撞 2.4）
   const body = this.physics.add(new Body({
@@ -2579,45 +2960,88 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     }
   }
 
-  // ★ Prazer 敌人有耦合系统（暂时默认关闭防护，被击中后可开）
   const isPrazer = !!spec.prazer;
   const maxCoup = isPrazer ? 100 : 0;
 
-    const enemy = {
-  mesh, body, spec,
-  hp: spec.hp * diffMul * profileMul,
-  maxHp: spec.hp * diffMul * profileMul,
-  angle: Math.random() * Math.PI * 2,
-  weapon: this._buildWeapon(spec.weapon),
-  fireCd: 0.5 + Math.random() * 1.0,
-  alive: true,
-  awareness: 0,
-  state: 'patrol',
-  stateT: 0,
-  wanderT: 1 + Math.random() * 2,
-  wanderDir: Math.random() * Math.PI * 2,
-  strafeDir: Math.random() < 0.5 ? 1 : -1,
-  strafeT: 0.7 + Math.random() * 1.2,
-  hitFlash: 0,
-  trainingDummy: this.kind === 'training',
-  armor,
-  coupling: maxCoup,
-  maxCoupling: maxCoup,
-  protection: null,
-  protectionHold: false,
-  limbDamage: 0,
-  speedMul: 1,
-  charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
-  status: new EntityStatus(spec, isPrazer),
-  lootInv: new Inventory(this.engine.content) // ★ 新增：敌人自带的库存
-};
+  // ★ 武器组：主武器 + 备用武器 + 近战。AI 会按距离/弹量自动切换
+  const weaponIds = [];
+  if (Array.isArray(spec.weaponSets) && spec.weaponSets.length) {
+    const set = spec.weaponSets[Math.floor(Math.random() * spec.weaponSets.length)];
+    weaponIds.push(...set);
+  } else if (Array.isArray(spec.weapons) && spec.weapons.length) {
+    weaponIds.push(...spec.weapons);
+  } else if (Array.isArray(spec.weaponOptions) && spec.weaponOptions.length) {
+    weaponIds.push(spec.weaponOptions[Math.floor(Math.random() * spec.weaponOptions.length)]);
+  } else if (spec.weapon) {
+    weaponIds.push(spec.weapon);
+  }
+  // AI 只实际使用主/副两把枪；多出来的配置不入库，避免背包放不下的幽灵物品
+  if (weaponIds.length > 2) weaponIds.length = 2;
+  const built = weaponIds.map(id => this._buildWeapon(id)).filter(Boolean);
+  const primary = built[0] || null;
+  const secondary = built[1] || null;
+  const meleeDef = this.engine.content.get('melee', 'knife');
+  const melee = meleeDef ? { def: meleeDef, fireCd: 0, isMelee: true, mag: Infinity, reserve: 0 } : null;
+  const weapons = { primary, secondary, melee };
+  const startWeapon = primary || secondary || melee;
+
+  const enemy = {
+    mesh, body, spec,
+    faction: spec.faction || 'nipsel',
+    squad: spawnInfo.squad || spec.squad || null,
+    home: { x: spawnInfo.homeX !== undefined ? spawnInfo.homeX : x, z: spawnInfo.homeZ !== undefined ? spawnInfo.homeZ : z },
+    patrolRadius: spawnInfo.patrolRadius || spec.patrolRadius || 14,
+    hp: spec.hp * diffMul * profileMul,
+    maxHp: spec.hp * diffMul * profileMul,
+    angle: spawnInfo.angle !== undefined ? spawnInfo.angle : Math.random() * Math.PI * 2,
+    weapons,
+    weapon: startWeapon,
+    currentSlot: primary ? 'primary' : (secondary ? 'secondary' : 'melee'),
+    _weaponLock: 0,
+    fireCd: 0.5 + Math.random() * 1.0,
+    alive: true,
+    awareness: 0,
+    state: 'patrol',
+    stateT: 0,
+    wanderT: 1 + Math.random() * 2,
+    wanderDir: Math.random() * Math.PI * 2,
+    strafeDir: Math.random() < 0.5 ? 1 : -1,
+    strafeT: 0.7 + Math.random() * 1.2,
+    hitFlash: 0,
+    trainingDummy: this.kind === 'training',
+    armor,
+    coupling: maxCoup,
+    maxCoupling: maxCoup,
+    protection: null,
+    protectionHold: false,
+    limbDamage: 0,
+    speedMul: 1,
+    charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
+    status: new EntityStatus(spec, isPrazer),
+    lootInv: new Inventory(this.engine.content)
+  };
   body.userData.ref = enemy;
 
-  // ★ 初始化敌人自带的库存（穿枪、穿甲、穿胸挂背包）
+  // ★ 初始化敌人库存：主武器、备用武器、护甲、胸挂背包、备弹
   const lootInv = enemy.lootInv;
-  const wUid = lootInv.createItem('weapons', spec.weapon, { loadedQty: enemy.weapon.magCap, loadedQueue: [...enemy.weapon.loaded.queue] });
-  if (wUid) lootInv.equip('main', wUid);
-  
+  enemy._wUids = { extra: [] };
+  weaponIds.forEach((id, idx) => {
+    const w = built[idx];
+    if (!w) return;
+    const uid = lootInv.createItem('weapons', id, {
+      loadedQty: w.magCap || 0,
+      loadedQueue: w.loaded && w.loaded.queue ? [...w.loaded.queue] : undefined,
+    });
+    if (!uid) return;
+    if (idx === 0) {
+      lootInv.equip('main', uid);
+      enemy._wUids.primary = uid;
+    } else {
+      if (idx === 1) enemy._wUids.secondary = uid;
+      enemy._wUids.extra.push(uid);
+    }
+  });
+
   if (spec.gear && spec.gear.armor) {
     const map = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
     for (const s in map) {
@@ -2628,19 +3052,24 @@ _consumeAmmoInInventory(inv, ammoType, count) {
       }
     }
   }
-  
+
   const chestUid = lootInv.createItem('chestRig', 'large');
   if (chestUid) lootInv.equip('chestRig', chestUid);
   const bagUid = lootInv.createItem('backpack', 'medium');
   if (bagUid) lootInv.equip('backpack', bagUid);
-  
-  // 往他包里塞点备弹
-  if (spec.weapon) {
-    const wDef = this.engine.content.get('weapons', spec.weapon);
-    if (wDef) {
-      const ammoUid = lootInv.createItem('ammo', wDef.ammoType, { qty: 60 });
-      if (ammoUid) lootInv.addToContainer('chest', ammoUid);
+
+  // 备用/额外武器塞进背包，尸体上能搜到
+  for (const extraUid of enemy._wUids.extra) {
+    if (!lootInv.addToContainer('bag', extraUid).ok) {
+      lootInv.addToContainer('chest', extraUid);
     }
+  }
+
+  // 往他包里塞点备弹：主/副武器各 90 发
+  for (const w of [primary, secondary]) {
+    if (!w || !w.def) continue;
+    const ammoUid = lootInv.createItem('ammo', w.def.ammoType, { qty: 90 });
+    if (ammoUid) lootInv.addToContainer('chest', ammoUid);
   }
 
   // ★ 收集轮廓流光（非 Prazer 时为空数组）
@@ -2690,6 +3119,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   }
 
   update(dt){
+  if (this.replayMode) { this._updateReplay(dt); return; }
   if (!this.running || this.paused) return;
   this.time += dt;
 
@@ -2698,6 +3128,16 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   // ★ 1. 状态机更新（受伤、流血、状态倒计时）
   if (this.player && this.player.status) this.player.status.tick(dt);
   for (const e of this.enemies) { if (e.alive && e.status) e.status.tick(dt); }
+
+  // ★ 击倒后失血：给 30 秒救援窗口，超时转入真正的死亡并写入死亡记录
+  if (this.player && this.player.alive && this.player.status && this.player.status.isDowned()) {
+    if (!this.player._downedAt) this.player._downedAt = this.time;
+    if (this.time - this.player._downedAt > 30) {
+      this.player.status.blood = 0;
+      this._log('失血过多，伤势恶化', 'r');
+      this._playerDown(this.player._lastDamageSource || null);
+    }
+  }
 
   // ★ 2. 玩家更新（只跑一次）
   this._updatePlayer(dt);
@@ -2722,20 +3162,26 @@ this._updateNearbyList();
   // ★ 5. 物理同步与渲染
   this.physics.step(dt);
   this._syncMeshes(dt);
+  this._recordReplayFrame(dt);
   this._updateGlowState(this.player, dt);
 
-  // ★ 6. 相机跟随（活/死互斥）
+  // ★ 6. 相机跟随（活/死/无人机互斥）
  if (this.player && this.player.alive) {
   const p = this.player;
-  const footY = p.body.position.y - p.body.halfH;
-  // 侧身偏移计算
-  const leanOff = p.leanOffset || 0;
-  const rightX = Math.cos(this.engine.cameraCtl.yaw);
-  const rightZ = Math.sin(this.engine.cameraCtl.yaw);
-  const camX = p.body.position.x + rightX * leanOff;
-  const camZ = p.body.position.z + rightZ * leanOff;
+  if (p._controllingDrone && this.drones && this.drones[0]) {
+    const dm = this.drones[0].mesh.position;
+    this.engine.cameraCtl.follow(dm.x, dm.y, dm.z);
+  } else {
+    const footY = p.body.position.y - p.body.halfH;
+    // 侧身偏移计算
+    const leanOff = p.leanOffset || 0;
+    const rightX = Math.cos(this.engine.cameraCtl.yaw);
+    const rightZ = Math.sin(this.engine.cameraCtl.yaw);
+    const camX = p.body.position.x + rightX * leanOff;
+    const camZ = p.body.position.z + rightZ * leanOff;
 
-  this.engine.cameraCtl.follow(camX, footY + (p.camHeight || 1.55), camZ);
+    this.engine.cameraCtl.follow(camX, footY + (p.camHeight || 1.55), camZ);
+  }
 } else {
   this._updateDeathCamera(dt);
 }
@@ -2767,6 +3213,17 @@ _updatePlayer(dt){
     if (p.loadState === 'loaded') loadMul = 0.9;
     else if (p.loadState === 'overweight') loadMul = 0.72 + (p._adaptBonus || 0) * 0.3;
     p._loadMul = loadMul;
+  }
+
+  // ★ 投掷物手持表现
+  if (p.activeThrowable) this._updateHeldThrowable(p);
+  else this._removeHeldThrowable();
+
+  // ★ 无人机操控：Y 切换进入/退出，进入后改用无人机视角与移动
+  if (this._edge.droneControl) this._toggleDroneControl();
+  if (p._controllingDrone && this.drones && this.drones[0]) {
+    this._updateDroneControl(dt, e, p);
+    return;
   }
 
   // ★ 1. 陀螺仪视角控制（增量计算，防飘防抖）
@@ -2946,8 +3403,14 @@ if (!this._searching && !isDowned) {
   if (p.fireCd > 0) p.fireCd -= dt;
   const cw = this.currentWeapon;
   if (p.activeThrowable) {
-    // ★ 已选中投掷物：攻击键变成投掷键
-    if (this._edge.fire) this._startThrow(p);
+    // ★ 已选中投掷物：攻击键变为投掷；长按瞄准（显示抛物线），松手投出
+    const firing = e.input.isActive('fire');
+    if (firing && !p._throwAiming) {
+      p._throwAiming = true;
+    } else if (!firing && p._throwAiming) {
+      p._throwAiming = false;
+      this._doThrowNow(p);
+    }
   } else if (!reloading && p.fireCd <= 0 && cw) {
   if (cw.isFist || (cw.def && cw.def.melee)) {
     if (e.input.isActive('fire')) this._meleeAttack(p, cw);
@@ -3073,7 +3536,7 @@ _updateSpeedFeedback(dt, isMoving) {
 _refreshEdges() {
   if (!this._actionPrev) this._actionPrev = {};
   if (!this._edge) this._edge = {};
-  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode', 'crouch', 'ads', 'throw', 'throwWheel', 'lean_left', 'lean_right'];
+  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode', 'crouch', 'ads', 'throw', 'throwWheel', 'droneControl', 'lean_left', 'lean_right'];
   for (let i = 0; i < names.length; i++) {
     const a = names[i];
     const cur = !!this.engine.input.isActive(a);
@@ -3114,6 +3577,9 @@ _updateProtection(dt){
   const p = this.player;
   if (!p.charSpec.prazer) return;
 
+  // ★ 大招持续消耗期间不回耦合，避免"回能抵消耗能"导致技能永动
+  const skillDraining = !!(p.skillStates && (p.skillStates.srdispte || p.skillStates.hate));
+
     if (p.protectionHold && p.protection && p.coupling > 0) {
       const drain = COMBAT.PROTECT_DRAIN[p.protection] || 0;
       p.coupling = Math.max(0, p.coupling - drain * dt);
@@ -3122,7 +3588,7 @@ _updateProtection(dt){
         p.protectionHold = false;
         this._log('耦合能耗尽', 'r');
       }
-    } else {
+    } else if (!skillDraining) {
       if (this._protectionStartTime > 0) {
         this._lastProtectionUse = this.time;
         this._protectionStartTime = 0;
@@ -3157,7 +3623,9 @@ _switchToSlot(slot) {
 
   // ★ 切枪即退出投掷物选择
   p.activeThrowable = null;
+  p._throwAiming = false;
   if (this._clearThrowPreview) this._clearThrowPreview();
+  if (this._removeHeldThrowable) this._removeHeldThrowable();
 
   this._syncWeaponsFromInventory();
 
@@ -3191,7 +3659,9 @@ _switchWeapon(){
 
   // ★ 切枪即退出投掷物选择
   p.activeThrowable = null;
+  p._throwAiming = false;
   if (this._clearThrowPreview) this._clearThrowPreview();
+  if (this._removeHeldThrowable) this._removeHeldThrowable();
 
   this._syncWeaponsFromInventory();
 
@@ -3327,11 +3797,12 @@ _meleeAttack(owner, weapon) {
     ox = origin.x; oy = origin.y; oz = origin.z;
     dirX = dir.x; dirY = dir.y; dirZ = dir.z;
   } else {
-    const yaw = this.engine.cameraCtl.yaw;
+    // ★ 旧实现错误使用了玩家相机 yaw，导致 AI 近战永远朝玩家面朝的方向挥
+    const yaw = owner.angle || 0;
     ox = owner.body.position.x;
-    oy = owner.body.position.y + 0.2;
+    oy = owner.body.position.y;
     oz = owner.body.position.z;
-    dirX = Math.sin(yaw); dirY = 0; dirZ = -Math.cos(yaw);
+    dirX = Math.cos(yaw); dirY = 0; dirZ = Math.sin(yaw);
   }
 
   const hit = this.physics.raycast(
@@ -3569,6 +4040,7 @@ _meleeAttack(owner, weapon) {
       const f = 1 - d / radius;
       e.stunnedUntil = Math.max(e.stunnedUntil || 0, this.time + duration * (0.5 + 0.5 * f));
       e.blindedUntil = Math.max(e.blindedUntil || 0, this.time + duration * 0.6 * f);
+      if (e.status) e.status.addEffect('stun', duration * (0.5 + 0.5 * f), 1);
       e.awareness = 0;
     }
   }
@@ -3657,7 +4129,17 @@ _meleeAttack(owner, weapon) {
     this._buildNadeWheel();
     const el = document.getElementById('nade-wheel');
     if (!el) return;
-    if (el.classList.contains('on')) { el.classList.remove('on'); return; }
+    if (el.classList.contains('on')) {
+      el.classList.remove('on');
+      // 关闭后恢复鼠标锁定
+      const canvas = this.engine.renderer.canvas;
+      if (canvas && typeof canvas.requestPointerLock === 'function') {
+        try { canvas.requestPointerLock(); } catch (_) {}
+      }
+      return;
+    }
+    // 打开轮盘必须先释放指针锁定，否则没有鼠标指针可点
+    if (document.pointerLockElement) document.exitPointerLock();
     this._renderNadeWheel();
     el.classList.add('on');
   }
@@ -3694,9 +4176,15 @@ _meleeAttack(owner, weapon) {
     const def = this.engine.content.get('nade', defId);
     if (!p || !def) return;
     p.activeThrowable = defId;
+    p._throwAiming = false;
     const el = document.getElementById('nade-wheel');
     if (el) el.classList.remove('on');
-    this._log('已选择投掷物：' + this.engine.i18n.t(def.name) + '（攻击键投出，T 切换）', 'p');
+    // 选完恢复鼠标锁定（点击扇区是用户手势）
+    const canvas = this.engine.renderer.canvas;
+    if (canvas && typeof canvas.requestPointerLock === 'function') {
+      try { canvas.requestPointerLock(); } catch (_) {}
+    }
+    this._log('已选择投掷物：' + this.engine.i18n.t(def.name) + '（长按攻击键瞄准，松手投出）', 'p');
   }
 
   _quickThrow(p) {
@@ -3706,35 +4194,67 @@ _meleeAttack(owner, weapon) {
       if (list.length === 0) { this._log('没有可投掷物', 'y'); return; }
       this._selectThrowable(list[0].defId);
     }
-    this._startThrow(p);
+    this._doThrowNow(p);
   }
 
-  _startThrow(p) {
+  // 长按瞄准后松手 / 快捷投掷：消耗并立即出手
+  _doThrowNow(p) {
     if (!p || !p.activeThrowable) return;
-    if (this.actionProcess.isRunning()) return;
     const defId = p.activeThrowable;
-    if (!this._hasThrowable(defId)) {
+    if (!this._takeThrowableItem(defId)) {
       this._log('投掷物已用尽', 'y');
       p.activeThrowable = null;
+      p._throwAiming = false;
+      this._clearThrowPreview();
+      this._removeHeldThrowable();
       return;
     }
-    // ★ 拔保险：短动作，完成后再出手
-    this.actionProcess.start({
-      id: 'pin',
-      label: '拔保险',
-      duration: 0.45,
-      cancelable: true,
-      onComplete: () => {
-        if (!this._takeThrowableItem(defId)) {
-          this._log('投掷物已用尽', 'y');
-          p.activeThrowable = null;
-          return;
-        }
-        this._spawnThrowable(p, defId);
-        if (!this._hasThrowable(defId)) p.activeThrowable = null;
-      },
-      onCancel: () => {},
-    });
+    this._spawnThrowable(p, defId);
+    p._throwAiming = false;
+    this._clearThrowPreview();
+    if (!this._hasThrowable(defId)) {
+      p.activeThrowable = null;
+      this._removeHeldThrowable();
+    }
+  }
+
+  _startThrow(p) { this._doThrowNow(p); }
+
+  // 手持投掷物（隐藏枪模，右手显示投掷物）
+  _updateHeldThrowable(p) {
+    const def = p.activeThrowable ? this.engine.content.get('nade', p.activeThrowable) : null;
+    if (!def) { this._removeHeldThrowable(); return; }
+    if (!this._heldThrowable || this._heldThrowable.userData.defId !== p.activeThrowable) {
+      this._removeHeldThrowable();
+      const geo = new THREE.IcosahedronGeometry(0.13, 0);
+      const mat = new THREE.MeshStandardMaterial({ color: def.color || 0x3a3a3a, metalness: 0.4, roughness: 0.6 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(0.32, -0.26, -0.72);
+      mesh.userData.defId = p.activeThrowable;
+      // 引信/拉环的一点高光，方便确认手里拿的是哪种投掷物
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, 0.08, 6),
+        new THREE.MeshBasicMaterial({ color: def.effect === 'flash' ? 0xffffff : (def.effect === 'stun' ? 0x9fa8ff : 0xff9a3c) })
+      );
+      cap.position.y = 0.15;
+      mesh.add(cap);
+      this.engine.renderer.camera.add(mesh);
+      this._heldThrowable = mesh;
+    }
+    this._heldThrowable.visible = true;
+    // 长按瞄准时稍微抬高，表示“准备掷出”
+    this._heldThrowable.position.y += ((p._throwAiming ? -0.20 : -0.26) - this._heldThrowable.position.y) * 0.25;
+    if (p.weaponGroup) p.weaponGroup.visible = false;
+  }
+
+  _removeHeldThrowable() {
+    if (this._heldThrowable) {
+      this.engine.renderer.camera.remove(this._heldThrowable);
+      if (this._heldThrowable.geometry) this._heldThrowable.geometry.dispose();
+      if (this._heldThrowable.material) this._heldThrowable.material.dispose();
+      this._heldThrowable = null;
+    }
+    if (this.player && this.player.weaponGroup) this.player.weaponGroup.visible = true;
   }
 
   _spawnThrowable(p, defId) {
@@ -3772,7 +4292,7 @@ _meleeAttack(owner, weapon) {
 
   _updateThrowPreview() {
     const p = this.player;
-    if (!p || !p.activeThrowable || (this.actionProcess && this.actionProcess.isRunning('pin'))) {
+    if (!p || !p.activeThrowable || !p._throwAiming) {
       this._clearThrowPreview();
       return;
     }
@@ -3787,29 +4307,60 @@ _meleeAttack(owner, weapon) {
     let vx = dir.x * speed, vy = dir.y * speed + 2.5, vz = dir.z * speed;
     const stepT = 0.04;
     const pts = [];
-    for (let i = 0; i < 60; i++) {
+    let land = null;
+    for (let i = 0; i < 90; i++) {
       vy -= 18 * stepT;
       px += vx * stepT; py += vy * stepT; pz += vz * stepT;
-      if (py < 0.12) { py = 0.12; pts.push(new THREE.Vector3(px, py, pz)); break; }
+      if (py < 0.12) {
+        py = 0.12;
+        pts.push(new THREE.Vector3(px, py, pz));
+        land = { x: px, z: pz };
+        break;
+      }
       pts.push(new THREE.Vector3(px, py, pz));
     }
     if (pts.length < 2) { this._clearThrowPreview(); return; }
-    if (!this._nadePreview) {
+
+    // 1. 点状弹道：比 1px 线更容易看清落点和弧度
+    let group = this._nadePreview;
+    if (!group) {
+      group = new THREE.Group();
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.8 });
-      this._nadePreview = new THREE.Line(geo, mat);
-      this.engine.renderer.scene.add(this._nadePreview);
+      const mat = new THREE.PointsMaterial({ color: 0xffcc66, size: 0.14, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false });
+      const dots = new THREE.Points(geo, mat);
+      group.add(dots);
+      const landMat = new THREE.MeshBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.75, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.85, 28), landMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.04;
+      ring.visible = false;
+      group.add(ring);
+      group.userData = { dots, ring };
+      this._nadePreview = group;
+      this.engine.renderer.scene.add(group);
+    }
+    const dots = group.userData.dots;
+    const ring = group.userData.ring;
+    dots.geometry.dispose();
+    dots.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    if (land) {
+      ring.visible = true;
+      ring.position.x = land.x;
+      ring.position.z = land.z;
+      const s = 1 + 0.12 * Math.sin(performance.now() / 120);
+      ring.scale.setScalar(s);
     } else {
-      this._nadePreview.geometry.dispose();
-      this._nadePreview.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+      ring.visible = false;
     }
   }
 
   _clearThrowPreview() {
     if (!this._nadePreview) return;
     this.engine.renderer.scene.remove(this._nadePreview);
-    if (this._nadePreview.geometry) this._nadePreview.geometry.dispose();
-    if (this._nadePreview.material) this._nadePreview.material.dispose();
+    this._nadePreview.traverse(obj => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) obj.material.dispose();
+    });
     this._nadePreview = null;
   }
 
@@ -3841,6 +4392,9 @@ let spread = baseSpread;
 if (isPlayer) {
   if (owner.ads) spread *= 0.2 * (owner.skillAdsSpreadMul || 1); 
   if (owner.isCrouching) spread *= 0.6; 
+  // 操控加成：直接收束散布，让「激励 / 压制 / 应激」有实际手感
+  if (owner.skillHandlingMul && owner.skillHandlingMul > 1) spread /= owner.skillHandlingMul;
+
   if (owner.holdingBreath) spread *= 0.5; // 屏息压制晃动
   if (owner.status && owner.status.hasEffect('pain')) spread *= 1.2;
   if (owner.status && owner.status.hasEffect('blind')) spread *= 1.4;
@@ -3857,6 +4411,7 @@ if (isPlayer) {
   // ★ 闪光/震撼：视野与稳定性严重受影响
   if (owner.blindedUntil && this.time < owner.blindedUntil) spread *= 3.0;
   if (owner.stunnedUntil && this.time < owner.stunnedUntil) spread *= 2.0;
+  if (owner.suppressedUntil && this.time < owner.suppressedUntil) spread *= 2.4;
 
   // ★ 仿真命中率：距离越远越不准；目标高速移动更难命中；连发后坐扩散
   let tdist = 25;
@@ -3995,6 +4550,7 @@ _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef
   const endZ = hit ? hit.point.z : (oz + nz * actualDist);
 
   this._spawnTracer(ox, oy, oz, endX, endY, endZ, isPlayer ? 0xffe08a : 0xff8b7b);
+  if (!isPlayer) this._recordReplayShot(owner, endX, endY, endZ);
 
   const realisticDrop = this.engine.profile.get('combat.bulletDrop', false);
 const decayK = realisticDrop ? COMBAT.RANGE_DECAY_REALISTIC : COMBAT.RANGE_DECAY;
@@ -4185,7 +4741,7 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType
     this.combatLog.push({
       type: 'damage_dealt',
       t: this.time,
-      target: { name: this.engine.i18n.t(enemy.spec.name), isBoss: false, isElite: false, effects: targetEffs },
+      target: { name: this.engine.i18n.t(enemy.spec.name), faction: enemy.spec.faction, isBoss: false, isElite: false, effects: targetEffs },
       amount: Math.round(remaining),
       part: hitPart,
       weapon: this.currentWeapon ? { name: this.engine.i18n.t(this.currentWeapon.def.name) } : null,
@@ -4217,10 +4773,10 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType
     this.player.downs = (this.player.downs || 0) + 1;
     this.stats.downs = (this.stats.downs || 0) + 1;
   }
-  this._addDownFeed(enemy.spec.name, remaining, dd);
+  this._addDownFeed(enemy, remaining, dd);
   this.combatLog.push({
     type: 'downed', t: this.time,
-    target: { name: this.engine.i18n.t(enemy.spec.name) },
+    target: { name: this.engine.i18n.t(enemy.spec.name), faction: enemy.spec.faction },
     distance: dd,
   });
 } else if (enemy.alive) {
@@ -4233,6 +4789,7 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType
    
 _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null, damageType = 'ballistic'){
   if (!player.alive) return;
+  if (sourceEnt) this._lastDamageSource = sourceEnt;
 
   if (part === true) part = 'head';
   else if (part === false || part === undefined) part = 'thorax';
@@ -4318,15 +4875,16 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
     this.player.kills++;
     this.stats.kills++;
     this.tasks.progress('kill', 1, { faction: enemy.spec.faction });
-    this._addKillFeed(enemy.spec.name, Math.round(dmg), dist);
+    this._addKillFeed(enemy, Math.round(dmg), dist);
   }
   this.combatLog.push({
   type: 'kill',
   t: this.time,
   target: {
     name: this.engine.i18n.t(enemy.spec.name),
+    faction: enemy.spec.faction,
     isBoss: false,
-    isElite: false,
+    isElite: enemy.spec.rank === 'elite' || enemy.spec.rank === 'leader',
   },
   distance: dist,
   damageContributed: dmg,
@@ -4335,78 +4893,83 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
     this._spawnSpark(enemy.body.position.x, enemy.body.position.z);
   this._processModeHook('onEnemyKilled', enemy);
 
-     // ★ 尸体生成：同步当前装备状态，并生成实体模型
+  // ★ 尸体生成：同步所有武器/护甲状态，并生成可搜刮实体
+  if (!enemy.lootInv) enemy.lootInv = new Inventory(this.engine.content);
   if (enemy.lootInv) {
-    const wUid = enemy.lootInv.equipped.main;
-    if (wUid && enemy.weapon.loaded) {
-      const wItem = enemy.lootInv.items.get(wUid);
-      if (wItem) {
-        wItem.loaded.qty = enemy.weapon.loaded.qty;
-        wItem.loaded.queue = [...enemy.weapon.loaded.queue];
+    const lootInv = enemy.lootInv;
+    // 主/副武器：按 _wUids 精确回写，避免 AI 切枪后尸体上只剩一把枪
+    for (const slot of ['primary', 'secondary']) {
+      const w = enemy.weapons && enemy.weapons[slot];
+      const uid = enemy._wUids && enemy._wUids[slot];
+      if (!w || !uid || !w.loaded) continue;
+      const wItem = lootInv.items.get(uid);
+      if (wItem && wItem.loaded) {
+        wItem.loaded.qty = w.loaded.qty;
+        wItem.loaded.queue = [...(w.loaded.queue || [])];
       }
     }
-    
+    // 当前武器若是从地上捡来的，也补一把进尸体背包，避免“枪消失”
+    if (enemy.weapon && enemy.weapon.def && !enemy.weapon.def.melee) {
+      const known = Object.values(enemy._wUids || {}).some(uid => {
+        const it = lootInv.items.get(uid);
+        return it && it.defId === enemy.weapon.defId;
+      });
+      if (!known && enemy.weapon.defId) {
+        const nuid = lootInv.createItem('weapons', enemy.weapon.defId, {
+          loadedQty: enemy.weapon.mag || 0,
+        });
+        if (nuid) lootInv.addToContainer('bag', nuid);
+      }
+    }
+
     const armorMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
     for (const slot in armorMap) {
-      const uid = enemy.lootInv.equipped[armorMap[slot]];
+      const uid = lootInv.equipped[armorMap[slot]];
       if (uid && enemy.armor[slot]) {
-        const aItem = enemy.lootInv.items.get(uid);
+        const aItem = lootInv.items.get(uid);
         if (aItem) aItem.dur = enemy.armor[slot].dur;
       }
     }
 
-// ★ 尸体生成：同步当前装备状态，并生成实体模型
-if (!enemy.lootInv) {
-  enemy.lootInv = new Inventory(this.engine.content);
-}
+    const lx = enemy.body.position.x;
+    const lz = enemy.body.position.z;
+    const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 });
+    lootMesh.position.set(lx, 0, lz);
+    this.engine.renderer.scene.add(lootMesh);
 
-if (enemy.lootInv) {
-  const wUid = enemy.lootInv.equipped.main;
-  if (wUid && enemy.weapon.loaded) {
-    const wItem = enemy.lootInv.items.get(wUid);
-    if (wItem) {
-      wItem.loaded.qty = enemy.weapon.loaded.qty;
-      wItem.loaded.queue = [...enemy.weapon.loaded.queue];
-    }
+    const fDef = this.engine.content.get('factions', enemy.spec.faction);
+    const corpseObj = {
+      x: lx,
+      z: lz,
+      mesh: lootMesh,
+      label: (fDef ? '[' + this.engine.i18n.t(fDef.short) + '] ' : '') + this.engine.i18n.t(enemy.spec.name) + ' 的尸体',
+      isCorpse: true,
+      lootInv,
+      faction: enemy.spec.faction,
+      grid: null,
+      searched: true
+    };
+    this.groundLoots.push(corpseObj);
+    this.pois.push({ x: lx, z: lz, type: 'container', color: '#ff5555' });
   }
-  
-  const armorMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
-  for (const slot in armorMap) {
-    const uid = enemy.lootInv.equipped[armorMap[slot]];
-    if (uid && enemy.armor[slot]) {
-      const aItem = enemy.lootInv.items.get(uid);
-      if (aItem) aItem.dur = enemy.armor[slot].dur;
-    }
+}
+
+  // 阵营方框：击杀/击倒提示里放在兵种名前面
+  _factionChip(factionId) {
+    const f = this.engine.content.get('factions', factionId);
+    if (!f) return '';
+    const color = f.css || '#ffffff';
+    const label = this.engine.i18n.t(f.short);
+    return `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:5px;padding:1px 5px;border:1px solid ${color};border-radius:3px;background:rgba(0,0,0,.35);color:${color};font-size:9px;font-weight:700;letter-spacing:.5px;vertical-align:middle"><span style="display:inline-block;width:7px;height:7px;background:${color};box-shadow:0 0 4px ${color}"></span>${this._esc(label)}</span>`;
   }
 
-  const lx = enemy.body.position.x;
-  const lz = enemy.body.position.z;
-  const lootMesh = this.engine.meshes.build('container', { color: 0xaa4444 }); 
-  lootMesh.position.set(lx, 0, lz);
-  this.engine.renderer.scene.add(lootMesh);
-
-  const corpseObj = {
-    x: lx,
-    z: lz,
-    mesh: lootMesh,
-    label: this.engine.i18n.t(enemy.spec.name) + ' 的尸体',
-    isCorpse: true,
-    lootInv: enemy.lootInv,
-    grid: null,
-    searched: true
-  };
-  this.groundLoots.push(corpseObj);
-  this.pois.push({ x: lx, z: lz, type: 'container', color: '#ff5555' });
-}
-  }     
-}
-
-_addKillFeed(name, dmg, dist) {
+_addKillFeed(enemy, dmg, dist) {
   const feed = document.getElementById('kill-feed');
   if (!feed) return;
+  const spec = enemy && enemy.spec ? enemy.spec : { name: '', faction: 'unknown' };
   const el = document.createElement('div');
-  el.style.cssText = 'background:rgba(0,0,0,0.6); padding:4px 10px; border-left:3px solid #ff5a5a; border-radius:4px; animation: slideIn 0.2s ease-out;';
-  el.innerHTML = `击败 <b style="color:#ff8b7b">${this.engine.i18n.t(name)}</b> <span style="color:#aaa;font-size:11px;">(${dist}m · ${dmg}伤害)</span>`;
+  el.style.cssText = 'background:rgba(0,0,0,0.68); padding:4px 10px; border-left:3px solid #ff5a5a; border-radius:4px; animation: slideIn 0.2s ease-out;';
+  el.innerHTML = `击败 ${this._factionChip(spec.faction)}<b style="color:#ff8b7b">${this.engine.i18n.t(spec.name)}</b> <span style="color:#aaa;font-size:11px;">(${dist}m · ${dmg}伤害)</span>`;
   feed.appendChild(el);
   setTimeout(() => {
     el.style.opacity = '0';
@@ -4417,12 +4980,13 @@ _addKillFeed(name, dmg, dist) {
 }
 
   // ★ 击倒提示（与击杀区分颜色），并保证不会撑爆面板
-  _addDownFeed(name, dmg, dist) {
+  _addDownFeed(enemy, dmg, dist) {
     const feed = document.getElementById('kill-feed');
     if (!feed) return;
+    const spec = enemy && enemy.spec ? enemy.spec : { name: '', faction: 'unknown' };
     const el = document.createElement('div');
-    el.style.cssText = 'background:rgba(0,0,0,0.6); padding:4px 10px; border-left:3px solid #ffb74a; border-radius:4px; animation: slideIn 0.2s ease-out;';
-    el.innerHTML = `击倒 <b style="color:#ffd08a">${this.engine.i18n.t(name)}</b> <span style="color:#aaa;font-size:11px;">(${dist}m · ${dmg}伤害)</span>`;
+    el.style.cssText = 'background:rgba(0,0,0,0.68); padding:4px 10px; border-left:3px solid #ffb74a; border-radius:4px; animation: slideIn 0.2s ease-out;';
+    el.innerHTML = `击倒 ${this._factionChip(spec.faction)}<b style="color:#ffd08a">${this.engine.i18n.t(spec.name)}</b> <span style="color:#aaa;font-size:11px;">(${dist}m · ${dmg}伤害)</span>`;
     feed.appendChild(el);
     setTimeout(() => {
       el.style.opacity = '0';
@@ -4482,7 +5046,13 @@ _addKillFeed(name, dmg, dist) {
       if (r.ok) {
         stashOld(r.swapped);
         const w = this._buildWeaponFromInventory(enemy.lootInv, 'main');
-        if (w) { enemy.weapon = w; enemy.fireCd = 0.6; }
+        if (w) {
+          enemy.weapon = w;
+          if (enemy.weapons) enemy.weapons.primary = w;
+          enemy.currentSlot = 'primary';
+          if (enemy._wUids) enemy._wUids.primary = enemy.lootInv.equipped.main;
+          enemy.fireCd = 0.6;
+        }
       }
     }
 
@@ -4553,32 +5123,57 @@ if (this._searching) {
 if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
   this.engine.app.bagUI.close();
 }
-this.combatLog.push({
-  type: 'downed',
-  t: this.time,
-  self: true,
-});
+this._removeHeldThrowable();
+this._clearThrowPreview();
+// 死亡瞬间关闭技能屏幕特效，避免闭眼/回放时残留粉色/橙色滤镜
+const _fxS = document.getElementById('fx-skill');
+if (_fxS) { _fxS.style.opacity = '0'; _fxS.style.boxShadow = ''; }
+const _fxL = document.getElementById('fx-skill-lines');
+if (_fxL) _fxL.classList.remove('on');
+if (!p._downedLogged) {
+  p._downedLogged = true;
+  this.combatLog.push({
+    type: 'downed',
+    t: this.time,
+    self: true,
+  });
+}
 p.alive = false;
 p.deadAt = this.time;
-// ★ 死亡回放：优先使用击杀者最近约 3 秒的录像（12.5Hz）；无录像则退回实时 POV
+// ★ 不再自动播放回放：直接进入正常死亡闭眼；录像存入死亡记录，供"查看死亡回放"按钮使用
 const kc = (sourceEnt && sourceEnt.body && sourceEnt !== p && sourceEnt.alive) ? sourceEnt : null;
-let replayDur = 0;
-if (kc && kc._camBuf && kc._camBuf.length >= 3) {
-  this._deathReplayFrames = kc._camBuf.slice(-36);
-  this._deathReplayStart = this.time;
-  this._deathReplayUntil = this.time + this._deathReplayFrames.length * 0.08;
-  this._deathReplayKiller = kc;
-  this._killcamKiller = null;
-  this._killcamUntil = 0;
-  replayDur = this._deathReplayUntil - this.time;
-} else {
-  this._deathReplayFrames = null;
-  this._deathReplayKiller = null;
-  this._killcamKiller = kc;
-  this._killcamUntil = kc ? (this.time + 2.2) : 0;
-  replayDur = kc ? 2.2 : 0;
+this._deathReplayFrames = null;
+this._deathReplayKiller = null;
+this._killcamKiller = null;
+this._killcamUntil = 0;
+const replayFrames = this._replayBuf.slice(-Math.round(12 * this._replayFps));
+// 在录像末尾补一个“倒地”帧，让回放能看见自己中弹倒下，而不是最后还站着
+if (replayFrames.length) {
+  const last = replayFrames[replayFrames.length - 1];
+  const fall = {
+    t: last.t + 0.28,
+    p: { x: last.p.x, y: last.p.y, z: last.p.z, angle: last.p.angle, alive: false, downed: true },
+    enemies: last.enemies.map(e => ({ ...e })),
+  };
+  replayFrames.push(fall);
 }
-p.deathStartedAt = this.time + replayDur;
+const killerIdx = kc ? this.enemies.indexOf(kc) : -1;
+this._deathRecord = {
+  killerName: kc && kc.spec ? this.engine.i18n.t(kc.spec.name) : '未知',
+  killerIdx,
+  frames: replayFrames.length >= 2 ? replayFrames : [],
+  shots: this._replayShots.slice(-120),
+  time: this.time,
+  killerFaction: kc && kc.spec ? kc.spec.faction : '',
+};
+// ★ 死亡事件（此前只有 downed，没有 death）
+this.combatLog.push({
+  type: 'death', t: this.time,
+  killer: kc && kc.spec ? this.engine.i18n.t(kc.spec.name) : '未知',
+  killedBy: kc && kc.spec ? (kc.spec.faction || '') : '',
+  killerFaction: kc && kc.spec ? kc.spec.faction : '',
+});
+p.deathStartedAt = this.time;
 p._deathShaken = false;
 p.deathRollOffset = (Math.random() * 2 - 1) * 0.10; // 极轻随机侧偏，主姿态是后仰
 this._processModeHook('onPlayerDowned');
@@ -4590,18 +5185,12 @@ ctl.shake(0.9, 0.18);
 ctl.setHurtOffset(0, 0);
 ctl.setBob(0, 0);
 
-// ★ 确保眼皮图层存在
+// ★ 确保眼皮图层存在；直接闭眼
 this._ensureEyelids();
-if (kc) {
-  this._showKillcamLabel(kc);
-  if (p.weaponGroup) p.weaponGroup.visible = false;
-  const ch = document.getElementById('crosshair');
-  if (ch) ch.style.display = 'none';
-}
 
 setTimeout(() => {
   this._end(false);
-}, (replayDur + 2) * 1000);
+}, 2000);
 }
 
   _showKillcamLabel(killer) {
@@ -4793,12 +5382,219 @@ _updateDeathCamera(dt) {
   this._updateEyelids(eyeT);
 }
 
+  // ===================== 死亡回放（整场快照重建） =====================
+  _startReplay(frames, killerName, shots, killerIdx){
+    if (!frames || frames.length < 2) return false;
+    this._replayFrames = frames;
+    this._replayName = killerName || '敌人';
+    this._replayShots = (shots || []).slice();
+    this._replayKillerIdx = (killerIdx !== undefined && killerIdx !== null) ? killerIdx : -1;
+    this._replayT = 0;
+    this._replayDur = Math.min(12, (frames.length - 1) / (this._replayFps || 10));
+    this._replayStartT = frames[0].t;
+    this._replayShotCursor = 0;
+    this.replayMode = true;
+    this.running = true;
+    this.paused = false;
+    // 回放时把玩家实体显示出来：击杀者视角必须能看见“我”
+    if (this.player && this.player.mesh) this.player.mesh.visible = true;
+    this._removeHeldThrowable();
+    // 第一人称枪模挂在相机上，回放必须隐藏，否则画面里会飘着一把枪
+    if (this.player && this.player.weaponGroup) {
+      this._replayWeaponVisible = this.player.weaponGroup.visible;
+      this.player.weaponGroup.visible = false;
+    }
+    const hud = document.getElementById('hud');
+    if (hud) hud.style.visibility = 'hidden';
+    const mobCtl = document.getElementById('mobile-controls');
+    if (mobCtl) mobCtl.style.display = 'none';
+    const pauseBtn = document.getElementById('pause-btn');
+    if (pauseBtn) pauseBtn.style.display = 'none';
+    const ch = document.getElementById('crosshair');
+    if (ch) ch.style.display = 'none';
+    this._showReplayBar(this._replayName);
+    return true;
+  }
+
+  _lerp(a, b, t) { return a + (b - a) * t; }
+
+  _applyReplayFrame(A, B, a){
+    const p = this.player;
+    if (!p) return;
+    // 玩家实体
+    if (p.mesh) {
+      p.mesh.visible = true;
+      p.mesh.position.set(
+        this._lerp(A.p.x, B.p.x, a),
+        this._lerp(A.p.y, B.p.y, a) - (p.body.halfH || 0.9),
+        this._lerp(A.p.z, B.p.z, a)
+      );
+      p.mesh.rotation.y = Math.PI - this._lerp(A.p.angle, B.p.angle, a);
+      p.mesh.rotation.z = (A.p.downed || B.p.downed) ? Math.PI / 2 : 0;
+    }
+    // 所有敌人
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      const sa = A.enemies[i];
+      const sb = B.enemies[i];
+      if (!e.mesh || !sa || !sb) continue;
+      e.mesh.visible = !!(sa.alive || sb.alive || sa.downed || sb.downed);
+      if (!e.mesh.visible) continue;
+      e.mesh.position.set(
+        this._lerp(sa.x, sb.x, a),
+        this._lerp(sa.y, sb.y, a) - (e.body.halfH || 1.2),
+        this._lerp(sa.z, sb.z, a)
+      );
+      e.mesh.rotation.y = Math.PI / 2 - this._lerp(sa.angle, sb.angle, a);
+      e.mesh.rotation.z = (sa.downed || sb.downed) ? Math.PI / 2 : 0;
+    }
+  }
+
+  _updateReplay(dt){
+    this._replayT += dt;
+    const frames = this._replayFrames || [];
+    if (!frames.length || this._replayT >= this._replayDur) { this._endReplay(); return; }
+    const fps = this._replayFps || 10;
+    const f = this._replayT * fps;
+    const i0 = Math.max(0, Math.min(frames.length - 2, Math.floor(f)));
+    const i1 = Math.min(frames.length - 1, i0 + 1);
+    const a = Math.max(0, Math.min(1, f - i0));
+    const A = frames[i0], B = frames[i1];
+
+    this._applyReplayFrame(A, B, a);
+
+    // 击杀者第一人称视角；没有击杀者（爆炸/坠落）时用玩家侧后方俯视
+    const cam = this.engine.renderer.camera;
+    const ki = this._replayKillerIdx;
+    const kSnapA = ki >= 0 ? A.enemies[ki] : null;
+    const kSnapB = ki >= 0 ? B.enemies[ki] : null;
+    const pSnap = {
+      x: this._lerp(A.p.x, B.p.x, a),
+      y: this._lerp(A.p.y, B.p.y, a),
+      z: this._lerp(A.p.z, B.p.z, a),
+    };
+    // 注意：引擎主循环随后会调用 cameraCtl.update()，
+    // 所以这里要写 cameraCtl 的 target/yaw/pitch，而不是直接摆相机。
+    const ctl = this.engine.cameraCtl;
+    let cx, cy, cz, tx, ty, tz;
+    if (kSnapA && kSnapB) {
+      cx = this._lerp(kSnapA.x, kSnapB.x, a);
+      cy = this._lerp(kSnapA.eye, kSnapB.eye, a);
+      cz = this._lerp(kSnapA.z, kSnapB.z, a);
+      tx = pSnap.x; ty = pSnap.y + 0.55; tz = pSnap.z;
+    } else {
+      const ang = Math.atan2(pSnap.z - (kSnapA ? kSnapA.z : pSnap.z), pSnap.x - (kSnapA ? kSnapA.x : pSnap.x));
+      cx = pSnap.x + Math.cos(ang + Math.PI) * 6;
+      cy = pSnap.y + 4.2;
+      cz = pSnap.z + Math.sin(ang + Math.PI) * 6;
+      tx = pSnap.x; ty = pSnap.y + 0.8; tz = pSnap.z;
+    }
+    ctl.target.x = cx; ctl.target.y = cy; ctl.target.z = cz;
+    const dx = tx - cx, dy = ty - cy, dz = tz - cz;
+    const len = Math.hypot(dx, dy, dz) || 1;
+    ctl.pitch = Math.asin(Math.max(-1, Math.min(1, dy / len)));
+    ctl.yaw = Math.atan2(dx, -dz);
+    ctl.deathRoll = 0;
+    ctl.deathDrop = 0;
+    ctl.deathPitchOffset = 0;
+    ctl.setBob(0, 0);
+    ctl.setHurtOffset(0, 0);
+    cam.fov = 68;
+    cam.updateProjectionMatrix();
+
+    // 回放这段时间内发生的射击：补上曳光弹
+    const nowWorldT = this._replayStartT + this._replayT;
+    while (this._replayShotCursor < this._replayShots.length &&
+           this._replayShots[this._replayShotCursor].t <= nowWorldT) {
+      const s = this._replayShots[this._replayShotCursor++];
+      const age = nowWorldT - s.t;
+      if (age >= 0 && age < 0.25) this._spawnTracer(s.x, s.y, s.z, s.ex, s.ey, s.ez, 0xff9b7b);
+    }
+    this._updateTracers(dt);
+
+    // 进度条
+    const fill = document.getElementById('replay-progress-fill');
+    if (fill) fill.style.width = Math.min(100, (this._replayT / this._replayDur) * 100) + '%';
+    const timeEl = document.getElementById('replay-time');
+    if (timeEl) timeEl.textContent = this._replayT.toFixed(1) + 's / ' + this._replayDur.toFixed(1) + 's';
+  }
+
+  _endReplay(){
+    if (!this.replayMode) return;
+    this.replayMode = false;
+    this.running = false;
+    this._replayFrames = null;
+    if (this.player && this.player.mesh) this.player.mesh.visible = false;
+    if (this.player && this.player.weaponGroup) {
+      this.player.weaponGroup.visible = this._replayWeaponVisible !== false;
+    }
+    const hud = document.getElementById('hud');
+    if (hud) hud.style.visibility = '';
+    const el = document.getElementById('replay-overlay');
+    if (el) el.remove();
+    if (this.engine.app && this.engine.app._onReplayEnd) this.engine.app._onReplayEnd();
+  }
+
+  _showReplayBar(name){
+    let el = document.getElementById('replay-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'replay-overlay';
+      el.style.cssText = 'position:fixed;inset:0;z-index:430;pointer-events:none';
+      document.body.appendChild(el);
+    }
+    el.innerHTML =
+      '<div style="position:absolute;left:50%;top:18px;transform:translateX(-50%);padding:6px 18px;background:rgba(0,0,0,.76);border:1px solid rgba(255,90,90,.55);border-radius:6px;color:#ff9b8b;font-size:13px;letter-spacing:2px;font-weight:700;white-space:nowrap">死亡回放 · ' + this._esc(String(name)) + ' 视角</div>' +
+      '<div style="position:absolute;left:50%;bottom:74px;transform:translateX(-50%);width:min(460px,72vw);height:6px;background:rgba(0,0,0,.72);border:1px solid rgba(255,120,120,.45);border-radius:4px;overflow:hidden"><div id="replay-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#ff6a6a,#ffd08a)"></div></div>' +
+      '<div id="replay-time" style="position:absolute;left:50%;bottom:52px;transform:translateX(-50%);color:#ffb0a0;font-size:11px;font-family:ui-monospace,monospace">0.0s</div>' +
+      '<button id="replay-close" style="position:absolute;left:50%;bottom:18px;transform:translateX(-50%);pointer-events:auto;padding:8px 24px;border-radius:8px;background:rgba(40,80,130,.85);border:1px solid rgba(110,180,255,.6);color:#cfe8ff;font-size:13px;cursor:pointer;font-family:inherit">关闭回放</button>';
+    const btn = document.getElementById('replay-close');
+    if (btn) btn.onclick = () => this._endReplay();
+  }
+
   _updateEnemies(dt){
     for (const e of this.enemies) {
       if (!e.alive) continue;
       AISystem.update(this, e, dt);
-      this._recordEnemyCam(e);
     }
+  }
+
+  // ★ 全场快照：记录玩家与所有敌人的位置/朝向/生死，供死亡回放重建场景
+  _recordReplayFrame(dt){
+    const p = this.player;
+    if (!p || !p.alive) return;
+    if (this.time - (this._lastReplaySnapAt || 0) < 1 / this._replayFps) return;
+    this._lastReplaySnapAt = this.time;
+    const snap = {
+      t: this.time,
+      p: {
+        x: p.body.position.x, y: p.body.position.y, z: p.body.position.z,
+        angle: p.angle || 0, alive: p.alive, downed: !!(p.status && p.status.isDowned()),
+      },
+      enemies: this.enemies.map(e => ({
+        x: e.body.position.x, y: e.body.position.y, z: e.body.position.z,
+        angle: e.angle || 0, alive: !!e.alive,
+        downed: !!(e.isDownedState || (e.status && e.status.isDowned())),
+        eye: e.body.position.y + (e.body.halfH || 1.2) * 0.75,
+      })),
+    };
+    this._replayBuf.push(snap);
+    // 只保留最近 15 秒
+    const cutoff = this.time - 15;
+    while (this._replayBuf.length && this._replayBuf[0].t < cutoff) this._replayBuf.shift();
+    while (this._replayShots.length && this._replayShots[0].t < cutoff) this._replayShots.shift();
+  }
+
+  // 记录一次敌方开火事件，回放时重放曳光弹
+  _recordReplayShot(owner, endX, endY, endZ){
+    if (!owner || owner === this.player) return;
+    const idx = this.enemies.indexOf(owner);
+    if (idx < 0) return;
+    const ox = owner.body.position.x;
+    const oy = owner.body.position.y + (owner.body.halfH || 1.2) * 0.75;
+    const oz = owner.body.position.z;
+    this._replayShots.push({ t: this.time, idx, x: ox, y: oy, z: oz, ex: endX, ey: endY, ez: endZ });
+    if (this._replayShots.length > 300) this._replayShots.shift();
   }
 
   // ★ 敌人视角录像：约 12.5Hz，保留最近约 3.6 秒，供死亡回放
@@ -4819,7 +5615,7 @@ _updateDeathCamera(dt) {
     }
     e._camBuf = e._camBuf || [];
     e._camBuf.push({ t: this.time, x: bx, y: eyeY, z: bz, ax, ay, az });
-    if (e._camBuf.length > 45) e._camBuf.shift();
+    if (e._camBuf.length > 160) e._camBuf.shift(); // 约 12.8 秒
   }
 
   _updateExtracts(dt){
@@ -5255,6 +6051,7 @@ _updateMobileButtons(){
   const app = this.engine.app;
   if (!app || !app._mobileButtons) return;
   const buttons = app._mobileButtons;
+  const p = this.player;
 
   const reloadBtn = buttons.reload;
   if (reloadBtn) {
@@ -5269,13 +6066,61 @@ _updateMobileButtons(){
   }
 
   const switchBtn = buttons.switchWeapon;
-if (switchBtn) {
-  const p = this.player;
-  if (p) {
-    const slotCount = ['primary', 'secondary', 'melee'].filter(s => p.weapons[s] !== null).length;
-    switchBtn.style.opacity = slotCount > 1 ? '1' : '0.4';
+  if (switchBtn) {
+    if (p) {
+      const slotCount = ['primary', 'secondary', 'melee'].filter(s => p.weapons[s] !== null).length;
+      switchBtn.style.opacity = slotCount > 1 ? '1' : '0.4';
+    }
   }
-}
+
+  // ★ 攻击键在手持投掷物时改名为「投掷」，否则恢复「攻击」
+  for (const fireBtn of [buttons.fire, buttons.fire_left]) {
+    if (!fireBtn) continue;
+    const label = (p && p.activeThrowable) ? '投掷' : '攻击';
+    if (fireBtn.textContent !== label) fireBtn.textContent = label;
+    fireBtn.style.background = (p && p.activeThrowable)
+      ? 'rgba(255,170,60,.42)' : 'rgba(255,80,80,.4)';
+    fireBtn.style.borderColor = (p && p.activeThrowable)
+      ? 'rgba(255,210,100,.85)' : 'rgba(255,100,100,.8)';
+  }
+
+  // ★ 移动端技能按钮显示真实技能名（永远不再显示「技能1/技能2」或键位字母）
+  if (p && p.skills) {
+    const SHORT = {
+      drone: '无人机', inspire: '激励', srdispte: 'Srdispte', catleap: '猫跃',
+      hate: 'Hate', suppress: '压制', radiantReturn: '闪耀回归', backflash: '背闪',
+      jump: '跃迁', aimbuff: '精准', dash: '疾行', rally: '鼓舞', shield: '护盾', taunt: '嘲讽',
+    };
+    const ICONS = { drone: '🛸', inspire: '🎖', srdispte: '🌪', catleap: '🐾', hate: '🔥', suppress: '🎯', radiantReturn: '💎', backflash: '✨', jump: '↗', aimbuff: '🎯', dash: '💨', rally: '🎖', shield: '🛡', taunt: '📢' };
+    const setSkill = (btn, sk, idx) => {
+      if (!btn) return;
+      if (!sk) { btn.style.display = 'none'; return; }
+      btn.style.display = '';
+      const label = SHORT[sk.id] || this.engine.i18n.t(sk.def.name);
+      if (btn.textContent !== label) btn.textContent = label;
+      btn.style.opacity = sk.ready ? '1' : '0.45';
+      btn.style.fontSize = '9px';
+      btn.style.overflow = 'hidden';
+      btn.style.padding = '0 2px';
+      btn.style.lineHeight = '1.1';
+      btn.title = (ICONS[sk.id] || '✦') + ' ' + this.engine.i18n.t(sk.def.name) +
+        (sk.ready ? '' : ' · 冷却 ' + Math.ceil(sk.cd) + 's') +
+        (sk.def.minCoupling ? ' · 需耦合 ' + sk.def.minCoupling + '%' : '');
+    };
+    setSkill(buttons.skill1, p.skills[0], 0);
+    setSkill(buttons.skill2, p.skills[1], 1);
+  }
+
+  // ★ 无人机操控中：临时把跳跃/蹲伏按钮改成升/降
+  const droneBtn = buttons.droneControl;
+  const controlling = !!(p && p._controllingDrone);
+  if (buttons.jump) buttons.jump.textContent = controlling ? '升' : '跳跃';
+  if (buttons.crouch) buttons.crouch.textContent = controlling ? '降' : '蹲';
+  if (droneBtn) {
+    droneBtn.style.display = (this.drones && this.drones[0]) || controlling ? '' : 'none';
+    droneBtn.textContent = controlling ? '退出' : '无人机';
+    droneBtn.style.opacity = controlling ? '1' : '0.85';
+  }
 }
    
 _trySearchContainer(){
@@ -5339,8 +6184,16 @@ _trySearchContainer(){
     }
 
     const sk = p.skills[slot];
-    if (!sk || !sk.ready) return;
+    if (!sk) return;
     const def = sk.def;
+
+    // ★ 无人机技能：已有无人机时改为接管/退出操控。
+    //   这一步必须在 ready 检查之前，否则技能冷却中就无法再次按 Q 接管。
+    if (def.kind === 'drone' && this.drones && this.drones[0]) {
+      this._toggleDroneControl();
+      return;
+    }
+    if (!sk.ready) return;
 
     // ★ 大招耦合门槛
     if (def.minCoupling && p.coupling < def.minCoupling) {
@@ -5411,19 +6264,45 @@ _trySearchContainer(){
       }
       // ===== 队长 =====
       case 'drone': this._spawnDrone(p, def); break;
-      case 'inspire': p.skillStates.inspire = { end: now + def.duration, def }; break;
+      case 'inspire':
+        p.skillStates.inspire = { end: now + def.duration, def };
+        p.status.addEffect('inspire', def.duration, 1);
+        this._spawnSkillAura(p, 0x66ff99, 1.0);
+        break;
       // ===== 凯特 =====
       case 'srdispte': {
         p.skillStates.srdispte = { def, startKills: p.kills || 0, startDowns: p.downs || 0 };
+        p.status.addEffect('srdispte', 0.5, 1);
+        this._spawnSkillAura(p, 0xff6ec7, 1.2);
         break;
       }
-      case 'catleap': this._catLeap(p, def); break;
+      case 'catleap':
+        this._catLeap(p, def);
+        p._catleapUntil = now + 1.5;
+        p.status.addEffect('catleap', 1.5, 1);
+        this._spawnSkillAura(p, 0xffb0d8, 0.6);
+        break;
       // ===== 玲娜 =====
-      case 'hate': p.skillStates.hate = { def }; break;
-      case 'suppress': p.skillStates.suppress = { end: now + def.duration, def }; break;
+      case 'hate':
+        p.skillStates.hate = { def };
+        p.status.addEffect('hate', 0.5, 1);
+        this._spawnSkillAura(p, 0xff7a2a, 1.2);
+        break;
+      case 'suppress':
+        p.skillStates.suppress = { end: now + def.duration, def };
+        p.status.addEffect('suppress', def.duration, 1);
+        this._suppressEnemies(p, def);
+        this._spawnSkillAura(p, 0xffd24a, 0.8);
+        break;
       // ===== 叶 =====
-      case 'mimicArmor': this._startMimic(p, def); break;
-      case 'backflash': this._backflash(p, def); break;
+      case 'mimicArmor':
+        this._startMimic(p, def);
+        p.status.addEffect('mimic', def.duration, 1);
+        break;
+      case 'backflash':
+        this._backflash(p, def);
+        p.status.addEffect('backflash', def.duration, 1);
+        break;
     }
   }
 
@@ -5442,35 +6321,61 @@ _trySearchContainer(){
     p.skillHandlingMul = 1;
     p._immuneNeg = false;
 
+    const refresh = (id) => { if (p.status) p.status.addEffect(id, 0.25, 1); };
+    const clear = (id) => { if (p.status) p.status.removeEffect(id); };
+
+    // ===== 队长：无人机链路 / 被动 =====
+    if (this.drones && this.drones[0]) refresh('drone'); else clear('drone');
+    const passiveId = p.charSpec && p.charSpec.passive;
+    if (passiveId === 'intuition') refresh('intuition'); else clear('intuition');
+    if (passiveId === 'adapt') refresh('adapt'); else clear('adapt');
+
     const ins = p.skillStates.inspire;
     if (ins) {
-      if (now >= ins.end) delete p.skillStates.inspire;
+      if (now >= ins.end) { delete p.skillStates.inspire; clear('inspire'); }
       else {
+        refresh('inspire');
         p.skillNegResist = Math.max(p.skillNegResist, ins.def.negativeResist || 0.3);
         p.skillHandlingMul *= (1 + (ins.def.handlingBonus || 0.25));
       }
-    }
+    } else clear('inspire');
 
     const sup = p.skillStates.suppress;
-    if (sup && now >= sup.end) delete p.skillStates.suppress;
+    if (sup && now >= sup.end) {
+      delete p.skillStates.suppress;
+      clear('suppress');
+      this._log('压制结束', 'y');
+    } else if (sup) {
+      refresh('suppress');
+      p.skillFireRateMul *= 1.1;
+      p.skillHandlingMul *= 1.1;
+    } else clear('suppress');
+    if (p._catleapUntil && now < p._catleapUntil) {
+      refresh('catleap');
+      p.skillSpeedMul *= 1.15;
+    } else clear('catleap');
+    if (p._backflashUntil && now < p._backflashUntil) refresh('backflash'); else clear('backflash');
 
     const srd = p.skillStates.srdispte;
     if (srd) {
+      refresh('srdispte');
       p.coupling = Math.max(0, p.coupling - (srd.def.drain || 2) * dt);
       p.skillSpeedMul *= (srd.def.speedMul || 1.25);
       p.skillAdsSpreadMul *= (srd.def.adsSpreadMul || 0.5);
       if (p.coupling <= 0) {
         delete p.skillStates.srdispte;
+        clear('srdispte');
         const kills = (p.kills || 0) - (srd.startKills || 0);
         const downs = (p.downs || 0) - (srd.startDowns || 0);
         this._healPlayer(p, Math.min(0.6, 0.08 * (kills + downs)) * p.status.maxBlood);
         p._weaknessUntil = now + 8;
         this._log('Srdispte 结束：精力虚弱', 'y');
       }
-    }
+    } else clear('srdispte');
 
     const hate = p.skillStates.hate;
     if (hate) {
+      refresh('hate');
       p.coupling = Math.max(0, p.coupling - (hate.def.drain || 3) * dt);
       p.skillSpeedMul *= (hate.def.speedMul || 1.35);
       p.skillReloadMul *= (hate.def.reloadMul || 0.35);
@@ -5478,35 +6383,159 @@ _trySearchContainer(){
       p._immuneNeg = true;
       if (p.coupling <= 0) {
         delete p.skillStates.hate;
+        clear('hate');
         p.status.blood = Math.max(1, p.status.blood * 0.88);
         for (const eff of p.status.effects.values()) eff.duration += 6;
         this._log('Hate 结束：血液反噬', 'r');
       }
-    }
+    } else clear('hate');
 
     if (p._weaknessUntil && now < p._weaknessUntil) {
       p.skillSpeedMul *= 0.8;
       p.skillAdsSpreadMul *= 1.5;
     }
     if (p._flashbackUntil && now < p._flashbackUntil) {
+      refresh('flashback');
       p.skillSpeedMul *= 0.85;
       p.skillAdsSpreadMul *= 1.4;
       p.skillReloadMul *= 1.15;
-    }
+    } else clear('flashback');
     if (p._stressUntil) {
       if (now >= p._stressUntil) {
         p._stressUntil = 0;
+        clear('stress');
         p._weaknessUntil = Math.max(p._weaknessUntil || 0, now + 6);
       } else {
+        refresh('stress');
         p.skillSpeedMul *= 1.15;
         p.skillHandlingMul *= 1.2;
         p.skillAdsSpreadMul *= 0.8;
         p.skillNegResist = Math.max(p.skillNegResist, 0.3);
       }
-    }
+    } else clear('stress');
     if (p._speedBuffUntil && now < p._speedBuffUntil) p.skillSpeedMul *= 1.2;
 
     if (p._mimicUntil && now >= p._mimicUntil) this._endMimic(p);
+    if (p._mimicUntil && now < p._mimicUntil) refresh('mimic'); else clear('mimic');
+
+    if ((p._coveyLayers || 0) > 0) refresh('covey'); else clear('covey');
+
+    this._updateSkillFX(p);
+  }
+
+  // 技能持续期间的屏幕边缘氛围光 + 流动能量线
+  _updateSkillFX(p){
+    const fx = document.getElementById('fx-skill');
+    const lines = document.getElementById('fx-skill-lines');
+    if (!fx) return;
+
+    let color = '';
+    let edge = '';
+    let lineColor = '';
+    let fast = false;
+    let aura = null;
+    if (p.skillStates && p.skillStates.srdispte) {
+      color = 'rgba(255,90,190,.42)'; edge = 'inset 0 0 110px 22px rgba(255,80,180,.42)';
+      lineColor = 'rgba(255,120,210,.6)'; fast = true; aura = 0xff6ec7;
+    } else if (p.skillStates && p.skillStates.hate) {
+      color = 'rgba(255,120,30,.42)'; edge = 'inset 0 0 110px 22px rgba(255,110,20,.42)';
+      lineColor = 'rgba(255,150,50,.6)'; fast = true; aura = 0xff7a2a;
+    } else if (p._mimicUntil && this.time < p._mimicUntil) {
+      color = 'rgba(255,210,80,.36)'; edge = 'inset 0 0 100px 18px rgba(255,210,80,.38)';
+      lineColor = 'rgba(255,225,120,.55)'; aura = 0xffd85a;
+    } else if (p.skillStates && p.skillStates.inspire) {
+      color = 'rgba(90,255,150,.26)'; edge = 'inset 0 0 90px 14px rgba(90,255,150,.3)';
+      lineColor = 'rgba(120,255,170,.45)'; aura = 0x66ff99;
+    } else if (p._stressUntil) {
+      color = 'rgba(90,180,255,.28)'; edge = 'inset 0 0 90px 14px rgba(90,180,255,.3)';
+      lineColor = 'rgba(120,200,255,.45)'; aura = 0x66bbff;
+    } else if (p._backflashUntil && this.time < p._backflashUntil) {
+      color = 'rgba(255,220,120,.3)'; edge = 'inset 0 0 100px 18px rgba(255,230,140,.34)';
+      lineColor = 'rgba(255,235,160,.55)'; aura = 0xffe08a;
+    } else if (p._controllingDrone || (this.drones && this.drones[0])) {
+      color = 'rgba(80,200,255,.22)'; edge = 'inset 0 0 90px 14px rgba(80,200,255,.24)';
+      lineColor = 'rgba(120,225,255,.4)'; aura = 0x66ccff;
+    } else if (p.skillStates && p.skillStates.suppress) {
+      color = 'rgba(255,200,80,.2)'; edge = 'inset 0 0 80px 12px rgba(255,200,80,.22)';
+      lineColor = 'rgba(255,220,120,.4)'; aura = 0xffd24a;
+    }
+
+    fx.style.boxShadow = edge;
+    fx.style.background = color ? `radial-gradient(circle at 50% 50%, transparent 58%, ${color} 100%)` : '';
+    fx.style.opacity = edge ? '1' : '0';
+    if (lines) {
+      if (color) {
+        lines.style.setProperty('--sk-color', lineColor);
+        lines.classList.add('on');
+        lines.classList.toggle('fast', fast);
+      } else {
+        lines.classList.remove('on');
+        lines.classList.remove('fast');
+      }
+    }
+    p._activeAuraColor = aura;
+  }
+
+  // 技能/状态激活瞬间：脚下扩散光环 + 竖向能量柱（廉价但有效）
+  _spawnSkillAura(p, color, duration = 1.0){
+    if (!p || !p.body) return;
+    const scene = this.engine.renderer.scene;
+    const group = new THREE.Group();
+    const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.0, 36), ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.05;
+    group.add(ring);
+    const pillarMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.4, 3.2, 20, 1, true), pillarMat);
+    pillar.position.y = 1.6;
+    group.add(pillar);
+    const footY = p.body.position.y - (p.body.halfH || 0.9) + 0.05;
+    group.position.set(p.body.position.x, footY, p.body.position.z);
+    scene.add(group);
+    const start = performance.now();
+    const life = Math.max(300, duration * 1000);
+    const step = () => {
+      const t = (performance.now() - start) / life;
+      if (t >= 1) {
+        scene.remove(group);
+        ring.geometry.dispose(); ringMat.dispose();
+        pillar.geometry.dispose(); pillarMat.dispose();
+        return;
+      }
+      ring.scale.setScalar(1 + t * 5);
+      ringMat.opacity = 0.85 * (1 - t);
+      pillar.scale.set(1 + t * 0.6, 1 + t * 0.2, 1 + t * 0.6);
+      pillarMat.opacity = 0.28 * (1 - t);
+      group.rotation.y += 0.04;
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // ===== 玲娜：压制 =====
+  _suppressEnemies(p, def){
+    const radius = def.radius || 22;
+    const halfCone = (def.cone || Math.PI) / 2;
+    let hit = 0;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const dx = e.body.position.x - p.body.position.x;
+      const dz = e.body.position.z - p.body.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > radius) continue;
+      let ang = Math.atan2(dz, dx);
+      let diff = Math.abs(ang - p.angle);
+      if (diff > Math.PI) diff = Math.PI * 2 - diff;
+      if (diff > halfCone) continue;
+      e.suppressedUntil = Math.max(e.suppressedUntil || 0, this.time + (def.duration || 7));
+      e.suppressedBy = p;
+      e._burstSpread = Math.min(3.2, (e._burstSpread || 1) + 0.9);
+      if (e.status) e.status.addEffect('suppressed', def.duration || 7, 1);
+      this._spawnSkillAura(e, 0xffd24a, 0.5);
+      hit++;
+    }
+    this._log('压制生效：' + hit + ' 名敌人被压制', hit ? 'p' : 'y');
   }
 
   _healPlayer(p, amount){
@@ -5524,36 +6553,68 @@ _trySearchContainer(){
     this.drones = this.drones || [];
     for (const d of this.drones) this._removeDrone(d);
     this.drones = [];
-    const geo = new THREE.BoxGeometry(0.5, 0.22, 0.5);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x66ccff, emissive: 0x1a3a55, metalness: 0.6, roughness: 0.4 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(p.body.position.x, p.body.position.y + 8, p.body.position.z);
-    this.engine.renderer.scene.add(mesh);
+    const group = new THREE.Group();
+    const geo = new THREE.BoxGeometry(0.55, 0.22, 0.55);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x66ccff, emissive: 0x1a3a55, emissiveIntensity: 0.8, metalness: 0.6, roughness: 0.35 });
+    const body = new THREE.Mesh(geo, mat);
+    group.add(body);
+    // 四旋翼
+    for (const [sx, sz] of [[-0.42, -0.42], [0.42, -0.42], [-0.42, 0.42], [0.42, 0.42]]) {
+      const rotor = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.2, 0.03, 12),
+        new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.7 })
+      );
+      rotor.position.set(sx, 0.08, sz);
+      group.add(rotor);
+    }
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 0.9, 24),
+      new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -0.18;
+    group.add(ring);
+    group.position.set(p.body.position.x, p.body.position.y + 8, p.body.position.z);
+    this.engine.renderer.scene.add(group);
     const d = {
-      mesh, owner: p,
+      mesh: group, owner: p,
       battery: 100, maxBattery: 100,
-      durability: def.maxDurability || 60, maxDurability: def.maxDurability || 60,
+      durability: def.maxDurability || 70, maxDurability: def.maxDurability || 70,
       markTimer: 0, def,
     };
     this.drones.push(d);
     this._droneMark(d);
-    this._log('侦察无人机已升空', 'p');
+    if (p.status) p.status.addEffect('drone', 1.0, 1);
+    this._spawnSkillAura(p, 0x66ccff, 1.2);
+    this._log('侦察无人机已升空：小地图将标记附近敌人，按 Y 接管操控', 'p');
   }
 
-  _droneMark(d){
-    const R = d.def.markRadius || 28;
+  _droneMark(d, silent = false){
+    const R = d.def.markRadius || 45;
+    const hold = (d.def.markInterval || 5) + 2.5;
+    let found = 0;
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const dist = Math.hypot(e.body.position.x - d.mesh.position.x, e.body.position.z - d.mesh.position.z);
       if (dist > R) continue;
-      e.markedUntil = this.time + 4;
+      found++;
+      e.markedUntil = Math.max(e.markedUntil || 0, this.time + hold);
+      e.markedBy = 'drone';
       e.warnings = e.warnings || [];
-      e.warnings.push({ title: '位置暴露', context: '被侦察无人机标记', level: d.def.alertLevel || 3, t: this.time });
-      if (e.warnings.length > 4) e.warnings.shift();
+      if (!silent && (!e._lastDroneWarn || this.time - e._lastDroneWarn > 6)) {
+        e._lastDroneWarn = this.time;
+        e.warnings.push({ title: '位置暴露', context: '被侦察无人机标记', level: d.def.alertLevel || 3, t: this.time });
+        if (e.warnings.length > 4) e.warnings.shift();
+      }
       const alertness = (e.spec && e.spec.alertness) || 1;
       if (alertness >= (d.def.alertLevel || 3)) {
-        e.awareness = Math.min(1.2, e.awareness + 0.12);
+        e.awareness = Math.min(1.2, e.awareness + (silent ? 0.01 : 0.12));
       }
+    }
+    if (!silent && (!d._lastMarkLog || this.time - d._lastMarkLog > 15)) {
+      d._lastMarkLog = this.time;
+      if (found > 0) this._log('无人机标记 ' + found + ' 个目标', 'p');
+      else this._log('无人机未发现目标', 'y');
     }
   }
 
@@ -5563,11 +6624,14 @@ _trySearchContainer(){
       const d = this.drones[i];
       const p = d.owner;
       if (!p || !p.alive) { this._removeDrone(d); this.drones.splice(i, 1); continue; }
-      const ty = p.body.position.y + 8;
-      const k = Math.min(1, dt * 1.2);
-      d.mesh.position.x += (p.body.position.x - d.mesh.position.x) * k;
-      d.mesh.position.z += (p.body.position.z - d.mesh.position.z) * k;
-      d.mesh.position.y += (ty - d.mesh.position.y) * Math.min(1, dt * 1.5);
+      // 手动操控时不自动跟随玩家
+      if (!p._controllingDrone) {
+        const ty = p.body.position.y + 8;
+        const k = Math.min(1, dt * 1.2);
+        d.mesh.position.x += (p.body.position.x - d.mesh.position.x) * k;
+        d.mesh.position.z += (p.body.position.z - d.mesh.position.z) * k;
+        d.mesh.position.y += (ty - d.mesh.position.y) * Math.min(1, dt * 1.5);
+      }
       d.mesh.rotation.y += dt * 1.5;
       d.battery -= (d.def.batteryDrain || 3.3) * dt;
       d.markTimer -= dt;
@@ -5577,16 +6641,80 @@ _trySearchContainer(){
       }
       if (d.battery <= 0) {
         this._log('侦察无人机电量耗尽', 'y');
+        if (p._controllingDrone) { p._controllingDrone = false; this._log('无人机失联，返回本体视角', 'r'); }
         this._removeDrone(d);
         this.drones.splice(i, 1);
       }
     }
   }
 
+  _toggleDroneControl(){
+    const p = this.player;
+    if (!p || !p.alive) return;
+    if (!this.drones || !this.drones[0]) {
+      this._log('当前没有可用无人机，先使用「侦察无人机」技能', 'y');
+      return;
+    }
+    p._controllingDrone = !p._controllingDrone;
+    if (p._controllingDrone) {
+      p.ads = false;
+      p._throwAiming = false;
+      this._clearThrowPreview();
+      const app = this.engine.app;
+      const isTouch = app && (app.platform === 'mobile' || (app.platform === 'auto' && 'ontouchstart' in window));
+      this._log(isTouch
+        ? '进入无人机操控：左侧摇杆平移 / 「升」「降」/ 点「退出」返回'
+        : '进入无人机操控：WASD 平移 / 空格上升 / C 下降 / Y 退出', 'p');
+      this._spawnSkillAura(p, 0x66ccff, 0.8);
+    } else {
+      this._log('退出无人机操控', 'p');
+      this.engine.cameraCtl.resetDeathPose();
+    }
+    // 进入/退出都刷新一次移动端按钮标签（升/降/退出）
+    this._updateMobileButtons();
+  }
+
+  // 手动操控：WASD 水平移动，空格升 / C 降，Y 退出；玩家本体原地不动
+  _updateDroneControl(dt, e, p){
+    const d = this.drones && this.drones[0];
+    if (!d) { p._controllingDrone = false; return; }
+    const mv = e.input.getMoveVector ? e.input.getMoveVector() : { x: 0, z: 0 };
+    const yaw = e.cameraCtl.yaw;
+    const fx = Math.sin(yaw), fz = -Math.cos(yaw);
+    const rx = Math.cos(yaw), rz = Math.sin(yaw);
+    const speed = 14;
+    const cruise = Math.max(0.35, Math.min(1, d.battery / 25));
+    d.mesh.position.x += (rx * mv.x + fx * (-mv.z)) * speed * cruise * dt;
+    d.mesh.position.z += (rz * mv.x + fz * (-mv.z)) * speed * cruise * dt;
+    const up = e.input.isActive('jump') || e.input.keys.has(' ') || e.input.keys.has('Space');
+    const down = e.input.isActive('crouch') || e.input.keys.has('c') || e.input.keys.has('C');
+    if (up) d.mesh.position.y += 10 * dt;
+    if (down) d.mesh.position.y -= 10 * dt;
+    d.mesh.position.y = Math.max(1.2, Math.min(55, d.mesh.position.y));
+    const half = (this.mapSpec ? this.mapSpec.size : 200) / 2 - 2;
+    d.mesh.position.x = Math.max(-half, Math.min(half, d.mesh.position.x));
+    d.mesh.position.z = Math.max(-half, Math.min(half, d.mesh.position.z));
+    // 机身随移动倾斜，给一点“在飞”的反馈
+    d.mesh.rotation.x += ((-mv.z * 0.35) - d.mesh.rotation.x) * Math.min(1, dt * 6);
+    d.mesh.rotation.z += ((-mv.x * 0.35) - d.mesh.rotation.z) * Math.min(1, dt * 6);
+    p.body.velocity.x = 0;
+    p.body.velocity.z = 0;
+    // 操控中持续标记，避免无人机飞到敌人头顶却不刷新
+    if (this.time - (d._lastMarkAt || 0) > 0.5) {
+      d._lastMarkAt = this.time;
+      this._droneMark(d, true);
+    }
+  }
+
   _removeDrone(d){
     this.engine.renderer.scene.remove(d.mesh);
-    if (d.mesh.geometry) d.mesh.geometry.dispose();
-    if (d.mesh.material) d.mesh.material.dispose();
+    d.mesh.traverse(obj => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+        else obj.material.dispose();
+      }
+    });
   }
 
   // ===== 凯特：猫跃 =====
@@ -5612,45 +6740,121 @@ _trySearchContainer(){
   // ===== 叶：拟载护甲 =====
   _startMimic(p, def){
     if (!p.armor) p.armor = {};
-    p._mimicBackup = JSON.parse(JSON.stringify(p.armor));
-    const lv = def.armorLv || 7;
-    const dur = def.durability || 400;
-    p.armor = {
-      shell: { lv, dur, max: dur },
-      visor: { lv, dur, max: dur },
-      fiber: { lv, dur, max: dur },
-      plate: { lv, dur, max: dur },
+    // ★ 直接保存原护具对象引用：JSON 深拷贝会丢掉 item 引用和 dur getter，
+    //   导致拟载结束后原护甲耐久与背包数据脱钩。
+    p._mimicBackup = {
+      shell: p.armor.shell || null,
+      visor: p.armor.visor || null,
+      fiber: p.armor.fiber || null,
+      plate: p.armor.plate || null,
     };
-    p._mimicUntil = this.time + (def.duration || 20);
+    const lv = def.armorLv || 7;
+    const dur = def.durability || 520;
+    p.armor = {
+      shell: { lv, dur, max: dur, mimic: true },
+      visor: { lv, dur, max: dur, mimic: true },
+      fiber: { lv, dur, max: dur, mimic: true },
+      plate: { lv, dur, max: dur, mimic: true },
+    };
+    p._mimicUntil = this.time + (def.duration || 25);
     p._mimicLock = true;
-    this._log('闪耀回归：BYinC 拟载展开', 'p');
+    p.status.addEffect('mimic', def.duration || 25, 1);
+    // 背包开着时立刻重绘，让四个护具槽马上变成金色锁定拟载
+    const bu = this.engine.app && this.engine.app.bagUI;
+    if (bu && bu.open) bu.refresh();
+    this._spawnSkillAura(p, 0xffd85a, 1.6);
+    this._log('闪耀回归：BYinC 拟载展开（Lv7 / ' + dur + ' 耐久）', 'p');
   }
 
   _endMimic(p){
     p._mimicUntil = 0;
     p._mimicLock = false;
-    if (p._mimicBackup) { p.armor = p._mimicBackup; p._mimicBackup = null; }
+    if (p._mimicBackup) {
+      p.armor = {
+        shell: p._mimicBackup.shell || { lv: 0, dur: 0, max: 0 },
+        visor: p._mimicBackup.visor || { lv: 0, dur: 0, max: 0 },
+        fiber: p._mimicBackup.fiber || { lv: 0, dur: 0, max: 0 },
+        plate: p._mimicBackup.plate || { lv: 0, dur: 0, max: 0 },
+      };
+      p._mimicBackup = null;
+    }
+    if (p.status) p.status.removeEffect('mimic');
+    const bu = this.engine.app && this.engine.app.bagUI;
+    if (bu && bu.open) bu.refresh();
+    this._log('闪耀回归结束：原护具已恢复', 'y');
   }
 
   // ===== 叶：背闪 =====
   _backflash(p, def){
-    const radius = def.flashRadius || 9;
-    this._applyFlash(p.body.position.x, p.body.position.z, radius, 1.2, 1.0, p);
+    const radius = def.flashRadius || 12;
+    const flashDur = def.flashDuration || 4.2;
+    const before = new Map();
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      before.set(e, { b: e.blindedUntil || 0, s: e.stunnedUntil || 0 });
+    }
+    this._applyFlash(p.body.position.x, p.body.position.z, radius, flashDur, 1.0, p);
+    this._spawnFlashFX(p.body.position.x, p.body.position.y + 1.4, p.body.position.z, 0xffffff);
+    // 让玩家清楚看到每一个被闪到的敌人：白色光球 + 眩晕图标 + 头顶状态
+    let hit = 0;
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const d = Math.hypot(e.body.position.x - p.body.position.x, e.body.position.z - p.body.position.z);
+      if (d > radius) continue;
+      hit++;
+      this._spawnFlashFX(e.body.position.x, e.body.position.y + (e.body.halfH || 1.2) * 0.8, e.body.position.z, 0xffffcc);
+      e.hitFlash = Math.max(e.hitFlash || 0, 0.6);
+      e.reactionTimer = Math.max(e.reactionTimer || 0, flashDur * 0.6);
+      if (e.status) e.status.addEffect('blind', flashDur, 1);
+      if (e.state === 'combat') { e.state = 'investigate'; e.stateT = 0; }
+      this._spawnDamageNumber(e.body.position.x, e.body.position.z, '✦', 'stun');
+      this._log('闪盲：' + this.engine.i18n.t(e.spec.name), 'p');
+    }
+    // 自身也有一点曝光，但不致盲；身后仍有白色余晖
+    this._spawnSkillAura(p, 0xfff2b0, 0.9);
     p._speedBuffUntil = this.time + (def.duration || 6);
-    this._flashScreen(0.35);
-    this._log('背闪！', 'p');
+    p._backflashUntil = this.time + (def.duration || 6);
+    this._flashScreen(hit > 0 ? 0.45 : 0.28);
+    this._log(hit > 0 ? ('背闪！' + hit + ' 名敌人被闪盲') : '背闪！附近没有敌人', hit > 0 ? 'p' : 'y');
   }
 
-  // 闪光/震撼对 AI：短暂致盲（沉默视野）+ 震撼（枪口抖动）
+  _spawnFlashFX(x, y, z, color){
+    const geo = new THREE.SphereGeometry(0.35, 10, 8);
+    const mat = new THREE.MeshBasicMaterial({ color: color || 0xffffff, transparent: true, opacity: 0.95 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(x, y, z);
+    this.engine.renderer.scene.add(mesh);
+    const start = performance.now();
+    const step = () => {
+      const t = (performance.now() - start) / 320;
+      if (t >= 1) {
+        this.engine.renderer.scene.remove(mesh);
+        geo.dispose(); mat.dispose();
+        return;
+      }
+      mesh.scale.setScalar(1 + t * 5);
+      mat.opacity = 0.95 * (1 - t);
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  // 闪光/震撼对 AI：短暂致盲（沉默视野）+ 震撼（枪口抖动）+ 状态标记
   _applyFlash(x, z, radius, duration, strength, exclude){
     for (const e of this.enemies) {
       if (!e.alive || e === exclude) continue;
       const d = Math.hypot(e.body.position.x - x, e.body.position.z - z);
       if (d > radius) continue;
       const f = 1 - d / radius;
-      e.blindedUntil = this.time + duration * (0.4 + 0.6 * f) * strength;
-      e.stunnedUntil = this.time + duration * 0.5 * f * strength;
-      e.awareness = 0;
+      const blindT = duration * (0.55 + 0.45 * f) * strength;
+      e.blindedUntil = Math.max(e.blindedUntil || 0, this.time + blindT);
+      e.stunnedUntil = Math.max(e.stunnedUntil || 0, this.time + duration * 0.55 * f * strength);
+      e.awareness = Math.min(e.awareness || 0, 0.25);
+      e.targetEntity = null;
+      if (e.status) e.status.addEffect('blind', blindT, 1);
+      // 被闪到的 AI 会本能后退/找掩体，而不是站在原地继续锁头
+      if (e.state === 'combat') { e.state = 'flee'; e.targetPos = AISystem._findCover(this, e, this.player); }
+      e._burstSpread = Math.min(3.2, (e._burstSpread || 1) + 1.2);
     }
   }
 
@@ -5736,16 +6940,17 @@ _trySearchContainer(){
     let dz = p.body.position.z - srcZ;
     const len = Math.hypot(dx, dz) || 1;
     dx /= len; dz /= len;
-    const cost = 5;
+    const cost = (p.skillStates && p.skillStates.srdispte && p.skillStates.srdispte.def.dodgeCost) || 4;
     let ratio = 1;
     if (p.coupling < cost) ratio = Math.max(0, p.coupling / cost);
     p.coupling = Math.max(0, p.coupling - cost * ratio);
-    const dist = 4 * ratio;
+    const dist = 4.5 * ratio;
     p.body.position.x += dx * dist;
     p.body.position.z += dz * dist;
     p.ads = true;
     p._adsToggled = true;
     p.angle = Math.atan2(srcZ - p.body.position.z, srcX - p.body.position.x);
+    this._spawnSkillAura(p, 0xff6ec7, 0.35);
     this._log('Srdispte 应激位移', 'p');
   }
 
@@ -6252,6 +7457,7 @@ if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
     }
     this.projectiles = [];
     this._clearThrowPreview();
+    this._removeHeldThrowable();
     if (this.drones) {
       for (const d of this.drones) this._removeDrone(d);
       this.drones = [];
@@ -6327,7 +7533,7 @@ export class GameApp {
     };
   });
 
-  this._renderOptions('map-options', e.content.all('maps'), (i) => i.id === this.menuState.map, (i) => ({ title: i18n.t(i.name), sub: `${i.size}m²`, value: i.id }), (i) => { this.menuState.map = i.id; });
+  this._renderOptions('map-options', e.content.all('maps'), (i) => i.id === this.menuState.map, (i) => ({ title: i18n.t(i.name), sub: `${i.size}×${i.size}m`, value: i.id }), (i) => { this.menuState.map = i.id; });
   this._renderOptions('char-options', e.content.all('characters'), (i) => i.id === this.menuState.char, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.tag), value: i.id }), (i) => { this.menuState.char = i.id; });
   this._renderOptions('profile-options', e.profile.list(), (i) => i.id === this.menuState.profile, (i) => ({ title: i18n.t(i.name), sub: i18n.t(i.desc || ''), value: i.id }), (i) => { this.menuState.profile = i.id; e.profile.setProfile(i.id); this._updateDifficultyDisplay();this._syncCustomSettingsUI(); });
 
@@ -6730,9 +7936,9 @@ _ensureInitialInventory(forceReset){
 
   if (forceReset) {
     this._stripInventoryForLoadout();
-  } else {
-    if (data.flags.initialInventoryGiven === true) return;
   }
+  // ★ 不再因 initialInventoryGiven 而整体跳过：战败会清空装备，
+  //   下一局必须补齐缺失的主/副武器、护具与基础弹药，否则玩家只能空手上阵。
 
   const charSpec = this.engine.content.get('characters', this.menuState.char);
   if (!charSpec) return;
@@ -6743,6 +7949,14 @@ _ensureInitialInventory(forceReset){
       loadedQty: wDef ? (wDef.mag || 0) : 0,
     });
     if (uid) inv.equip('main', uid);
+  }
+  // ★ 角色副武器也要实际发放，否则玩家永远只有一把主武器，1/2 切换形同虚设
+  if (!inv.equipped.side && charSpec.sidearm) {
+    const sDef = this.engine.content.get('weapons', charSpec.sidearm);
+    const suid = inv.createItem('weapons', charSpec.sidearm, {
+      loadedQty: sDef ? (sDef.mag || 0) : 0,
+    });
+    if (suid) inv.equip('side', suid);
   }
 
   const armorSlots = [
@@ -6777,7 +7991,11 @@ _ensureInitialInventory(forceReset){
 
   if (charSpec.weapon) {
     const wDef = this.engine.content.get('weapons', charSpec.weapon);
-    if (wDef) giveAmmo(wDef.ammoType, 120);
+    if (wDef && this._countAmmoInInventory(inv, wDef.ammoType) < 30) giveAmmo(wDef.ammoType, 120);
+  }
+  if (charSpec.sidearm) {
+    const sDef = this.engine.content.get('weapons', charSpec.sidearm);
+    if (sDef && this._countAmmoInInventory(inv, sDef.ammoType) < 20) giveAmmo(sDef.ammoType, 90);
   }
 
   const fixLoaded = (slotName) => {
@@ -6802,7 +8020,19 @@ _ensureInitialInventory(forceReset){
     const kuid = inv.createItem('melee', 'knife');
     if (kuid) inv.equip('melee', kuid);
   }
+  const hasNade = (defId) => {
+    for (const cn of ['chest', 'pocket', 'bag', 'safe']) {
+      const c = inv.containers[cn];
+      if (!c) continue;
+      for (const uid of c.items.keys()) {
+        const it = inv.items.get(uid);
+        if (it && it.table === 'nade' && it.defId === defId) return true;
+      }
+    }
+    return false;
+  };
   const giveNade = (defId, qty) => {
+    if (hasNade(defId)) return;
     const uid = inv.createItem('nade', defId, { qty });
     if (!uid) return;
     if (inv.addToContainer('chest', uid).ok) return;
@@ -6922,6 +8152,7 @@ async startMatch(kind){
     this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
 if (loadingBar) loadingBar.style.width = '70%';
 this.world.start();
+if (isMobile) this.world._updateMobileButtons();
 e.bus.emit('matchStarted', { kind });
 if (loadingBar) loadingBar.style.width = '100%';
 setTimeout(() => {
@@ -7021,6 +8252,12 @@ save.save();
         summary,
         log: world.combatLog,
         buttons: [
+          {
+            label: '查看死亡回放',
+            onClick: () => {
+              this._playDeathReplay();
+            },
+          },
           {
             label: '查看仓库 / 配装',
             primary: true,
@@ -7122,6 +8359,21 @@ save.save();
     }
     const reportBtn2 = document.getElementById('btn-view-report');
     if (reportBtn2) reportBtn2.remove();
+
+    // ★ 非 straight 失败：结果页提供死亡回放
+    let drBtn = document.getElementById('btn-death-replay');
+    if (!drBtn && !success && statsEl && statsEl.parentNode) {
+      drBtn = document.createElement('button');
+      drBtn.id = 'btn-death-replay';
+      drBtn.textContent = '死亡回放';
+      drBtn.style.cssText = 'margin-top:10px;padding:10px 22px;border-radius:8px;background:rgba(120,40,40,.7);border:1px solid rgba(255,120,120,.5);color:#ffd0d0;font-size:13px;cursor:pointer;';
+      statsEl.parentNode.appendChild(drBtn);
+    }
+    if (drBtn) {
+      drBtn.onclick = () => {
+        this._playDeathReplay();
+      };
+    }
 
     if (statsEl) {
       statsEl.innerHTML = [
@@ -7244,6 +8496,50 @@ this._showScreen('menu');
     if (bo) bo.style.opacity = '0';
     const th = document.getElementById('throwable-hint');
     if (th) th.style.display = 'none';
+    const dp = document.getElementById('drone-panel');
+    if (dp) dp.style.display = 'none';
+    const fxSkill = document.getElementById('fx-skill');
+    if (fxSkill) { fxSkill.style.opacity = '0'; fxSkill.style.boxShadow = ''; fxSkill.style.background = ''; }
+    const fxLines = document.getElementById('fx-skill-lines');
+    if (fxLines) fxLines.classList.remove('on');
+  }
+
+  // ★ 死亡回放：从死亡记录播放击杀者前十几秒的录像
+  _playDeathReplay(){
+    const w = this.world;
+    if (!w || !w._deathRecord || !w._deathRecord.frames || w._deathRecord.frames.length < 2) {
+      alert('没有可用的死亡回放');
+      return;
+    }
+    const reportEl = document.getElementById('combat-report-overlay');
+    const resultEl = document.getElementById('result-screen');
+    const wasReport = !!(reportEl && reportEl.classList.contains('on'));
+    const wasResult = !!(resultEl && resultEl.classList.contains('on'));
+    this._replayReturn = wasReport ? 'report' : (wasResult ? 'result' : 'none');
+    if (resultEl) resultEl.classList.remove('on');
+    hideCombatReport();
+    if (this.bagUI && this.bagUI.open) this.bagUI.close();
+    const ch = document.getElementById('crosshair');
+    if (ch) ch.style.display = 'none';
+    const ok = w._startReplay(
+      w._deathRecord.frames,
+      w._deathRecord.killerName,
+      w._deathRecord.shots,
+      w._deathRecord.killerIdx
+    );
+    if (!ok) alert('录像数据不足');
+  }
+
+  _onReplayEnd(){
+    const ch = document.getElementById('crosshair');
+    if (ch) ch.style.display = 'none';
+    if (this._replayReturn === 'report') {
+      const ov = document.getElementById('combat-report-overlay');
+      if (ov) ov.classList.add('on');
+    } else if (this._replayReturn === 'result') {
+      document.getElementById('result-screen')?.classList.add('on');
+    }
+    this._replayReturn = null;
   }
 
   _showScreen(name){
@@ -7522,6 +8818,12 @@ _bindCameraControls() {
   if (this.world) this.world._useSkill(0);
 } else if (name === 'skill2') {
   if (this.world) this.world._useSkill(1);
+} else if (name === 'throwWheel') {
+  if (this.world) this.world._toggleNadeWheel();
+} else if (name === 'throw') {
+  if (this.world) this.world._quickThrow(this.world.player);
+} else if (name === 'droneControl') {
+  if (this.world) this.world._toggleDroneControl();
 }
   });
 } else {
@@ -7562,6 +8864,14 @@ el.addEventListener('pointercancel', release);
 
     this._mobileButtons[name] = el;
     container.appendChild(el);
+  }
+
+  // 如果战局已存在，立刻把技能按钮刷成真实技能名（避免首帧出现“技能1/技能2”）
+  if (this.world) this.world._updateMobileButtons();
+  else {
+    if (this._mobileButtons.skill1) this._mobileButtons.skill1.textContent = '✦';
+    if (this._mobileButtons.skill2) this._mobileButtons.skill2.textContent = '✦';
+    if (this._mobileButtons.droneControl) this._mobileButtons.droneControl.style.display = 'none';
   }
 }
  

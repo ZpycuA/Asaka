@@ -12,6 +12,20 @@
    未注册的类型会以【未注册类型】兜底渲染，不丢数据。
    ============================================================ */
 
+const FACTION_META = {
+  nipsel:  { name: '尼珀斯尔', color: '#ffb066', tag: 'N' },
+  bank:    { name: '大陆银行', color: '#6fc8ff', tag: 'B' },
+  unknown: { name: '未知政治势力', color: '#c79bff', tag: '?' },
+  player:  { name: '我方', color: '#7fe89a', tag: 'P' },
+};
+
+// 阵营方框：和击杀提示保持一致的视觉
+function factionTag(id) {
+  const f = FACTION_META[id];
+  if (!f) return '';
+  return `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:4px;padding:0 4px;border:1px solid ${f.color};border-radius:3px;color:${f.color};font-size:9px;font-weight:700;vertical-align:middle"><span style="display:inline-block;width:6px;height:6px;background:${f.color}"></span>${f.name}</span>`;
+}
+
 const PART_NAMES = {
   face: '面部', head: '头部', thorax: '胸部', abdomen: '腹部',
   larm: '左臂', rarm: '右臂', lleg: '左腿', rleg: '右腿',
@@ -21,7 +35,7 @@ const PART_NAMES = {
 export const FILTER_GROUPS = {
   all: () => true,
   dealt: e => e.type === 'damage_dealt' || e.type === 'kill' || e.type === 'shot_fired',
-  taken: e => e.type === 'damage_taken' || e.type === 'downed' || e.type === 'revived' || e.type === 'coupling_hit',
+  taken: e => e.type === 'damage_taken' || e.type === 'downed' || e.type === 'revived' || e.type === 'coupling_hit' || e.type === 'death',
   items: e => e.type === 'loot' || e.type === 'search' || e.type === 'extract',
   skills: e => e.type === 'skill_use' || e.type === 'nade_throw',
 };
@@ -228,8 +242,11 @@ export class CombatLog {
     for (const e of this.entries) {
       switch (e.type) {
         case 'kill':
-          s.kills++;
-          if (e.target && e.target.isBoss) s.bossKills++;
+          // 只有玩家造成的击杀才计入战绩，避免三方混战时 AI 互杀虚增
+          if (e.byPlayer !== false) {
+            s.kills++;
+            if (e.target && e.target.isBoss) s.bossKills++;
+          }
           break;
         case 'damage_dealt':
           s.damageDealt += e.amount || 0;
@@ -332,10 +349,11 @@ export class CombatLog {
       const tgt = e.target ? (e.target.name || '?') : '?';
       const tag = e.target && e.target.isBoss ? '👑 ' : (e.target && e.target.isElite ? '★ ' : '');
       const dist = e.distance !== undefined ? `距离 ${Math.round(e.distance)}m · ` : '';
+      const fTag = e.target && e.target.faction ? factionTag(e.target.faction) : '';
       return {
         cls: 'kill',
-        head: `☠ 击杀 ${tag}${esc(tgt)}`,
-        body: `${dist}累计造成 ${fmtNum(e.damageContributed)} 伤害`,
+        head: `☠ ${e.byPlayer === false ? '战况 · ' : ''}击杀 ${tag}${fTag}${esc(tgt)}`,
+        body: e.byPlayer === false ? `${dist}非玩家击杀` : `${dist}累计造成 ${fmtNum(e.damageContributed)} 伤害`,
       };
     });
 
@@ -396,9 +414,10 @@ export class CombatLog {
         };
       }
       const tgt = e.target ? (e.target.name || '?') : '?';
+      const fTag = e.target && e.target.faction ? factionTag(e.target.faction) : '';
       return {
         cls: 'down',
-        head: `💀 击倒 ${esc(tgt)}`,
+        head: `💀 击倒 ${fTag}${esc(tgt)}`,
         body: '失去行动能力',
       };
     });
@@ -408,6 +427,16 @@ export class CombatLog {
       head: `✚ 救起`,
       body: `HP ${fmtNum(e.hp)}/${fmtNum(e.maxHp)}`,
     }));
+
+    /* ---- 阵亡 ---- */
+    this.register('death', e => {
+      const fTag = e.killerFaction ? factionTag(e.killerFaction) : '';
+      return {
+        cls: 'down',
+        head: `☠ 阵亡`,
+        body: `被 ${fTag}<b>${esc(e.killer || '未知')}</b> 击杀`,
+      };
+    });
 
     this.register('extract', e => ({
       cls: 'extract',

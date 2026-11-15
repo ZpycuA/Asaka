@@ -213,51 +213,113 @@ c.registerAll('nade', NADES);
 
 
   /* ==========================================================
-     4. 敌人
+     4. 阵营与敌人
      ----------------------------------------------------------
-     weapon:  引用武器 id
-     faction: 阵营 id（用于模式层派系系统）
-     color:   网格颜色
-     radius:  碰撞半径
+     faction: 阵营 id（决定敌我关系和小地图/击杀提示颜色）
+     group:   阵营所属大组（同组默认友军）
+     weapons: 按优先级排列的武器 id；AI 会按距离/弹量切换
+     weaponOptions: 随机抽取一把作为主武器（用于"手枪或霰弹"这类兵种）
+     ai.keepDistance: AI 试图保持的理想交战距离（低于该值会后退）
      ========================================================== */
+  const FACTIONS = {
+    nipsel:  { name: 'content.faction.nipsel.name',  short: 'content.faction.nipsel.short',  color: 0xd08a4a, css: '#ffb066' },
+    bank:    { name: 'content.faction.bank.name',    short: 'content.faction.bank.short',    color: 0x4a9ad0, css: '#6fc8ff' },
+    unknown: { name: 'content.faction.unknown.name', short: 'content.faction.unknown.short', color: 0x9a6ad0, css: '#c79bff' },
+    player:  { name: 'content.faction.player.name',  short: 'content.faction.player.short',  color: 0x5fd47a, css: '#7fe89a' },
+  };
+  c.registerAll('factions', FACTIONS);
+
   const ENEMIES = {
-  grunt: {
-    name: 'content.enemy.grunt.name',
-    hp: 75, speed: 4.5, acc: 0.55, faction: 'nipsel', weapon: 'p9',
-    color: 0x8a5a5a, radius: 1.2,
-    ai: { aggression: 0.3, composure: 0.2, perception: 0.4, opportunism: 0.2 },
+  // ================= 第 1 组 · 尼珀斯尔私兵 =================
+  nipsel_guard: {
+    name: 'content.enemy.nipsel_guard.name',
+    faction: 'nipsel', group: 'nipsel', rank: 'private',
+    hp: 62, speed: 4.4, acc: 0.50,
+    weaponOptions: ['p9', 'sg12'],
+    color: 0x9a6a4a, radius: 1.15,
+    ai: { aggression: 0.32, composure: 0.28, perception: 0.42, opportunism: 0.30, keepDistance: 4, meleeBias: 0.25, switchBias: 0.35 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
+    gear: { armor: { shell: { defId: 'lv2', lv: 2 }, visor: { defId: 'lv2', lv: 2 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
   },
-  rifleman: {
-    name: 'content.enemy.rifleman.name',
-    hp: 100, speed: 5.0, acc: 0.68, faction: 'nipsel', weapon: 'ar556',
-    color: 0x9a6a4a, radius: 1.2,
-    ai: { aggression: 0.5, composure: 0.6, perception: 0.6, opportunism: 0.6 },
+  nipsel_assault: {
+    name: 'content.enemy.nipsel_assault.name',
+    faction: 'nipsel', group: 'nipsel', rank: 'assault',
+    hp: 102, speed: 5.0, acc: 0.68,
+    weapons: ['ar556'],
+    color: 0x8f5a3f, radius: 1.2,
+    ai: { aggression: 0.66, composure: 0.60, perception: 0.64, opportunism: 0.55, keepDistance: 12, meleeBias: 0.45, switchBias: 0.5 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv4', lv: 4 } } },
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv4', lv: 4 } } },
   },
-  smgman: {
-    name: 'content.enemy.smgman.name',
-    hp: 85, speed: 5.5, acc: 0.60, faction: 'nipsel', weapon: 'smg45',
-    color: 0xa05050, radius: 1.2,
-    ai: { aggression: 0.9, composure: 0.4, perception: 0.5, opportunism: 0.3 },
-    prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
-  },
-  sniper: {
-    name: 'content.enemy.sniper.name',
-    hp: 68, speed: 3.8, acc: 0.86, faction: 'nipsel', weapon: 'sr762',
+  nipsel_sniper: {
+    name: 'content.enemy.nipsel_sniper.name',
+    faction: 'nipsel', group: 'nipsel', rank: 'sniper',
+    hp: 66, speed: 3.9, acc: 0.88,
+    weapons: ['sr762'],
     color: 0x6a5a8a, radius: 1.1,
-    ai: { aggression: 0.2, composure: 0.9, perception: 0.9, opportunism: 0.8 },
+    ai: { aggression: 0.18, composure: 0.90, perception: 0.90, opportunism: 0.80, keepDistance: 42, meleeBias: 0.0, switchBias: 0.75 },
+    prazer: false, A: 0,
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv4', lv: 4 } } },
+  },
+  nipsel_elite: {
+    name: 'content.enemy.nipsel_elite.name',
+    faction: 'nipsel', group: 'nipsel', rank: 'elite',
+    hp: 155, speed: 5.15, acc: 0.83,
+    weapons: ['ar556', 'sr762'],
+    color: 0xc04a4a, radius: 1.3,
+    ai: { aggression: 0.86, composure: 0.90, perception: 0.84, opportunism: 0.88, keepDistance: 20, meleeBias: 0.5, switchBias: 0.95 },
     prazer: false, A: 0,
     gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
   },
-  elite: {
-    name: 'content.enemy.elite.name',
-    hp: 160, speed: 5.2, acc: 0.82, faction: 'nipsel', weapon: 'ak762',
-    color: 0xc04a4a, radius: 1.3,
-    ai: { aggression: 0.9, composure: 0.9, perception: 0.8, opportunism: 0.9 },
+  nipsel_mobile: {
+    name: 'content.enemy.nipsel_mobile.name',
+    faction: 'nipsel', group: 'nipsel', rank: 'mobile',
+    hp: 88, speed: 5.6, acc: 0.60,
+    weapons: ['smg45', 'sg12'],
+    color: 0xb05a4a, radius: 1.18,
+    ai: { aggression: 0.92, composure: 0.44, perception: 0.60, opportunism: 0.40, keepDistance: 7, meleeBias: 0.55, switchBias: 0.8 },
+    prazer: false, A: 0,
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
+  },
+  // ================= 第 2 组 · 大陆银行武装部 =================
+  bank_guard: {
+    name: 'content.enemy.bank_guard.name',
+    faction: 'bank', group: 'bank', rank: 'guard',
+    hp: 148, speed: 4.35, acc: 0.70,
+    weapons: ['ar556'],
+    color: 0x3f6a9a, radius: 1.35,
+    ai: { aggression: 0.58, composure: 0.72, perception: 0.62, opportunism: 0.52, keepDistance: 14, meleeBias: 0.35, switchBias: 0.4 },
+    prazer: false, A: 0,
+    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv5', lv: 5 }, plate: { defId: 'lv5', lv: 5 } } },
+  },
+  bank_sniper: {
+    name: 'content.enemy.bank_sniper.name',
+    faction: 'bank', group: 'bank', rank: 'sniper',
+    hp: 96, speed: 4.0, acc: 0.94,
+    weapons: ['sr762'],
+    color: 0x2f5a8a, radius: 1.12,
+    ai: { aggression: 0.25, composure: 0.96, perception: 0.96, opportunism: 0.70, keepDistance: 55, meleeBias: 0.0, switchBias: 0.6 },
+    prazer: false, A: 0,
+    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
+  },
+  // ================= 第 3 组 · 未知政治势力 / 模拟玩家 =================
+  unknown_member: {
+    name: 'content.enemy.unknown_member.name',
+    faction: 'unknown', group: 'unknown', rank: 'member',
+    hp: 82, speed: 4.9, acc: 0.58,
+    weaponOptions: ['smg45', 'p9', 'ar556', 'ak762'],
+    color: 0x7a5a9a, radius: 1.15,
+    ai: { aggression: 0.55, composure: 0.45, perception: 0.55, opportunism: 0.55, keepDistance: 10, meleeBias: 0.4, switchBias: 0.55 },
+    prazer: false, A: 0,
+    gear: { armor: { shell: { defId: 'lv2', lv: 2 }, visor: { defId: 'lv2', lv: 2 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
+  },
+  unknown_leader: {
+    name: 'content.enemy.unknown_leader.name',
+    faction: 'unknown', group: 'unknown', rank: 'leader',
+    hp: 132, speed: 5.05, acc: 0.80,
+    weaponSets: [['sr762', 'ar556'], ['sr762', 'smg45']],
+    color: 0x9a5ac0, radius: 1.25,
+    ai: { aggression: 0.74, composure: 0.82, perception: 0.78, opportunism: 0.84, keepDistance: 22, meleeBias: 0.4, switchBias: 0.9 },
     prazer: false, A: 0,
     gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
   },
@@ -332,19 +394,19 @@ c.registerAll('nade', NADES);
   factory: {
     name: 'content.map.factory.name',
     desc: 'content.map.factory.desc',
-    size: 120, obstacleCount: 50, enemyCount: 6,
+    size: 200, obstacleCount: 60, enemyCount: 18,
     layoutUrl: 'maps/factory.json',
   },
   desert: {
     name: 'content.map.desert.name',
     desc: 'content.map.desert.desc',
-    size: 160, obstacleCount: 35, enemyCount: 8,
+    size: 240, obstacleCount: 45, enemyCount: 22,
     layoutUrl: 'maps/desert.json',
   },
   lab: {
     name: 'content.map.lab.name',
     desc: 'content.map.lab.desc',
-    size: 100, obstacleCount: 70, enemyCount: 10,
+    size: 180, obstacleCount: 80, enemyCount: 20,
     layoutUrl: 'maps/lab.json',
   },
 };
@@ -361,60 +423,70 @@ c.registerAll('nade', NADES);
     // ================= 队长 · 侦察/辅助 =================
     drone: {
       name: 'content.skill.drone.name',
+      desc: 'content.skill.drone.desc',
       kind: 'drone',
-      cd: 90, cost: 0, duration: 30,
-      batteryDrain: 3.3, maxDurability: 60,
-      markRadius: 28, markInterval: 8, alertLevel: 3,
+      cd: 75, cost: 0, duration: 40,
+      batteryDrain: 2.4, maxDurability: 70,
+      markRadius: 45, markInterval: 5, alertLevel: 3,
     },
     inspire: {
       name: 'content.skill.inspire.name',
+      desc: 'content.skill.inspire.desc',
       kind: 'inspire',
-      cd: 45, cost: 10, duration: 8,
-      negativeResist: 0.3, handlingBonus: 0.25,
+      cd: 45, cost: 0, duration: 9,
+      negativeResist: 0.35, handlingBonus: 0.3,
     },
     // ================= 凯特 · 突击/狙击 =================
     srdispte: {
       name: 'content.skill.srdispte.name',
+      desc: 'content.skill.srdispte.desc',
       kind: 'srdispte',
-      cd: 90, cost: 20, minCoupling: 60, drain: 2,
-      speedMul: 1.25, adsSpreadMul: 0.5,
+      cd: 80, cost: 16, minCoupling: 35, drain: 5.2,
+      speedMul: 1.3, adsSpreadMul: 0.45,
+      dodgeCost: 4,
     },
     catleap: {
       name: 'content.skill.catleap.name',
+      desc: 'content.skill.catleap.desc',
       kind: 'catleap',
-      cd: 8, cost: 5, maxCharges: 2, leap: 6, chargeRecover: 12,
+      cd: 8, cost: 4, maxCharges: 2, leap: 8, chargeRecover: 10,
     },
     // ================= 玲娜 · 突击 =================
     hate: {
       name: 'content.skill.hate.name',
+      desc: 'content.skill.hate.desc',
       kind: 'hate',
-      cd: 90, cost: 20, minCoupling: 60, drain: 3,
-      speedMul: 1.35, reloadMul: 0.35, fireRateMul: 1.4,
+      cd: 80, cost: 16, minCoupling: 35, drain: 6.2,
+      speedMul: 1.38, reloadMul: 0.35, fireRateMul: 1.45, adsSpreadMul: 0.7,
     },
     suppress: {
       name: 'content.skill.suppress.name',
+      desc: 'content.skill.suppress.desc',
       kind: 'suppress',
-      cd: 30, cost: 10, duration: 8,
+      cd: 30, cost: 10, duration: 7, radius: 22, cone: Math.PI * 0.9,
     },
     // ================= 叶 · 拟载 =================
     radiantReturn: {
       name: 'content.skill.radiantReturn.name',
+      desc: 'content.skill.radiantReturn.desc',
       kind: 'mimicArmor',
-      cd: 100, cost: 0, duration: 20,
-      armorLv: 7, durability: 400,
+      cd: 100, cost: 0, duration: 25,
+      armorLv: 7, durability: 520,
     },
     backflash: {
       name: 'content.skill.backflash.name',
+      desc: 'content.skill.backflash.desc',
       kind: 'backflash',
-      cd: 20, cost: 0, duration: 6, flashRadius: 9, speedMul: 1.2,
+      cd: 20, cost: 0, duration: 6,
+      flashRadius: 12, flashDuration: 4.2, speedMul: 1.3,
     },
     // ================= 兼容旧 id（当前角色未使用） =================
-    jump:     { name: 'content.skill.jump.name',     kind: 'dash',       cd: 20, cost: 10, distance: 5,  invuln: 0.3 },
-    aimbuff:  { name: 'content.skill.aimbuff.name',  kind: 'timedBuff',  cd: 45, cost: 15, duration: 3,  effect: 'aimBuff' },
-    dash:     { name: 'content.skill.dash.name',     kind: 'timedBuff',  cd: 25, cost: 12, duration: 5,  effect: 'speedBuff' },
-    rally:    { name: 'content.skill.rally.name',    kind: 'healPercent',cd: 75, cost: 0,  percent: 0.15 },
-    shield:   { name: 'content.skill.shield.name',   kind: 'timedBuff',  cd: 30, cost: 0,  duration: 5,  effect: 'shield' },
-    taunt:    { name: 'content.skill.taunt.name',    kind: 'taunt',      cd: 60, cost: 0,  duration: 3 },
+    jump:     { name: 'content.skill.jump.name',     desc: 'content.skill.jump.desc',     kind: 'dash',       cd: 20, cost: 10, distance: 5,  invuln: 0.3 },
+    aimbuff:  { name: 'content.skill.aimbuff.name',  desc: 'content.skill.aimbuff.desc',  kind: 'timedBuff',  cd: 45, cost: 15, duration: 3,  effect: 'aimBuff' },
+    dash:     { name: 'content.skill.dash.name',     desc: 'content.skill.dash.desc',     kind: 'timedBuff',  cd: 25, cost: 12, duration: 5,  effect: 'speedBuff' },
+    rally:    { name: 'content.skill.rally.name',    desc: 'content.skill.rally.desc',    kind: 'healPercent',cd: 75, cost: 0,  percent: 0.15 },
+    shield:   { name: 'content.skill.shield.name',   desc: 'content.skill.shield.desc',    kind: 'timedBuff',  cd: 30, cost: 0,  duration: 5,  effect: 'shield' },
+    taunt:    { name: 'content.skill.taunt.name',    desc: 'content.skill.taunt.desc',     kind: 'taunt',      cd: 60, cost: 0,  duration: 3 },
   };
   c.registerAll('skills', SKILLS);
 
@@ -472,8 +544,23 @@ c.registerAll('nade', NADES);
   fiber_chronic: { name: '玻纤滞留·慢性', icon: '🧬', positive: false, awareness: 0 },
   blind:         { name: '闪光失明', icon: '😵', positive: false, awareness: 0 },
   stun:          { name: '震撼',     icon: '💫', positive: false, awareness: 0 },
+  srdispte:      { name: 'Srdispte', icon: '🌪', positive: true,  awareness: 0 },
+  hate:          { name: 'Hate',     icon: '🔥', positive: true,  awareness: 0 },
+  inspire:       { name: '激励',     icon: '🎖', positive: true,  awareness: 0 },
+  stress:        { name: '应激',     icon: '⚡', positive: true,  awareness: 0 },
+  flashback:     { name: '闪回',     icon: '🧠', positive: false, awareness: 0 },
+  mimic:         { name: '拟载·BYinC', icon: '💎', positive: true, awareness: 0 },
+  covey:         { name: '覆柔',     icon: '🎗', positive: true,  awareness: 0 },
   moving_speed_up:{ name: '加速',     icon: '💨', positive: true,  awareness: 0 },
   aim_buff:      { name: '精准',     icon: '🎯', positive: true,  awareness: 0 },
+  drone:         { name: '无人机链路', icon: '🛸', positive: true, awareness: 0 },
+  catleap:       { name: '猫跃',     icon: '🐾', positive: true,  awareness: 0 },
+  suppress:      { name: '压制',     icon: '🎯', positive: true,  awareness: 0 },
+  backflash:     { name: '背闪',     icon: '✨', positive: true,  awareness: 0 },
+  intuition:     { name: '直觉与回忆', icon: '👁', positive: true, awareness: 0 },
+  adapt:         { name: '适应',     icon: '🧩', positive: true,  awareness: 0 },
+  suppressed:    { name: '被压制',   icon: '😖', positive: false, awareness: 0 },
+  melee_ready:   { name: '白刃',     icon: '🔪', positive: true,  awareness: 0 },
 };
 c.registerAll('effects', EFFECTS);
 
