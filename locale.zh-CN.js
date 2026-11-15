@@ -122,6 +122,8 @@ export default {
 'content.melee.knife.desc': '标准战术匕首。刀身约 18cm，双刃直柄设计，重心靠前，适合快速刺击与划割。近战中能造成严重创伤，但需要贴近敌人。',
 'content.melee.fist.name': '空手',
 'content.melee.fist.desc': '空手状态。以双拳和肘部发动攻击。伤害远低于任何武器，但胜在无需装备。',
+'content.nade.frag.name': '破片手雷',
+'content.nade.frag.desc': '延时引信破片手雷。爆炸动能按距离平方衰减，对无遮挡目标造成严重创伤，也会误伤同阵营。',
 
   'content.enemy.grunt.name': '尼珀斯尔·士兵',
   'content.enemy.rifleman.name': '尼珀斯尔·步枪兵',

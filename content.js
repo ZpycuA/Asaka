@@ -133,9 +133,9 @@ const MELEE = {
     name: 'content.melee.knife.name',
     desc: 'content.melee.knife.desc',
     w: 2, h: 1,
-    damage: 200,
+    damage: 700,
     range: 3,
-    cooldown: 0.8,
+    cooldown: 0.65,
     value: 200,
     rarity: 'L1',
     stackLimit: 1,
@@ -143,6 +143,29 @@ const MELEE = {
   },
 };
 c.registerAll('melee', MELEE);
+
+/* ==========================================================
+   3.8 投掷物
+   ----------------------------------------------------------
+   damage: 中心动能(J)，按距离平方衰减
+   radius: 杀伤半径（米）
+   fuse:   引信时间（秒）
+   ========================================================== */
+const NADES = {
+  frag: {
+    name: 'content.nade.frag.name',
+    desc: 'content.nade.frag.desc',
+    w: 1, h: 1,
+    damage: 1800,
+    radius: 6,
+    fuse: 3,
+    value: 300,
+    rarity: 'L1',
+    stackLimit: 3,
+    color: 0x3a3a3a,
+  },
+};
+c.registerAll('nade', NADES);
 
 
   /* ==========================================================

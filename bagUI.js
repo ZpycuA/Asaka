@@ -1630,6 +1630,8 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
     }
 
     const partNames = { head: '头', thorax: '胸', abdomen: '腹', larm: '臂', legs: '腿' };
+    // 每个部位的标签偏移：避免胸/臂投影几乎同高时粘在一起
+    const offsets = { head: [12, -4], thorax: [12, 0], abdomen: [12, 8], larm: [44, -20], legs: [12, 12] };
     let html = '';
 
     for (const pt in partCoords3D) {
@@ -1643,18 +1645,28 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
       const x = (v.x * 0.5 + 0.5) * this._charPreviewW;
       const y = (-v.y * 0.5 + 0.5) * this._charPreviewH;
 
+      // 受伤程度只看部位剩余耐久，不再把骨折混进程度文字
+      const ratio = Math.max(0, d.hp) / d.maxHp;
+      let degree = '完好';
+      if (d.hp <= 0) degree = '致命';
+      else if (ratio < 0.2) degree = '重伤';
+      else if (ratio < 0.5) degree = '中伤';
+      else if (ratio < 0.8) degree = '轻伤';
+
+      // 附加状态用图标表示（骨折是状态，不是程度）
+      const chips = [];
+      if (d.fracture > 0) chips.push('🦴');
+      const wc = (d.wounds && d.wounds.length) || 0;
+      if (wc > 0) chips.push('🩸' + wc);
+
       let pColor = '#5fd47a';
       if (d.hp <= 0) pColor = '#ff3030';
       else if (d.hp < d.maxHp * 0.5) pColor = '#ff8b7b';
       else if (d.hp < d.maxHp * 0.8) pColor = '#ffd93d';
-      
-      let wStr = '';
-      if (d.fracture === 2) wStr = ' [粉碎骨折]';
-      else if (d.fracture === 1) wStr = ' [骨折]';
-      else if (d.wound > 0) wStr = ` [${['轻','中','重','致命'][d.wound-1]}伤]`;
 
-      html += `<div style="position:absolute;left:${x}px;top:${y}px;transform:translate(10px, -50%);background:rgba(10,18,30,0.9);padding:2px 8px;border-radius:4px;border-left:3px solid ${pColor};color:${pColor};font-size:11px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
-        ${partNames[pt]}${wStr}
+      const [ox, oy] = offsets[pt] || [12, 0];
+      html += `<div style="position:absolute;left:${x}px;top:${y}px;transform:translate(${ox}px, calc(-50% + ${oy}px));background:rgba(10,18,30,0.88);padding:2px 8px;border-radius:4px;border-left:3px solid ${pColor};color:${pColor};font-size:11px;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
+        ${partNames[pt]} ${degree}${chips.length ? ' ' + chips.join(' ') : ''}
       </div>`;
     }
     el.innerHTML = html;

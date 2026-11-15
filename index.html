@@ -102,6 +102,10 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #crosshair .line-h{position:absolute;top:11px;width:6px;height:2px;background:#fff;box-shadow:0 0 2px #000}
 #crosshair .line-v{position:absolute;left:11px;width:2px;height:6px;background:#fff;box-shadow:0 0 2px #000}
 #hit-marker{position:absolute;inset:0;opacity:0;transition:opacity 0.1s}
+#armor-hit-indicator{position:absolute;left:50%;top:50%;width:42px;height:42px;transform:translate(-50%,-50%);border:2px solid rgba(255,255,255,.85);border-radius:50%;display:none;align-items:center;justify-content:center;background:rgba(20,30,44,.55);box-sizing:border-box}
+#armor-hit-indicator.on{display:flex}
+#armor-hit-indicator.broken{border-style:dashed;border-color:rgba(255,140,140,.95)}
+#armor-hit-icon{font-size:18px;line-height:1;text-shadow:0 1px 2px #000}
 #minimap-container{position:absolute;right:12px;top:64px;width:150px;height:150px;border-radius:8px;overflow:hidden;border:2px solid rgba(100,160,220,.5);background:rgba(230,236,244,.92);z-index:25;display:none}
 #kill-feed{position:absolute;right:176px;top:64px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:280px;z-index:25;pointer-events:none;font-size:12px;color:#fff;text-shadow:0 1px 3px #000}
 #top-left{position:absolute;left:12px;top:12px;pointer-events:auto}
@@ -127,7 +131,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .weapon-name{font-size:13px;font-weight:700;color:#cfe6ff;letter-spacing:1px}
 .next-ammo{font-size:11px;color:#ffd93d;margin-top:2px}
 .ammo-text{font-size:28px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
-.fire-mode-btn{pointer-events:auto;padding:3px 10px;font-size:11px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.55);border:1px solid rgba(120,190,255,.7);color:#e0f0ff;font-family:inherit}
+.fire-mode-btn{pointer-events:auto;padding:3px 10px;font-size:11px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.75);border:1px solid rgba(120,190,255,.8);color:#e0f0ff;font-family:inherit}
+#fire-mode-btn{position:absolute;right:16px;bottom:152px;z-index:40}
 /* 当前状态图标（屏幕最下方，图标显示，绿=正面 / 红=负面） */
 #status-bar{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26}
 #status-bar .status-chip{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)}
@@ -171,6 +176,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   #nearby-list{right:8px;top:42%;max-width:150px;max-height:100px;overflow-y:auto}
   #protect-group{left:8px;bottom:250px}
   #status-bar{bottom:46px}
+  #fire-mode-btn{left:8px;right:auto;bottom:48px}
 }
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
@@ -320,14 +326,15 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
     <canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16"></canvas>
     
     <div id="crosshair">
-      <div class="line-h" style="left:0"></div><div class="line-h" style="right:0"></div>
-      <div class="line-v" style="top:0"></div><div class="line-v" style="bottom:0"></div>
       <svg id="hit-marker" width="24" height="24" viewBox="0 0 24 24">
-        <line x1="4" y1="4" x2="8" y2="8" stroke="#ffdd44" stroke-width="2" />
-        <line x1="20" y1="4" x2="16" y2="8" stroke="#ffdd44" stroke-width="2" />
-        <line x1="4" y1="20" x2="8" y2="16" stroke="#ffdd44" stroke-width="2" />
-        <line x1="20" y1="20" x2="16" y2="16" stroke="#ffdd44" stroke-width="2" />
+        <line x1="4" y1="4" x2="8" y2="8" stroke="#ffffff" stroke-width="2" />
+        <line x1="20" y1="4" x2="16" y2="8" stroke="#ffffff" stroke-width="2" />
+        <line x1="4" y1="20" x2="8" y2="16" stroke="#ffffff" stroke-width="2" />
+        <line x1="20" y1="20" x2="16" y2="16" stroke="#ffffff" stroke-width="2" />
       </svg>
+      <div id="armor-hit-indicator">
+        <div id="armor-hit-icon"></div>
+      </div>
     </div>
     
     <div id="minimap-container"><canvas id="minimap" width="150" height="150"></canvas></div>
@@ -360,7 +367,6 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div class="weapon-box">
         <div class="wb-top">
           <span class="weapon-name" id="weapon-name"></span>
-          <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
         </div>
         <div class="next-ammo" id="next-ammo"></div>
         <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
@@ -387,6 +393,9 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
      </div>  <!-- hud 内其他内容 -->
 
   </div>  <!-- #hud 闭合 -->
+
+  <!-- 开火模式：独立于 HUD 层，避免被移动端虚拟按键/其它 HUD 遮挡 -->
+  <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
 
   <div id="action-progress">
     <div id="action-progress-label" style="font-size:11px;color:#ffe8a8;margin-bottom:4px">换弹</div>
@@ -443,7 +452,14 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   try {
     const { Engine } = await import('./engine.js');
     const zhCN = (await import('./locale.zh-CN.js')).default;
-    const enUS = (await import('./locale.en-US.js')).default;
+    // ★ 鲁棒性：en-US 缺失时不能导致整个游戏启动失败，回退到 zh-CN
+    let enUS = zhCN;
+    try {
+      const mod = await import('./locale.en-US.js');
+      if (mod && mod.default) enUS = mod.default;
+    } catch (e) {
+      console.warn('[Boot] locale.en-US.js 缺失，英文回退中文', e);
+    }
     const { registerDefaultContent } = await import('./content.js');
     const { registerModes } = await import('./modes.js');
     const { GameApp } = await import('./game.js');
