@@ -20,6 +20,9 @@ const COMBAT = Object.freeze({
   BODY_COEFF_HUMAN: 34,
   BODY_COEFF_PRAZER: 48,
   HEAD_MULT: 2.0,
+  // 1 点护具耐久对应的“被护具吸收的能量”。40J/点 → 100 耐久约吸收 4kJ，
+  // 约相当于 Level IV 插板承受 2~3 发 5.56 的吸能量级。
+  ARMOR_J_PER_DUR: 40,
   RANGE_DECAY: 0.25,
   RANGE_DECAY_REALISTIC: 0.50,
   MELEE_RANGE: 3,
@@ -256,9 +259,11 @@ const CombatSystem = {
     return { absorbed: 0, remaining: energy, wear: 0, pierced: pen >= 3 };
   }
 
-  const baseSpec = { 1: 0.10, 2: 0.25, 3: 0.50, 4: 0.70, 5: 0.85, 6: 0.95, 7: 0.99 };
+  // 防护系数以 content.js 的 armor 表为单一真相源；没有 red 时才回退旧等级表。
+  // 旧表与 content 不一致（例如 lv2 0.25 vs 0.38），会凭空改变真实防护。
+  const baseSpec = { 1: 0.22, 2: 0.38, 3: 0.52, 4: 0.64, 5: 0.74, 6: 0.95, 7: 0.99 };
   const lv = armorItem.lv;
-  const baseRed = baseSpec[lv] || 0.99;
+  const baseRed = (typeof armorItem.red === 'number') ? armorItem.red : (baseSpec[lv] || 0.99);
 
   const diff = pen - lv;
   let redMul = 1.0;
@@ -286,7 +291,7 @@ const CombatSystem = {
     finalDamage = pierced ? afterArmor : afterArmor * 0.25;
   }
 
-  const wear = Math.min(armorItem.dur, absorbed / 25);
+  const wear = Math.min(armorItem.dur, absorbed / COMBAT.ARMOR_J_PER_DUR);
   armorItem.dur = Math.max(0, armorItem.dur - wear);
 
   return { absorbed, remaining: finalDamage, wear, pierced };
@@ -406,16 +411,19 @@ class EntityStatus {
 
     // ★ 核心仿真：直接用动能扣除部位血量
     p.hp = Math.max(-p.maxHp * 2, p.hp - energy);
-    
-    // 瞬时空腔效应造成的失血：每受 100 焦耳伤害，瞬间失血 40ml
-    const instantBleed = energy * 0.4;
-    this.blood = Math.max(0, this.blood - instantBleed);
 
     // 伤口等级判定 → 作为部位伤口对象附加
     let newWound = 0;
     for (let i = 1; i < WOUND_ENERGY_THRESHOLD.length; i++) {
       if (energy >= WOUND_ENERGY_THRESHOLD[i]) newWound = i;
     }
+
+    // 瞬时空腔/血管破裂造成的即时失血：
+    // 与动能、伤口等级、部位血管密度相关，而不是旧版固定的 0.4ml/J。
+    const vascularity = { head: 1.4, thorax: 1.2, abdomen: 1.15, larm: 0.55, legs: 0.6 }[part] || 0.7;
+    const instantBleed = energy * 0.08 * vascularity + newWound * 12;
+    this.blood = Math.max(0, this.blood - instantBleed);
+
     if (newWound > 0) {
       this.addWound(part, newWound);
       // 持续流血：按全身伤口总等级，更致命
@@ -475,8 +483,10 @@ class EntityStatus {
 
     this.blood = Math.max(0, this.blood - bleedRate * dt);
     
-    if (this.blood < this.maxBlood * 0.5) {
-      this.addEffect('hypovolemia', 999, 1); // 失血过半触发效果
+    // 失血量超过约 35%（约 1750ml）进入有临床意义的低血容量状态；
+    // 旧版用 50%，已经接近失血性休克晚期，触发太晚。
+    if (this.blood < this.maxBlood * 0.35) {
+      this.addEffect('hypovolemia', 999, 1);
     } else {
       this.removeEffect('hypovolemia');
     }
@@ -489,7 +499,10 @@ class EntityStatus {
     const headRatio = Math.max(0, this.parts.head.hp) / this.parts.head.maxHp;
     const thoraxRatio = Math.max(0, this.parts.thorax.hp) / this.parts.thorax.maxHp;
     const abdomenRatio = Math.max(0, this.parts.abdomen.hp) / this.parts.abdomen.maxHp;
-    this.healthQuality = Math.max(0, (headRatio * 0.4 + thoraxRatio * 0.4 + abdomenRatio * 0.2) * 100);
+    const tissueQuality = headRatio * 0.4 + thoraxRatio * 0.4 + abdomenRatio * 0.2;
+    // 失血本身也会降低“健康度”：不能出现组织完好但已经失血 40% 还显示健康。
+    const bloodRatio = this.maxBlood > 0 ? this.blood / this.maxBlood : 1;
+    this.healthQuality = Math.max(0, Math.min(1, tissueQuality, bloodRatio) * 100);
   }
 
   getHealthText() {
@@ -546,7 +559,8 @@ const AISystem = {
   update(world, enemy, dt){
     if (!enemy.alive) return;
     if (enemy.trainingDummy) {
-      if (world.training && world.training.dummyMove) this._trainingDummyMove(world, enemy, dt);
+      const moveMode = world.training && (world.training.dummyMoveMode || (world.training.dummyMove ? 'patrol' : 'still'));
+      if (moveMode && moveMode !== 'still') this._trainingDummyMove(world, enemy, dt);
       return;
     }
 
@@ -670,12 +684,57 @@ const AISystem = {
   },
 
   _trainingDummyMove(world, enemy, dt) {
-    if (!enemy._dummyDir) enemy._dummyDir = 1;
-    const home = enemy.home || { x: enemy.body.position.x, z: enemy.body.position.z };
-    enemy.body.position.x += enemy._dummyDir * 2.2 * dt;
-    if (enemy.body.position.x > home.x + 4) enemy._dummyDir = -1;
-    if (enemy.body.position.x < home.x - 4) enemy._dummyDir = 1;
-    enemy.angle = Math.PI / 2; // 侧向移动，正面始终朝靶场
+    const mode = (world.training && world.training.dummyMoveMode) || 'still';
+    if (!enemy._dummyHome) {
+      const h = enemy.home || { x: enemy.body.position.x, z: enemy.body.position.z };
+      enemy._dummyHome = { x: h.x, z: h.z };
+    }
+    const home = enemy._dummyHome;
+    const p = enemy.body.position;
+
+    if (mode === 'still') {
+      p.x += (home.x - p.x) * Math.min(1, dt * 4);
+      p.z += (home.z - p.z) * Math.min(1, dt * 4);
+    } else if (mode === 'random') {
+      if (!enemy._dummyTarget || world.time > (enemy._dummyRetarget || 0)) {
+        enemy._dummyTarget = {
+          x: home.x + (Math.random() * 12 - 6),
+          // z 只做小幅随机，避免训练场三道矮墙穿模
+          z: home.z + (Math.random() * 3 - 1.5),
+        };
+        enemy._dummyRetarget = world.time + 2.0 + Math.random() * 2.5;
+      }
+      const dx = enemy._dummyTarget.x - p.x;
+      const dz = enemy._dummyTarget.z - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.15) {
+        const step = Math.min(dist, 1.8 * dt);
+        p.x += dx / dist * step;
+        p.z += dz / dist * step;
+      } else {
+        enemy._dummyRetarget = 0;
+      }
+    } else {
+      // patrol：以出生点为中心的左右巡逻
+      if (enemy._dummyPhase === undefined) enemy._dummyPhase = Math.random() * Math.PI * 2;
+      const tx = home.x + Math.sin(world.time * 0.9 + enemy._dummyPhase) * 4;
+      const dx = tx - p.x;
+      const step = Math.max(-2.2 * dt, Math.min(2.2 * dt, dx));
+      p.x += step;
+      p.z += (home.z - p.z) * Math.min(1, dt * 2);
+    }
+
+    // 不穿越地图边界（训练场外墙另有碰撞，这里只做兜底）
+    const half = (world.mapSpec ? world.mapSpec.size : 120) / 2 - 3;
+    p.x = Math.max(-half, Math.min(half, p.x));
+    p.z = Math.max(-half, Math.min(half, p.z));
+    // 始终面向玩家，方便近身查看详情/测试护具
+    if (world.player && world.player.body) {
+      enemy.angle = Math.atan2(
+        world.player.body.position.z - p.z,
+        world.player.body.position.x - p.x
+      );
+    }
     enemy.body.velocity.x = 0;
     enemy.body.velocity.z = 0;
   },
@@ -2136,6 +2195,8 @@ _updateCouplingFX(p) {
     const btn = document.getElementById('training-settings-btn');
     const isTraining = !!(w && w.training);
     if (btn) btn.style.display = isTraining ? 'block' : 'none';
+    // 人偶详情与攻击面板独立：即使关闭攻击数据面板，靠近人偶仍要看详情
+    this._updateDummyInfoPanel(w);
     if (!panel) return;
     if (!isTraining) { panel.style.display = 'none'; return; }
     panel.style.display = w.training.showAttackPanel ? 'block' : 'none';
@@ -2153,6 +2214,78 @@ _updateCouplingFX(p) {
         '上次伤害 <b>' + Math.round(st.lastDamage) + '</b> J · 击杀 <b>' + (st.kills || 0) + '</b><br>' +
         '上次 TTK <b>' + (st.lastTtk != null ? st.lastTtk.toFixed(2) + 's' : '—') + '</b>';
     }
+  }
+
+  _esc(s){
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  _updateDummyInfoPanel(w){
+    const panel = document.getElementById('dummy-info-panel');
+    if (!panel) return;
+    if (!w || !w.training || !w.player || !w.player.body) {
+      panel.style.display = 'none';
+      this._dummyInfoSig = '';
+      return;
+    }
+    let best = null;
+    let bestDist = 6.5;
+    for (const e of w.enemies) {
+      if (!e.alive || !e.trainingDummy || !e.body) continue;
+      const d = Math.hypot(
+        w.player.body.position.x - e.body.position.x,
+        w.player.body.position.z - e.body.position.z
+      );
+      if (d < bestDist) { best = e; bestDist = d; }
+    }
+    if (!best || !best.status) {
+      panel.style.display = 'none';
+      this._dummyInfoSig = '';
+      return;
+    }
+    const st = best.status;
+    const slotNames = { shell: '头盔壳', visor: '面罩', fiber: '纤维', plate: '插板' };
+    const tableMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
+    const gearLines = [];
+    for (const slot of ['shell', 'visor', 'fiber', 'plate']) {
+      const piece = best.armor && best.armor[slot];
+      if (!piece || piece.lv <= 0) {
+        gearLines.push(slotNames[slot] + '：—');
+        continue;
+      }
+      const def = piece.defId ? this.engine.content.get(tableMap[slot], piece.defId) : null;
+      const name = def ? this.engine.i18n.t(def.name) : ('Lv' + piece.lv);
+      const pct = piece.max > 0 ? Math.round(piece.dur / piece.max * 100) : 0;
+      gearLines.push(slotNames[slot] + '：' + this._esc(name) + ' <b>' + pct + '%</b>');
+    }
+    const effList = [];
+    for (const [id, eff] of st.effects) {
+      const def = this.engine.content.get('effects', id);
+      if (!def) continue;
+      effList.push((def.icon || '•') + this.engine.i18n.t(def.name) + (eff.strength > 1 ? '×' + eff.strength : ''));
+    }
+    const effText = effList.length ? effList.join(' · ') : '无';
+    const hp = Math.round(st.healthQuality);
+    const blood = Math.round(st.blood);
+    const name = this.engine.i18n.t(best.spec.name);
+    const dist = Math.round(bestDist * 10) / 10;
+    const sig = [name, hp, blood, effText, gearLines.join('|'), dist.toFixed(1), best.isDownedState ? 1 : 0].join('~');
+    if (sig === this._dummyInfoSig) { panel.style.display = 'block'; return; }
+    this._dummyInfoSig = sig;
+    const body = document.getElementById('dummy-info-body');
+    if (body) {
+      body.innerHTML =
+        '<div style="color:#ffe8b0;font-weight:800">' + this._esc(name) + ' · ' + dist.toFixed(1) + 'm</div>' +
+        '<div>状态：<b>' + this._esc(st.getHealthText()) + '</b>　健康度 <b>' + hp + '%</b></div>' +
+        '<div>血液：<b>' + blood + ' / ' + st.maxBlood + ' ml</b></div>' +
+        '<div style="margin-top:3px;color:#8fb0d8">护具</div>' +
+        '<div>' + gearLines.join('<br>') + '</div>' +
+        '<div style="margin-top:3px;color:#8fb0d8">异常状态</div>' +
+        '<div style="color:#ffb0a0">' + this._esc(effText) + '</div>';
+    }
+    panel.style.display = 'block';
   }
 
   _renderArmor() {
@@ -2377,9 +2510,13 @@ this.training = config.kind === 'training' ? {
   infiniteNades: true,
   skills: true,
   noCd: true,
-  dummyMove: false,
+  // 人偶移动：still 静止 / patrol 左右巡逻 / random 随机游走
+  dummyMoveMode: 'patrol',
+  dummyMove: true,
   dummyHp: 100,
-  dummyArmor: 0,
+  // 四个护具槽分别引用 content 表里的任意一件防具；null = 空槽
+  dummyGear: { shell: null, visor: null, fiber: null, plate: null },
+  creative: true,
 } : null;
 this.trainingStats = config.kind === 'training' ? {
   shots: 0, hits: 0, damage: 0, lastDamage: 0,
@@ -2826,10 +2963,10 @@ const body = this.physics.add(new Body({
   stamina: 100,
   maxStamina: 100,
   armor: invArmor || {
-     shell: { lv: 3, dur: 100, max: 100 },
-     visor: { lv: 3, dur: 100, max: 100 },
-     fiber: { lv: 4, dur: 100, max: 100 },
-     plate: { lv: 4, dur: 100, max: 100 },
+     shell: { lv: 3, dur: 100, max: 100, red: 0.52 },
+     visor: { lv: 3, dur: 100, max: 100, red: 0.52 },
+     fiber: { lv: 4, dur: 100, max: 100, red: 0.64 },
+     plate: { lv: 4, dur: 100, max: 100, red: 0.64 },
   },
   skills: this._buildSkills(spec.skills || []),
   status: new EntityStatus(spec, spec.prazer),
@@ -3041,9 +3178,11 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     if (!item) { result[armorSlot] = { lv: 0, dur: 0, max: 0 }; continue; }
     const def = this.engine.content.get(item.table, item.defId);
     if (!def || !def.armorLv) { result[armorSlot] = { lv: 0, dur: 0, max: 0 }; continue; }
+    const armorDef = this.engine.content.get('armor', 'lv' + def.armorLv);
     result[armorSlot] = {
       item,
       lv: def.armorLv,
+      red: armorDef && typeof armorDef.red === 'number' ? armorDef.red : undefined,
       max: item.durMax,
       get dur() { return this.item.dur; },
       set dur(v) { this.item.dur = v; },
@@ -3153,7 +3292,11 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     for (const slot in armor) {
       const g = spec.gear.armor[slot];
       if (g && g.lv > 0) {
-        armor[slot] = { lv: g.lv, dur: 100, max: 100, defId: g.defId };
+        const armorDef = this.engine.content.get('armor', 'lv' + g.lv);
+        armor[slot] = {
+          lv: g.lv, dur: 100, max: 100, defId: g.defId,
+          red: armorDef && typeof armorDef.red === 'number' ? armorDef.red : undefined,
+        };
       }
     }
   }
@@ -3303,9 +3446,41 @@ _configureTrainingDummy(enemy) {
   }
   st.effects.clear();
   st.updateOverallHealth();
-  const lv = this.training.dummyArmor | 0;
+  // 重新应用设置时把被打倒/打歪的人偶扶正，避免血量恢复了却还趴着
+  if (enemy.isDownedState) {
+    enemy.isDownedState = false;
+    if (enemy.body) {
+      enemy.body.height = 2.4;
+      enemy.body.halfH = 1.2;
+      enemy.body.radius = enemy.spec.radius || 1.0;
+      enemy.body.position.y = 1.2;
+    }
+    if (enemy.mesh) enemy.mesh.rotation.z = 0;
+  }
+  // 每个槽位独立选择 content 表里的任意一件防具，不再用“统一几级”
+  const gear = this.training.dummyGear || {};
+  const tableMap = {
+    shell: 'helmetShell',
+    visor: 'helmetVisor',
+    fiber: 'vestFiber',
+    plate: 'vestPlate',
+  };
   for (const slot of ['shell', 'visor', 'fiber', 'plate']) {
-    enemy.armor[slot] = lv > 0 ? { lv, dur: 100, max: 100, defId: 'lv' + lv } : { lv: 0, dur: 0, max: 0 };
+    const defId = gear[slot];
+    const def = defId ? this.engine.content.get(tableMap[slot], defId) : null;
+    if (def && def.armorLv > 0) {
+      const armorDef = this.engine.content.get('armor', 'lv' + def.armorLv);
+      const maxDur = def.maxDur || 100;
+      enemy.armor[slot] = {
+        lv: def.armorLv,
+        dur: maxDur,
+        max: maxDur,
+        defId,
+        red: armorDef && typeof armorDef.red === 'number' ? armorDef.red : undefined,
+      };
+    } else {
+      enemy.armor[slot] = { lv: 0, dur: 0, max: 0 };
+    }
   }
 }
 
@@ -3479,12 +3654,7 @@ _updatePlayer(dt){
 
   // 倒地后立即断开无人机操控，不能靠无人机继续行动/攻击
   if (p._controllingDrone && p.status && p.status.isDowned()) {
-    p._controllingDrone = false;
-    const hudEl = document.getElementById('hud');
-    if (hudEl) hudEl.classList.remove('drone-mode');
-    const dhEl = document.getElementById('drone-hud');
-    if (dhEl) dhEl.classList.remove('on');
-    this._log('倒地，无人机链路断开', 'r');
+    this._exitDroneControl('倒地，无人机链路断开');
   }
 
   // ★ 负重：0.25s 刷新一次，决定普通/负重/超重
@@ -5191,20 +5361,20 @@ _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
   if (!entity.armor) return { remaining, snapshot };
 
   const isMelee = damageType === 'melee';
-  let anyArmorActive = false;
-  let allPierced = true;
   let mainAbsorbed = 0;
 
-  const applyOne = (piece, layerName) => {
+  // bluntFactor：弹体被护具挡住后，真正以钝击形式传入人体的能量比例。
+  // 硬质插板/头盔壳靠背面变形吸能，比例低；软质纤维靠拉伸吸能，比例高。
+  // 这是“防弹衣不等于无敌”的物理来源，而不是旧版统一 remaining *= 0.25。
+  const applyOne = (piece, layerName, bluntFactor) => {
     if (!piece || piece.lv <= 0 || piece.dur <= 0) return null;
-    anyArmorActive = true;
     const before = piece.dur;
 
     let res;
     if (isMelee) {
       const absorbRatio = Math.min(0.5, piece.lv * 0.05);
       const absorbed = remaining * absorbRatio;
-      const wear = Math.min(piece.dur, absorbed / 25);
+      const wear = Math.min(piece.dur, absorbed / COMBAT.ARMOR_J_PER_DUR);
       piece.dur = Math.max(0, piece.dur - wear);
       res = { absorbed, remaining: remaining - absorbed, wear, pierced: false };
     } else {
@@ -5212,7 +5382,10 @@ _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
     }
 
     remaining = res.remaining;
-    if (!res.pierced) allPierced = false;
+    // 未被击穿：只有钝击部分进入人体
+    if (!isMelee && !res.pierced && res.absorbed > 0) {
+      remaining *= bluntFactor;
+    }
 
     if (res.absorbed > 0) {
       const snap = {
@@ -5222,6 +5395,7 @@ _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
         wear: before - piece.dur,
         broke: piece.dur <= 0,
         pierced: res.pierced,
+        blunt: res.pierced ? 0 : bluntFactor,
       };
       if (res.absorbed > mainAbsorbed) {
         mainAbsorbed = res.absorbed;
@@ -5233,17 +5407,22 @@ _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
   };
 
   if (hitPart === 'head') {
-    applyOne(entity.armor.shell, '头盔壳');
-    applyOne(entity.armor.visor, '面罩');
-  } else if (hitPart === 'thorax' || hitPart === 'abdomen') {
-    applyOne(entity.armor.plate, '插板');
-    applyOne(entity.armor.fiber, '纤维');
+    // 头盔壳覆盖头顶/后脑，面罩覆盖面部；一次命中只走一层，
+    // 避免旧版“壳+面罩”叠加成双层无敌脸。
+    if (entity.armor.shell && entity.armor.shell.lv > 0 && entity.armor.shell.dur > 0) {
+      applyOne(entity.armor.shell, '头盔壳', 0.10);
+    } else {
+      applyOne(entity.armor.visor, '面罩', 0.12);
+    }
+  } else if (hitPart === 'thorax') {
+    // 插板在纤维外层：先插板，余能再交给纤维；两层都按各自钝击系数折减
+    applyOne(entity.armor.plate, '插板', 0.08);
+    applyOne(entity.armor.fiber, '纤维', 0.28);
+  } else if (hitPart === 'abdomen') {
+    // 腹部通常没有硬插板，只有软质纤维
+    applyOne(entity.armor.fiber, '纤维', 0.28);
   } else {
-    applyOne(entity.armor.fiber, '纤维');
-  }
-
-  if (anyArmorActive && !allPierced && !isMelee) {
-    remaining *= 0.25;
+    applyOne(entity.armor.fiber, '纤维', 0.28);
   }
 
   return { remaining, snapshot };
@@ -5386,6 +5565,10 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
   player.status.takeDamage(part, remaining, pen);
   if (damageType === 'blast' && remaining >= 900) player.status.blood = 0;
   player.taken += remaining;
+  // ★ 本体被攻击立刻退出无人机操控：不能一边本体挨打一边继续远程操控
+  if (player._controllingDrone) {
+    this._exitDroneControl('本体遭到攻击，无人机链路断开');
+  }
   this._triggerOnHitPassives(player, energy);
 
   const sourceWeapon = sourceEnt && sourceEnt.weapon && sourceEnt.weapon.def ? { name: this.engine.i18n.t(sourceEnt.weapon.def.name) } : null;
@@ -7920,35 +8103,51 @@ _trySearchContainer(){
       this._log('当前没有可用无人机，先使用「侦察无人机」技能', 'y');
       return;
     }
-    p._controllingDrone = !p._controllingDrone;
-    const hud = document.getElementById('hud');
-    if (hud) hud.classList.toggle('drone-mode', p._controllingDrone);
-    const dh = document.getElementById('drone-hud');
-    if (dh) dh.classList.toggle('on', p._controllingDrone);
     if (p._controllingDrone) {
-      p.ads = false;
-      p._throwAiming = false;
-      p.activeThrowable = null;
-      this._clearThrowPreview();
-      this._removeHeldThrowable();
-      const app = this.engine.app;
-      const isTouch = app && (app.platform === 'mobile' || (app.platform === 'auto' && 'ontouchstart' in window));
-      this._log(isTouch
-        ? '进入无人机操控：左侧摇杆平移 / 「升」「降」/ 点「退出」返回'
-        : '进入无人机操控：WASD 平移 / 空格上升 / C 下降 / Y 退出', 'p');
-      this._spawnSkillAura(p, 0x66ccff, 0.8);
-    } else {
-      this._log('退出无人机操控', 'p');
+      this._exitDroneControl('退出无人机操控');
+      return;
+    }
+    p._controllingDrone = true;
+    const hud = document.getElementById('hud');
+    if (hud) hud.classList.add('drone-mode');
+    const dh = document.getElementById('drone-hud');
+    if (dh) dh.classList.add('on');
+    p.ads = false;
+    p._throwAiming = false;
+    p.activeThrowable = null;
+    this._clearThrowPreview();
+    this._removeHeldThrowable();
+    const app = this.engine.app;
+    const isTouch = app && (app.platform === 'mobile' || (app.platform === 'auto' && 'ontouchstart' in window));
+    this._log(isTouch
+      ? '进入无人机操控：左侧摇杆平移 / 「升」「降」/ 点「退出」返回'
+      : '进入无人机操控：WASD 平移 / 空格上升 / C 下降 / Y 退出', 'p');
+    this._spawnSkillAura(p, 0x66ccff, 0.8);
+    this._updateMobileButtons();
+  }
+
+  // 统一退出无人机操控。本体被攻击、倒地、无人机失联都走这里，
+  // 保证 HUD、相机、移动端按钮不会残留“操控中”状态。
+  _exitDroneControl(reason){
+    const p = this.player;
+    if (!p || !p._controllingDrone) return false;
+    p._controllingDrone = false;
+    const hud = document.getElementById('hud');
+    if (hud) hud.classList.remove('drone-mode');
+    const dh = document.getElementById('drone-hud');
+    if (dh) dh.classList.remove('on');
+    if (this.engine.cameraCtl && this.engine.cameraCtl.resetDeathPose) {
       this.engine.cameraCtl.resetDeathPose();
     }
-    // 进入/退出都刷新一次移动端按钮标签（升/降/退出）
+    if (reason) this._log(reason, 'y');
     this._updateMobileButtons();
+    return true;
   }
 
   // 手动操控：WASD 水平移动，空格升 / C 降，Y 退出；玩家本体原地不动
   _updateDroneControl(dt, e, p){
     const d = this.drones && this.drones[0];
-    if (!d) { p._controllingDrone = false; return; }
+    if (!d) { this._exitDroneControl('无人机失联，操控中断'); return; }
     const mv = e.input.getMoveVector ? e.input.getMoveVector() : { x: 0, z: 0 };
     const yaw = e.cameraCtl.yaw;
     const fx = Math.sin(yaw), fz = -Math.cos(yaw);
@@ -8192,10 +8391,10 @@ _trySearchContainer(){
     const lv = def.armorLv || 7;
     const dur = def.durability || 520;
     p.armor = {
-      shell: { lv, dur, max: dur, mimic: true },
-      visor: { lv, dur, max: dur, mimic: true },
-      fiber: { lv, dur, max: dur, mimic: true },
-      plate: { lv, dur, max: dur, mimic: true },
+      shell: { lv, dur, max: dur, mimic: true, red: 0.99 },
+      visor: { lv, dur, max: dur, mimic: true, red: 0.99 },
+      fiber: { lv, dur, max: dur, mimic: true, red: 0.99 },
+      plate: { lv, dur, max: dur, mimic: true, red: 0.99 },
     };
     p._mimicUntil = this.time + (def.duration || 25);
     p._mimicLock = true;
@@ -9162,6 +9361,7 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
     document.getElementById('training-modal')?.classList.remove('on');
   });
   document.getElementById('tr-apply')?.addEventListener('click', () => this._applyTrainingModal());
+  document.getElementById('tr-creative-inv')?.addEventListener('click', () => this._openCreativeModal());
   document.getElementById('tr-refill')?.addEventListener('click', () => {
     if (this.world && this.world._refillTrainingLoadout) this.world._refillTrainingLoadout();
   });
@@ -9267,21 +9467,159 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   }
 }
 
+  // 把 content 里所有可用防具填进四个下拉框（每个槽位独立选择）
+  _populateTrainingArmorSelects(){
+    const tableMap = {
+      shell: 'helmetShell',
+      visor: 'helmetVisor',
+      fiber: 'vestFiber',
+      plate: 'vestPlate',
+    };
+    for (const slot in tableMap) {
+      const el = document.getElementById('tr-dummy-' + slot);
+      if (!el) continue;
+      el.innerHTML = '<option value="">无</option>';
+      const defs = this.engine.content.all(tableMap[slot])
+        .filter(d => d.armorLv > 0)
+        .sort((a, b) => (a.armorLv - b.armorLv) || String(a.name).localeCompare(String(b.name)));
+      for (const def of defs) {
+        const opt = document.createElement('option');
+        opt.value = def.id;
+        opt.textContent = this.engine.i18n.t(def.name) + ' · Lv' + def.armorLv;
+        el.appendChild(opt);
+      }
+    }
+  }
+
+  // ===================== 靶场创造模式 =====================
+  _openCreativeModal(){
+    const w = this.world;
+    if (!w || !w.training) return;
+    const creativeChk = document.getElementById('tr-creative');
+    const creativeOn = creativeChk ? !!creativeChk.checked : (w.training.creative !== false);
+    if (!creativeOn) {
+      alert('请先在靶场设置中勾选“创造模式”');
+      return;
+    }
+    // 打开物品库前先提交靶场设置，避免“改了护具/移动但没点应用”
+    if (document.getElementById('training-modal')?.classList.contains('on')) {
+      this._applyTrainingModal();
+    }
+    document.getElementById('training-modal')?.classList.remove('on');
+    if (document.pointerLockElement) document.exitPointerLock();
+    let modal = document.getElementById('creative-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'creative-modal';
+      modal.className = 'modal-overlay';
+      modal.style.zIndex = '95';
+      modal.innerHTML =
+        '<div style="width:min(760px,94vw);max-height:86vh;display:flex;flex-direction:column;padding:16px 18px;background:rgba(10,18,30,.99);border:1px solid rgba(255,200,90,.5);border-radius:12px;text-align:left">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+            '<h2 style="font-size:17px;letter-spacing:3px;margin:0;color:#ffe8b0">创造模式 · 物品库</h2>' +
+            '<button id="creative-close" class="icon-btn" style="padding:4px 12px">关闭</button>' +
+          '</div>' +
+          '<div id="creative-list" style="overflow-y:auto;max-height:66vh;font-size:11px"></div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', (ev) => {
+        if (ev.target === modal) modal.classList.remove('on');
+      });
+      modal.querySelector('#creative-close').addEventListener('click', () => modal.classList.remove('on'));
+    }
+    this._renderCreativeList();
+    modal.classList.add('on');
+  }
+
+  _renderCreativeList(){
+    const host = document.getElementById('creative-list');
+    if (!host) return;
+    host.innerHTML = '';
+    const categories = [
+      ['weapons', '武器'],
+      ['ammo', '弹药'],
+      ['melee', '近战'],
+      ['nade', '投掷物'],
+      ['helmetShell', '头盔壳'],
+      ['helmetVisor', '面罩'],
+      ['helmetEar', '耳罩'],
+      ['vestFiber', '纤维内衬'],
+      ['vestPlate', '防弹插板'],
+      ['backpack', '背包'],
+      ['chestRig', '胸挂'],
+    ];
+    const i18n = this.engine.i18n;
+    for (const [table, label] of categories) {
+      const defs = this.engine.content.all(table);
+      if (!defs.length) continue;
+      const title = document.createElement('div');
+      title.textContent = label;
+      title.style.cssText = 'color:#7fe8ff;font-weight:800;letter-spacing:2px;margin:10px 0 5px;border-bottom:1px solid rgba(80,140,200,.2);padding-bottom:3px';
+      host.appendChild(title);
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px';
+      for (const def of defs) {
+        if (!def || !def.id) continue;
+        const btn = document.createElement('button');
+        btn.className = 'btn ghost';
+        btn.style.cssText = 'padding:6px 8px;font-size:11px;text-align:left;white-space:normal;line-height:1.3';
+        const lv = def.armorLv ? ' · Lv' + def.armorLv : '';
+        btn.textContent = i18n.t(def.name) + lv;
+        btn.onclick = () => this._giveCreativeItem(table, def.id);
+        grid.appendChild(btn);
+      }
+      host.appendChild(grid);
+    }
+  }
+
+  _giveCreativeItem(table, defId){
+    const inv = this.inventory;
+    if (!inv) return;
+    const def = this.engine.content.get(table, defId);
+    if (!def) return;
+    const extras = {};
+    if (table === 'weapons') extras.loadedQty = def.mag || 0;
+    if (table === 'ammo') extras.qty = 120;
+    if (table === 'nade') extras.qty = Math.min(3, def.stackLimit || 3);
+    const uid = inv.createItem(table, defId, extras);
+    if (!uid) { this.world?._log?.('创造物品失败：' + defId); return; }
+    let placed = false;
+    for (const cName of ['bag', 'chest', 'pocket', 'stash']) {
+      const r = inv.addToContainer(cName, uid, { noMerge: table !== 'ammo' });
+      if (r && r.ok) { placed = true; break; }
+    }
+    if (!placed) {
+      inv.destroyItem(uid);
+      alert('背包/胸挂/口袋/仓库都放不下了');
+      return;
+    }
+    if (this.bagUI && this.bagUI.open) this.bagUI.refresh();
+    const qty = extras.qty ? ' ×' + extras.qty : '';
+    if (this.world) this.world._log('创造模式：已发放 ' + this.engine.i18n.t(def.name) + qty, 'p');
+  }
+
   _openTrainingModal(){
     const w = this.world;
     if (!w || !w.training) return;
     const t = w.training;
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
     const sel = (id, val) => { const el = document.getElementById(id); if (el) el.value = String(val); };
+    this._populateTrainingArmorSelects();
     set('tr-show-damage', t.showDamage);
     set('tr-show-panel', t.showAttackPanel);
     set('tr-infinite-ammo', t.infiniteAmmo);
     set('tr-infinite-nades', t.infiniteNades);
     set('tr-skills', t.skills);
     set('tr-nocd', t.noCd);
-    set('tr-dummy-move', t.dummyMove);
+    set('tr-creative', t.creative !== false);
+    sel('tr-dummy-move', t.dummyMoveMode || 'patrol');
     sel('tr-dummy-hp', t.dummyHp);
-    sel('tr-dummy-armor', t.dummyArmor);
+    const gear = t.dummyGear || {};
+    for (const slot of ['shell', 'visor', 'fiber', 'plate']) {
+      sel('tr-dummy-' + slot, gear[slot] || '');
+    }
+    const invBtn = document.getElementById('tr-creative-inv');
+    if (invBtn) invBtn.disabled = t.creative === false;
     if (document.pointerLockElement) document.exitPointerLock();
     document.getElementById('training-modal')?.classList.add('on');
   }
@@ -9296,9 +9634,16 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
     w.training.infiniteNades = !!get('tr-infinite-nades');
     w.training.skills = !!get('tr-skills');
     w.training.noCd = !!get('tr-nocd');
-    w.training.dummyMove = !!get('tr-dummy-move');
+    w.training.creative = !!get('tr-creative');
+    w.training.dummyMoveMode = get('tr-dummy-move') || 'patrol';
+    w.training.dummyMove = w.training.dummyMoveMode !== 'still';
     w.training.dummyHp = parseInt(get('tr-dummy-hp'), 10) || 100;
-    w.training.dummyArmor = parseInt(get('tr-dummy-armor'), 10) || 0;
+    w.training.dummyGear = {
+      shell: get('tr-dummy-shell') || null,
+      visor: get('tr-dummy-visor') || null,
+      fiber: get('tr-dummy-fiber') || null,
+      plate: get('tr-dummy-plate') || null,
+    };
     w._applyTrainingSettings();
     document.getElementById('training-modal')?.classList.remove('on');
   }
@@ -10135,7 +10480,7 @@ this._showScreen('menu');
     if (document.pointerLockElement) document.exitPointerLock();
     if (this.world && this.world._closeNadeWheel) this.world._closeNadeWheel(false);
 
-    for (const id of ['pause-screen', 'result-screen', 'bagui-overlay', 'search-panel', 'training-modal']) {
+    for (const id of ['pause-screen', 'result-screen', 'bagui-overlay', 'search-panel', 'training-modal', 'creative-modal']) {
       document.getElementById(id)?.classList.remove('on');
     }
     document.getElementById('action-progress')?.classList.remove('on');
@@ -10163,6 +10508,8 @@ this._showScreen('menu');
     if (fireModeBtn) fireModeBtn.style.display = 'none';
     const effectPopups = document.getElementById('effect-popups');
     if (effectPopups) effectPopups.innerHTML = '';
+    const dummyInfo = document.getElementById('dummy-info-panel');
+    if (dummyInfo) dummyInfo.style.display = 'none';
     const kcLabel = document.getElementById('killcam-label');
     if (kcLabel) kcLabel.style.display = 'none';
     const nw = document.getElementById('nade-wheel');
