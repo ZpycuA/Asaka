@@ -266,6 +266,13 @@ inv.unloadAmmo(weaponUid, ammoId, count)
   - `installPlate`（替换插板时只算净增重）。
 - 旧实现把所有 `c:` 都当“已携带”，所以从世界容器/仓库/背包内部网格取物可以无限超载；这是硬上限“看起来没实现”的根因。
 
+### 5.1 配件 / 插板 / 内嵌网格
+
+- 安装配件/插板时记录 `_storedFrom`（原容器 + 坐标 + 旋转）；拆下时优先回原格。
+- 回原格失败才按 `bag → chest → pocket → safe → stash` 兜底；配件/插板本来就在身上，回格使用 `ignoreWeight: true`，避免被硬上限重复拦截。
+- 背包/胸挂详情直接内嵌 `innerGrid`（`data-container="inner:<uid>"`），与主网格同为 `.bagui-grid-wrap`，可拖进拖出；不再只给“打开内部网格”按钮。
+- 纤维护甲的插板在详情里渲染为 `sub:<fiberUid>:plate` 的 1×1 网格格；拖出到背包/胸挂即取出，拖到插板格即装入。
+
 ---
 
 ## 6. 搜刮 UI 的渲染源

@@ -129,7 +129,7 @@
 - `ActionProcess`：同一时间一个动作；`start/cancel/update/getProgress`。
 - `CombatSystem`：纯函数 `kinetic / energyAtRange / applyArmor / applyCoupling / energyToHP`。
 - `EntityStatus`：部位 HP、伤口、血液、效果、`takeDamage/tick/isDead/isDowned/updateOverallHealth`。
-- `AISystem`：感知、警戒、状态机（patrol/investigate/combat/melee/retreat/drone/flee/loot/remove/nade/aid）、训练人偶移动、友方 AI（`_updateAlly` / `_allySupport` / `_allyCombatTalk` / `_findDownedMate` / `_aidDowned`）。
+- `AISystem`：感知、警戒、状态机（patrol/investigate/combat/melee/retreat/drone/flee/loot/remove/nade/aid/selfaid）、训练人偶移动、友方 AI（`_updateAlly` / `_allySupport` / `_allyCombatTalk` / `_allyExplore` / `_allyFollowPlayer` / `_findDownedMate` / `_aidDowned` / `_considerSelfAid` / `_aidSelf`）。所有目标移动走 `GameWorld._aiMoveTo`（视线直达或 A* 绕路）。
 - `HUDSystem`：HUD 更新、伤害指示、状态栏/战术状态、护甲、训练 HUD、人偶详情。
 - `GameWorld`：一局世界的全部运行时。
 - `GameApp`：菜单、配装、市场、开始/结束、训练设置、创造模式、死亡回放入口。
@@ -153,7 +153,7 @@
   4. 击倒超时
   5. `_updatePlayer`
   6. `_checkPlayerEffects`
-  7. `actionProcess/敌人/声纹/撤离/容器/附近列表/曳光/投掷物/无人机/移动端按钮/警报`
+  7. `actionProcess/敌人/探索记忆/声纹/撤离/容器/附近列表/曳光/投掷物/无人机/移动端按钮/警报`
   8. `physics.step` + `_syncMeshes` + `_recordReplayFrame`
   9. 相机跟随/死亡相机
   10. `hud.update`
@@ -169,7 +169,13 @@
 | `_buildWeaponFromInventory(inv, slot)` | 从装备槽建运行时；`mag/reserve/loaded` 指向 item |
 | `_syncWeaponsFromInventory()` | 背包变化后同步 `player.weapons` |
 | `_syncArmorFromInventory()` | 背包/装备变化后从装备槽重建 `player.armor` |
-| `_updatePlayer(dt)` | 输入、体力、移动、射击、换弹、技能、护具 |
+| `_updatePlayer(dt)` | 输入、体力、移动、射击、换弹、技能、护具；含跳跃净空/自动跨越 |
+| `_carryLimitFor/_strengthPullKg/_meleeStrengthMul/_climbHeight` | 人类 34kg 基准 + Prazer `140·ln(A)` 力量折算 |
+| `_tailStrike` | Prazer 尾击：2.8m、2.2× 拳击能量、24 体力、1.1s 冷却 |
+| `_tryMantle/_pointBlocked/_ceilingClearance` | 自动跨越/攀爬与低顶防挤飞 |
+| `_hasFriendlyInLine` | AI 枪线友军检查，避免同阵营互射 |
+| `_noteFriendlyFire/_triggerBetrayal` | 连续/重度误伤队友后判定背叛 |
+| `_updateBetrayedAlly` | 叛徒队友脱离枪线并把玩家当敌人 |
 | `_fireWeapon(owner, weapon, isPlayer, target)` | 取 queue 首发、弹道、伤害、后坐、曳光 |
 | `_startReload()` / `_finishReload()` | 换弹动作与弹链填充 |
 | `_cycleFireMode()` / `_fireModeLabel(mode)` | 开火模式 |
@@ -179,9 +185,15 @@
 | `_aiGrenadeList/_takeEnemyThrowable/_aiThrowGrenade` | AI 投掷物库存与抛物线投掷 |
 | `_spawnAllies/_allyArmorFromPlayer` | 匹配友方 AI（装备按玩家当前价值生成） |
 | `_findDownedMate/_aidDowned/_reviveByAI` | 同阵营互救（敌我通用） |
+| `_considerSelfAid/_aidSelf` | 敌我 AI 自我急救：停步蹲下 2.6~3.6s，按伤情选绷带/血浆/手术包 |
+| `_allyExplore/_allyFollowPlayer/_pickAllyExplorePoint` | 队友主动探索未探索区域；离队长过远时归队 |
+| `_updateExplorationMemory/_markExplored/_isExplored` | 10m 网格探索记忆（玩家 + 存活队友） |
 | `_updateAllyCarePanel/_useMedicalOnAlly/_applyMedicalToAlly` | 靠近队友查看伤情并用自己的药品救治 |
-| `_issueSquadOrder/_getSuggestionPoint/_spawnSquadOrderMarker` | 准星建议点（前进/撤退） |
-| `_squadSay/_renderSquadChat` | 队内纯文字战术对话（可滚动） |
+| `_issueSquadOrder/_getSuggestionPoint/_spawnSquadOrderMarker` | 准星/无人机准星建议点（前进/撤退） |
+| `_squadSay/_renderSquadChat` | 队内顶部战术字幕（最多 4 行、不可滚动/不可误触） |
+| `_updateSquadPlan/_nearestExtract` | 队友自主计划：搜索/交战/撤离；撤离区/时间不足时全队靠拢 |
+| `_ensureNavGrid/_findNavPath/_navLineClear/_aiMoveTo` | 2m 网格 + A* 寻路；视线直达时走直线，被挡时绕路 |
+| `_collectCarriedItems` | 递归遍历胸挂/背包/口袋/安全箱与嵌套 `innerGrid`（医疗/投掷物共用） |
 | `_markEntity/_findMarkedTarget` | 同阵营共享标记（带 `markedFaction`） |
 | `_entityVoice/_updateEntityVoice` | 敌我受伤/疼痛/着火叫唤 |
 | `_hint(text, cls)` | 玩家即时提示（HUD 横幅 + 背包 toast） |
@@ -214,7 +226,7 @@
 | `_openSearch/_closeSearch` | 搜索容器 |
 | `_dropItemToGround` | 丢物品 |
 | `_applyTrainingSettings()` | 应用靶场设置，配置人偶 |
-| `_configureTrainingDummy(enemy)` | 血量/护甲/扶正/清状态 |
+| `_configureTrainingDummy(enemy)` | 从固定 `PART_MAX_HP` 硬复位血量/部位/伤口/状态/护甲/姿势；清 `_dummyInfoSig` |
 | `_updateTrainingHUD()` | 攻击数据面板 + 人偶详情 + training-mode |
 | `_openTrainingModal/_applyTrainingModal` | 靶场设置弹窗 |
 | `_refillTrainingLoadout()` | 补满玩家弹匣/护具/体力 |
@@ -226,8 +238,10 @@
 | `_toggleDroneControl()` | 进入/退出操控 |
 | `_exitDroneControl(reason)` | 统一退出：清 HUD/相机/按钮；本体受击、倒地、失联都走它 |
 | `_updateDroneControl(dt,e,p)` | WASD 平移、升降、碰撞、持续标记 |
-| `_droneMark/_droneScanAttack/_droneThrowPayload` | 标记/光学攻击/投掷 |
+| `_droneMark/_droneScanAttack/_droneThrowPayload` | 标记/光学攻击/手雷与 EMP |
 | `_spawnDrone/_removeDrone/_destroyDrone` | 生命周期；坠毁时剩余 payload 抛散为真实弹体并殉爆（不再掉盒子） |
+
+> 无人机不再有「标记信标」投掷物：自动标记 + 光学标记已覆盖同一功能，`_droneDropBeacon()` 与 `marker` 爆炸分支已删除。
 
 ### 4.7 死亡回放
 
@@ -336,6 +350,7 @@ _update -> _throwEnemyGrenade
 
 - AI 投掷物库存的唯一真相源是 `enemy.lootInv` 中的 `nade` 物品，不是独立计数器。
 - 闪光/震撼在 `_explodeProjectile` 中把 AI 投掷者作为 `exclude`；破片/燃烧不豁免，所以用安全距离避免自伤。
+- 破片/冲击波判定用“爆心到身体胶囊最近点”的三维距离，不是水平距离；高空爆炸不会波及正下方。
 
 ### 5.7 死亡
 
@@ -362,21 +377,42 @@ start → _spawnAllies（仅非训练场）
   → 武器/护甲按玩家当前 equipped 生成
 AISystem.update
   → if (enemy.isAlly) _updateAlly
-      → _findTarget / _findMarkedTarget
-      → _combat / _meleeCombat / _considerGrenade
-      → 无目标时跟随玩家
+      → _findTarget / _findMarkedTarget(120m)
+      → 互救 / selfaid / 建议 / 撤退 / _combat / _considerGrenade
+      → 有共享标记：investigate 最后位置（18s）
+      → 无目标：_allyExplore（未探索区域）或 _allyFollowPlayer（>50m 归队）
       → _allySupport：共享标记、医疗兵包扎、低血量/计划对话
       → _squadSay → #squad-chat
 ```
 
 - 友方 AI 仍在 `world.enemies` 里：复用伤害、护甲、感知、尸体掉落；`faction='player'` 让 `isHostile` 自动区分敌我。
 - 共享标记唯一入口：`world._markEntity(target, duration, by, faction)`；同阵营 AI 用 `AISystem._findMarkedTarget` 获取最后已知位置。敌方无人机/侦察技能沿用同一套即可。
-- 对话只做文字 DOM，不用面板框；`destroy()` 清空 `#squad-chat`。
+- 队友读取 120m 内共享标记并追击 18s；标记过期后清掉旧 `targetPos`，不会永远朝同一个空点走。
+- 探索：`_updateExplorationMemory` 每 0.5s 把玩家/队友周围 3×3 个 10m 格记为已探索；`_pickAllyExplorePoint` 选未探索、视线可达、离队长 ≤48m 的点；`_allyExplore` 到达后标记并换点。`_stuckT > 1.2` 会强制换点。
+- 自我急救：敌我通用 `selfaid` 状态；`_considerSelfAid` 检查药品/出血/健康度，`_aidSelf` 停步蹲下，完成时 `_aiHealByAI` 按伤情挑药。没有视线或撤退到 16m 外才允许停步。
+- 对话只做文字字幕（桌面顶部中央 / 移动端小地图下方），不用面板框、`pointer-events:none`、最多 4 行；`destroy()` 清空 `#squad-chat`。
 - 训练场不刷队友，避免和人偶逻辑混用。
 - 互救：`_findDownedMate` 找 16m 内同阵营倒地者；`_aidDowned` 到 2.3m 后 3.2s 调 `_reviveByAI`。敌方 AI 走同一套，靠 `_spawnEnemy` 发放的基础药品。
 - 玩家救治：`_updateAllyCarePanel` 每帧找 4.5m 内最近友军，显示 `#ally-care`；`U` 释放 Pointer Lock 后点击药品；`_useMedicalOnAlly` 走 ActionProcess，完成时才消耗物品。
-- 建议：`P/O` -> `_issueSquadOrder` -> `_getSuggestionPoint` 射线落点 + 8s `_squadOrder`；队友在 `_updateAlly` 中按血量自行决定是否执行。
-- 撤退：友军血量 <55% 进入 `_allyRetreating`，>68% 解除；撤退中 `_allySupport` 自我急救。
+- 建议：`P/O` -> `_issueSquadOrder` -> `_getSuggestionPoint` 射线落点 + 8s `_squadOrder`；无人机操控中同样可发，标记点取无人机准星落点。队友在 `_updateAlly` 中按血量自行决定是否执行。
+- 撤退：友军血量 <55% 或出血 ≥2 级进入 `_allyRetreating`，>68% 且无出血解除；撤退到 16m 外会进入 `selfaid` 自我包扎。
+
+### 5.9 AI 寻路与撤离计划
+
+```
+_aiMoveTo(enemy, tx, tz, speed, dt)
+  → _navLineClear? 直线
+  → 否则 _findNavPath → _ensureNavGrid（首次构建 2m 网格）
+  → 记录 _navPath/_navGoal/_navRepathAt，1.4~2.0s 重算
+  → 所有 AISystem 移动入口（investigate/loot/aid/flee/patrol/follow/explore/order/retreat）调用
+```
+
+- 网格用 `obstacles + containers` 的 AABB/圆体，按 `yMin/yMax` 过滤可跨越/头顶障碍；斜向禁止切墙角。
+- `_navLineClear` 用胸口高度射线，只有墙体/大箱子会触发绕路，开阔地仍是直线。
+- `_updateSquadPlan` 每 6s 计算 `search/fight/extract`；玩家进入撤离区、撤离开始或剩余 <75s 时，`_updateAlly` 的 `extract` 分支优先于搜索/交战，到点后就地防守。
+- 小地图 `_renderMinimap` 读 `world.allies`，绿点=存活、红点+白叉=倒地。
+- 友谊/背叛：`_fireWeapon` 的 AI 分支先跑 `_hasFriendlyInLine`；玩家枪/近战命中队友走 `_noteFriendlyFire`，第一次警告，6s 内第二次或单次 >60% 健康/击倒才 `_triggerBetrayal`。背叛后 `_updateAlly` 直接转 `_updateBetrayedAlly`，不再跟随/治疗/接受命令。
+- 战斗记录：`FILTER_GROUPS.dealt` 包含非 self 的 `downed`；`taken` 只包含 `self=true` 的 `downed`。
 
 ---
 
