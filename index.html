@@ -107,6 +107,11 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 @keyframes drone-glitch{0%{transform:translate(0,0);filter:none}50%{transform:translate(-2px,1px);filter:hue-rotate(25deg)}100%{transform:translate(2px,-1px);filter:none}}
 @keyframes sk-lines{from{background-position:0 0}to{background-position:220px 220px}}
 #dmg-indicator{position:absolute;inset:0;pointer-events:none;z-index:15}
+#hazard-overlay{position:fixed;inset:0;z-index:408;pointer-events:none;opacity:0;transition:opacity .4s;mix-blend-mode:screen}
+#hazard-overlay.burning{opacity:.8;background:radial-gradient(ellipse at 50% 100%,rgba(255,120,30,.5) 0%,rgba(255,80,20,.22) 35%,transparent 72%);animation:hazard-flicker .45s ease-in-out infinite alternate}
+#hazard-overlay.fiber{opacity:.55;background:repeating-radial-gradient(circle at 18% 62%,rgba(220,180,120,.28) 0 1px,transparent 1px 7px),radial-gradient(ellipse at 50% 50%,rgba(180,40,40,.18),transparent 70%);animation:hazard-pulse 1.6s ease-in-out infinite}
+@keyframes hazard-flicker{0%{opacity:.62}100%{opacity:.9}}
+@keyframes hazard-pulse{0%,100%{opacity:.35}50%{opacity:.62}}
 #crosshair{position:absolute;left:50%;top:50%;width:24px;height:24px;transform:translate(-50%,-50%);pointer-events:none;z-index:20}
 #crosshair .line-h{position:absolute;top:11px;width:6px;height:2px;background:#fff;box-shadow:0 0 2px #000}
 #crosshair .line-v{position:absolute;left:11px;width:2px;height:6px;background:#fff;box-shadow:0 0 2px #000}
@@ -146,6 +151,11 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #status-bar .status-chip{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #status-bar .status-chip.neg{background:rgba(180,40,40,.42);border:1px solid rgba(255,110,110,.65);color:#fff}
 #status-bar .status-chip.pos{background:rgba(40,160,90,.42);border:1px solid rgba(120,255,170,.65);color:#fff}
+/* 战术状态条：把“正在左倾/蹲伏/疾跑/开镜”明确画出来，避免按了没反馈 */
+#tactical-state{position:absolute;left:50%;bottom:168px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;z-index:27;pointer-events:none;white-space:nowrap}
+#tactical-state .tac-chip{padding:3px 9px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:1px;background:rgba(14,22,34,.82);border:1px solid rgba(105,170,235,.35);color:#9fc4e8;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+#tactical-state .tac-chip.on{background:rgba(60,120,185,.55);border-color:rgba(150,215,255,.85);color:#eaf6ff;box-shadow:0 0 10px rgba(90,180,255,.35)}
+#tactical-state .tac-chip.warn{background:rgba(180,70,30,.55);border-color:rgba(255,150,90,.85);color:#ffe2c8}
 /* 技能栏：真实技能名 + 冷却（不显示键位） */
 #skill-bar{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);display:flex;gap:8px;z-index:26;pointer-events:none}
 .skill-slot{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:rgba(14,22,34,.82);border:1px solid rgba(80,125,175,.3);font-size:11px;color:#6f8fae;min-width:104px}
@@ -226,6 +236,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #hud.replay-hud #extract-progress,
 #hud.replay-hud #nade-wheel-btn,
 #hud.replay-hud #fiber-pull-btn,
+#hud.replay-hud #extinguish-btn,
+#hud.replay-hud #tactical-state,
 #hud.replay-hud #throwable-hint,
 #hud.replay-hud #drone-panel,
 #hud.replay-hud #drone-hud,
@@ -463,10 +475,12 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
      <div id="weapon-bar"></div>
 <div id="nearby-list"></div>
 <div id="status-bar"></div>
+<div id="tactical-state"></div>
 <div id="skill-bar"></div>
 <div id="throwable-hint"></div>
 <button id="nade-wheel-btn" style="display:none;position:absolute;right:16px;bottom:248px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(120,90,40,.82);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">💣 投掷轮盘</button>
 <button id="fiber-pull-btn" style="display:none;position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.75);border:1px solid rgba(255,120,120,.7);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">拔除玻纤</button>
+<button id="extinguish-btn" style="display:none;position:absolute;left:50%;bottom:104px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(180,90,20,.8);border:1px solid rgba(255,170,80,.8);color:#fff0d8;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">灭火</button>
 <div id="alert-bar"></div>
      
     <div id="protect-group">

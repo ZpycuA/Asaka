@@ -230,7 +230,12 @@ export class BagUI {
     if (this._lootTarget) {
       label = `正在搜刮：${this._lootTarget.label}`;
     } else {
-      label = isInMatch ? `携带 ${carryVal} cp` : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
+      const p = this.engine.app && this.engine.app.world && this.engine.app.world.player;
+      const w = this.inv.getCarryWeight();
+      const lim = p ? (p.carryLimit || 24) : 24;
+      const state = w > lim ? '超重' : (w > lim * 0.75 ? '负重' : '正常');
+      const weightText = isInMatch ? ` · 负重 ${w.toFixed(1)}/${lim.toFixed(0)}kg（${state}）` : '';
+      label = isInMatch ? `携带 ${carryVal} cp${weightText}` : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
     }
     
     let html = `<span class="bagui-total">${label}</span>`;
@@ -427,7 +432,7 @@ export class BagUI {
     const item = inv.items.get(uid);
     if (!item) return `<div class="bagui-slot empty" data-src-type="equip" data-src-slot="${slot}"></div>`;
     const def = inv.getDef(item);
-    const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
+    const name = (item.damaged ? '[损坏] ' : '') + this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
     const rarity = item.rarity || 'L0';
     return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;position:relative">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
@@ -447,14 +452,15 @@ export class BagUI {
     }
 
     const def = inv.getDef(item);
-    const name = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
+    const baseName = this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
+    const name = item.damaged ? ('[损坏] ' + baseName) : baseName;
     const rarity = item.rarity || 'L0';
     const qty = item.qty > 1 ? `<span class="bagui-item-qty">×${item.qty}</span>` : '';
     const dur = item.durMax > 0 ? Math.round(item.dur / item.durMax * 100) : -1;
     const durBar = dur >= 0 ? `<div class="bagui-item-dur"><i style="width:${dur}%;background:${dur > 60 ? '#6fe07a' : dur > 30 ? '#ffd93d' : '#ff5a5a'}"></i></div>` : '';
     
     return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
-      style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px">
+      style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px${item.damaged ? ';border-color:rgba(255,90,90,.65)' : ''}">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
       ${qty}${durBar}
@@ -472,7 +478,7 @@ export class BagUI {
       return icon;
     }
     return {
-      weapons: '🔫', ammo: '🔸', cons: '💊', nade: '💣', attach: '⚙', valuable: '💎',
+      weapons: '🔫', ammo: '🔸', cons: '💊', nade: '💣', attach: '⚙', valuable: '💎', valuables: '💎', medical: '🩹',
       helmetShell: '⛑', helmetVisor: '🕶', helmetEar: '🎧',
       vestFiber: '🦺', vestPlate: '🛡', backpack: '🎒', chestRig: '🧥'
     }[item.table] || '?';
@@ -626,12 +632,20 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     const world = this.engine.app ? this.engine.app.world : null;
     const inMatchNow = !!(world && world.running);
     const rawName = def.name || def.n || '?';
-    const displayName = this.engine.i18n.t(rawName);
+    const displayName = (item.damaged ? '[损坏] ' : '') + this.engine.i18n.t(rawName);
     const rarity = item.rarity || 'L0';
     let html = `<div class="bagui-detail-title"><span>${this._esc(displayName)}</span><span class="bagui-rarity-tag r-${rarity}">${rarity}</span></div>`;
 
     if (def.desc) {
       html += `<div class="bagui-desc">${this._esc(this.engine.i18n.t(def.desc))}</div>`;
+    }
+    if (item.category) {
+      html += `<div style="color:#8fb0c8">分类：${this._esc(item.category)}</div>`;
+    }
+    if (item.damaged) {
+      html += `<div style="color:#ff6a6a;font-weight:700">状态：电磁损坏（电子组件已失效，价值大幅降低）</div>`;
+    } else if (item.electronics) {
+      html += `<div style="color:#8fb0c8">电子属性：${item.empShielded ? '抗磁屏蔽' : '非抗磁（EMP 可损坏）'}</div>`;
     }
 
     const unitVal = inv.getItemValue(uid);
@@ -645,12 +659,10 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     if (item.durMax > 0) {
       html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;
     }
-    // ★ 重量
-    const unitW = item.weight || def.weight || 0;
-    if (unitW > 0) {
-      const totalW = unitW * (item.qty || 1);
-      html += `<div>重量：${unitW.toFixed(2)} kg${item.qty > 1 ? `（合计 ${totalW.toFixed(2)} kg）` : ''}</div>`;
-    }
+    // ★ 重量：无论物品类型都显示，避免“详细属性里没有重量”
+    const unitW = item.weight !== undefined ? item.weight : (def.weight || 0);
+    const totalW = unitW * (item.qty || 1);
+    html += `<div>重量：${unitW.toFixed(2)} kg${item.qty > 1 ? `（合计 ${totalW.toFixed(2)} kg）` : ''}</div>`;
     // ★ 弹药数值
     if (item.table === 'ammo') {
       const parts = [];
@@ -660,8 +672,27 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       if (def.pen !== undefined) parts.push('穿透 ' + def.pen);
       if (parts.length) html += `<div>${this._esc(parts.join(' · '))}</div>`;
     }
+    if (item.table === 'nade') {
+      const trig = def.trigger === 'impact' ? '压感式（撞击即爆）' : '保险式（拔销后倒计时）';
+      const parts = [trig];
+      if (def.fuse) parts.push('引信 ' + def.fuse + 's');
+      if (def.radius) parts.push('半径 ' + def.radius + 'm');
+      if (def.fragmentCount) parts.push('模拟破片 ' + def.fragmentCount + ' 枚');
+      if (def.flashDuration) parts.push('失明基准 ' + def.flashDuration + 's');
+      html += `<div>${this._esc(parts.join(' · '))}</div>`;
+    }
     if (def.rpm) {
-      html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'}</div>`;
+      html += `<div>射速 ${def.rpm} RPM · 弹匣 ${def.mag || '—'} · 换弹 ${def.reload || '—'}s</div>`;
+    }
+    if (item.table === 'weapons' || item.table === 'melee') {
+      const stats = [];
+      if (def.range) stats.push('有效射程 ' + def.range + 'm');
+      if (def.handling !== undefined) stats.push('操控 ' + def.handling);
+      if (def.stability !== undefined) stats.push('稳定 ' + def.stability);
+      if (def.recoil !== undefined) stats.push('后坐 ' + def.recoil);
+      if (def.adsSpread !== undefined) stats.push('开镜散布 ' + def.adsSpread);
+      if (def.damage) stats.push('伤害 ' + def.damage + 'J');
+      if (stats.length) html += `<div>${this._esc(stats.join(' · '))}</div>`;
     }
     // ★ 开火模式预览
     if (def.fireModes && def.fireModes.length) {

@@ -31,6 +31,8 @@ const STACK_LIMITS = {
   vestPlate: 1,
   backpack: 1,
   chestRig: 1,
+  valuables: 1,
+  medical: 4,
 };
 
 const EQUIP_SLOTS = [
@@ -67,6 +69,7 @@ const DEFAULT_ITEM_WEIGHT = {
   vestFiber: 3.0, vestPlate: 2.6,
   backpack: 1.5, chestRig: 0.9,
   nade: 0.6, cons: 0.1, attach: 0.3,
+  valuables: 0.1, medical: 0.12,
 };
 
 /* ====================== GridContainer ====================== */
@@ -151,6 +154,11 @@ export class Inventory {
       // ★ 重量（kg；弹药为单发重量，堆叠时乘以数量）
       weight: extras.weight !== undefined ? extras.weight
         : (def.weight !== undefined ? def.weight : (DEFAULT_ITEM_WEIGHT[table] || 0.2)),
+      // ★ 电子属性：EMP 只损坏 electronics 且没有抗磁屏蔽的物品
+      electronics: def.electronics === true,
+      empShielded: def.empShielded === true,
+      damaged: extras.damaged === true,
+      category: def.category || (table === 'valuables' ? '贵重品' : (table === 'medical' ? '医疗' : '')),
       // ★ 网格字段
       w: def.w || 1,
       h: def.h || 1,
@@ -240,6 +248,22 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     const item = typeof itemOrUid === 'string' ? this.items.get(itemOrUid) : itemOrUid;
     if (!item) return null;
     return this.content.get(item.table, item.defId);
+  }
+
+  // 旧存档补新字段：电子属性、损坏状态、分类、重量
+  _hydrateItem(item) {
+    if (!item) return;
+    const def = this.content.get(item.table, item.defId);
+    if (!def) return;
+    if (item.electronics === undefined) item.electronics = def.electronics === true;
+    if (item.empShielded === undefined) item.empShielded = def.empShielded === true;
+    if (item.damaged === undefined) item.damaged = false;
+    if (item.category === undefined) {
+      item.category = def.category || (item.table === 'valuables' ? '贵重品' : (item.table === 'medical' ? '医疗' : ''));
+    }
+    if (item.weight === undefined) {
+      item.weight = def.weight !== undefined ? def.weight : (DEFAULT_ITEM_WEIGHT[item.table] || 0.2);
+    }
   }
 
   /* ====================== 武器弹链（loaded.queue） ======================
@@ -491,6 +515,31 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
   }
 
   // 携带重量：装备槽（背包/胸挂只算本体，内容物由 chest/bag 容器统计）+ chest/pocket/bag/safe
+  /* ====================== 电磁脉冲损坏 ======================
+     规则：只有 def.electronics 的物品会被 EMP 影响；empShielded 表示
+     外壳/电路做了抗磁屏蔽，通常不会被损坏。损坏后 valueMul 大幅降低，
+     名称与详情由 UI 显示为“[损坏]”，武器不可再开火。
+     ========================================================== */
+  applyEmpDamage(strength = 1, includeStash = false) {
+    const out = { damaged: [], spared: [] };
+    for (const item of this.items.values()) {
+      if (!item || !item.electronics || item.damaged) continue;
+      const parent = this.parentOf.get(item.uid);
+      if (!includeStash && parent === 'c:stash') continue;
+      if (item.empShielded) { out.spared.push(item); continue; }
+      const chance = Math.max(0.05, Math.min(1, strength));
+      if (Math.random() > chance) { out.spared.push(item); continue; }
+      item.damaged = true;
+      item.valueMul = Math.max(0.03, (item.valueMul || 1) * 0.12);
+      if (item.table === 'weapons' && item.loaded) {
+        // 电子击发/供弹组件损坏：弹链保留，但武器不能开火
+        item.loaded.disabled = true;
+      }
+      out.damaged.push(item);
+    }
+    return out;
+  }
+
   getCarryWeight() {
     let w = 0;
     const eqSlots = ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig'];
@@ -1030,6 +1079,7 @@ this.equipped[slot] = uid;
   // 1. 物品
   for (const raw of data.items || []) {
     const item = raw;
+    this._hydrateItem(item);
     // 恢复 innerGrid
     if (item.innerGrid) {
       item.innerGrid = GridContainer.fromJSON(item.innerGrid);
@@ -1082,6 +1132,7 @@ this.equipped[slot] = uid;
   // 1. 物品（补 w/h/innerGrid/searched）
   for (const item of data.items || []) {
     const def = this.content.get(item.table, item.defId);
+    this._hydrateItem(item);
     if (item.w === undefined) item.w = def ? (def.w || 1) : 1;
     if (item.h === undefined) item.h = def ? (def.h || 1) : 1;
     if (item.rotated === undefined) item.rotated = false;

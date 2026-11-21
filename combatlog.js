@@ -290,7 +290,7 @@ export class CombatLog {
     this.register('damage_dealt', e => {
   const tgt = e.target ? (e.target.name || '?') : '?';
   const part = PART_NAMES[e.part] || e.part || '?';
-  const wpn = e.weapon ? (e.weapon.name || '—') : '—';
+  const wpn = e.weapon ? (e.weapon.name || '—') : (e.source && e.source.name ? e.source.name : '—');
   const hp = `${fmtNum(e.targetHpAfter)}%`; // 现在返回的是百分比
   let armor = '';
   if (e.armor && e.armor.absorbed > 0) {
