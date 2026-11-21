@@ -597,6 +597,44 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     return w;
   }
 
+  // ★ 物品当前是否真正“在身上”：装备槽或随身容器（含随身背包的内部网格）。
+  //   仓库 c:stash、搜刮临时容器 c:loot 不算携带，从这些位置搬进背包必须重新计重。
+  //   旧实现把所有 c: 都当成已携带，导致开箱/从仓库取物完全绕过负重硬上限。
+  isCarried(uid) {
+    let path = this.parentOf.get(uid);
+    let guard = 0;
+    while (path && guard++ < 16) {
+      if (path === 'c:chest' || path === 'c:pocket' || path === 'c:bag' || path === 'c:safe') return true;
+      if (path.startsWith('eq:')) return true;
+      if (path.startsWith('inner:')) {
+        const hostUid = path.slice(6);
+        if (!this.items.get(hostUid)) return false;
+        path = this.parentOf.get(hostUid);
+        continue;
+      }
+      // 子槽（护甲里的插板）与配件：parentOf 直接记录宿主物品 UID，继续向上追溯
+      if (this.items.has(path)) {
+        path = this.parentOf.get(path);
+        continue;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  // 目标容器是否属于“随身承重空间”：inner: 取决于宿主是否被携带。
+  _isCarryTarget(name) {
+    if (name.startsWith('inner:')) return this.isCarried(name.slice(6));
+    return CARRY_CONTAINER_NAMES.includes(name);
+  }
+
+  // 硬上限判定：extraWeight 缺省时按该物品重量计算。
+  wouldExceedCarryWeight(uid, extraWeight) {
+    if (!(this.maxCarryWeight > 0)) return false;
+    const extra = extraWeight !== undefined ? extraWeight : this.getItemWeight(uid);
+    return this.getCarryWeight() + extra > this.maxCarryWeight + 1e-4;
+  }
+
   /* ====================== 网格辅助 ====================== */
   _regionFree(container, x, y, w, h) {
     for (let dy = 0; dy < h; dy++) {
@@ -680,18 +718,10 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
 
   // ★ 负重硬上限：只拦截“新带进随身容器”的物品，已在身上的物品挪位置不会重复计算。
   //   超限时拒绝放入，调用方（转移/拾取/拆分）会回滚并提示。
-  if (this.maxCarryWeight > 0 && !opts.ignoreWeight && !name.startsWith('inner:') &&
-      CARRY_CONTAINER_NAMES.includes(name)) {
-    const curParent = this.parentOf.get(uid);
-    const alreadyCarried = !!curParent && (
-      curParent.startsWith('c:') || curParent.startsWith('inner:') || curParent.startsWith('eq:')
-    );
-    if (!alreadyCarried) {
-      const extra = this.getItemWeight(item);
-      if (this.getCarryWeight() + extra > this.maxCarryWeight + 1e-4) {
-        return { ok: false, reason: 'overweight' };
-      }
-    }
+  //   inner: 也必须检查——否则把战利品塞进背包内部网格就能无限超载。
+  if (!opts.ignoreWeight && this._isCarryTarget(name) && !this.isCarried(uid) &&
+      this.wouldExceedCarryWeight(uid)) {
+    return { ok: false, reason: 'overweight' };
   }
 
   // ---- 1. 先尝试合并堆叠 ----
@@ -774,6 +804,14 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     if (!EQUIP_SLOTS.includes(slot)) return { ok: false, reason: 'bad_slot' };
     const item = this.items.get(uid);
     if (!item) return { ok: false, reason: 'no_item' };
+
+    // ★ 负重硬上限：从搜刮容器/仓库直接拖到装备槽，同样必须先过承重检查。
+    //   已在身上的物品换槽不重复计重。
+    // 插板槽单独处理：installPlate 会按“新插板 - 被换下旧插板”的净增重判断，
+    // 否则从地上捡一块同重量的新板替换时会被当前旧板的重量重复卡住。
+    if (slot !== 'vestPlate' && this.maxCarryWeight > 0 && !this.isCarried(uid) && this.wouldExceedCarryWeight(uid)) {
+      return { ok: false, reason: 'overweight' };
+    }
 
     // ★ 插板不再单独穿戴：只能装进当前护甲纤维的子槽。
     //   保留 vestPlate 槽位只是为了兼容旧存档/旧入口，实际数据落在 fiber.subSlots.plate。
@@ -923,6 +961,26 @@ this.equipped[slot] = uid;
     }
   }
 
+  // ★ 跨 Inventory 直接装备也要过负重硬上限；此时目标 Inventory 里还没有新 UID，
+  //   用源物品的完整重量（含配件/插板/内部网格）预判，失败则整体不迁移。
+  //   插板是“替换”而不是新增：只计算新板与已装在纤维里的旧板之差。
+  if (typeof targetContainer === 'string' && targetContainer.startsWith('eq:') &&
+      targetInv.maxCarryWeight > 0) {
+    const eqSlot = targetContainer.slice(3);
+    let extra = this.getItemWeight(item);
+    if (eqSlot === 'vestPlate') {
+      const fiberUid = targetInv.equipped.vestFiber;
+      const fiber = fiberUid ? targetInv.items.get(fiberUid) : null;
+      const oldPlateUid = fiber && fiber.subSlots && fiber.subSlots.plate;
+      if (oldPlateUid && targetInv.isCarried(fiberUid)) {
+        extra -= targetInv.getItemWeight(oldPlateUid);
+      }
+    }
+    if (targetInv.getCarryWeight() + Math.max(0, extra) > targetInv.maxCarryWeight + 1e-4) {
+      return { ok: false, reason: 'overweight' };
+    }
+  }
+
   const newUid = targetInv.createItem(item.table, item.defId, {
     qty: item.qty,
     lockValue: true,
@@ -1052,7 +1110,7 @@ this.equipped[slot] = uid;
 
   // 汇总一件武器全部配件的乘算修正；调用方只读，不要缓存成武器 def 的平行字段。
   getAttachmentStats(weaponItem) {
-    const out = { spreadMul: 1, recoilMul: 1, adsSpreadMul: 1, rangeMul: 1, soundMul: 1, magMul: 1, reloadMul: 1, count: 0, list: [] };
+    const out = { spreadMul: 1, recoilMul: 1, adsSpreadMul: 1, rangeMul: 1, soundMul: 1, magMul: 1, reloadMul: 1, zoom: 1, laser: false, count: 0, list: [] };
     if (!weaponItem || !weaponItem.attachments) return out;
     for (const slot in weaponItem.attachments) {
       const uid = weaponItem.attachments[slot];
@@ -1066,6 +1124,9 @@ this.equipped[slot] = uid;
       for (const k of ['spreadMul', 'recoilMul', 'adsSpreadMul', 'rangeMul', 'soundMul', 'magMul', 'reloadMul']) {
         if (typeof def.stats[k] === 'number') out[k] *= def.stats[k];
       }
+      // 倍镜取最大倍率而不是叠乘；激光只标记是否安装
+      if (typeof def.stats.zoom === 'number') out.zoom = Math.max(out.zoom, def.stats.zoom);
+      if (def.stats.laser === true) out.laser = true;
     }
     return out;
   }
@@ -1139,6 +1200,15 @@ this.equipped[slot] = uid;
     if (!fiber || !plate) return { ok: false, reason: 'no_item' };
     if (fiber.table !== 'vestFiber') return { ok: false, reason: 'need_fiber' };
     if (plate.table !== 'vestPlate') return { ok: false, reason: 'not_plate' };
+    // 从搜刮容器/仓库直接装板也要过承重硬上限；替换时只计算净增重。
+    if (this.maxCarryWeight > 0 && !this.isCarried(plateUid)) {
+      let extra = this.getItemWeight(plate);
+      const oldUid = fiber.subSlots && fiber.subSlots.plate;
+      if (oldUid && this.isCarried(fiberUid)) extra -= this.getItemWeight(oldUid);
+      if (this.getCarryWeight() + Math.max(0, extra) > this.maxCarryWeight + 1e-4) {
+        return { ok: false, reason: 'overweight' };
+      }
+    }
     return this.attachToSubSlot(fiberUid, 'plate', plateUid);
   }
 

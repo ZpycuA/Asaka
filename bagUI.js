@@ -10,6 +10,8 @@ const CELL = 48;
 const CSS = `
 #bagui-overlay{position:fixed;inset:0;z-index:500;background:rgba(4,8,14,.94);display:none;flex-direction:column;font-family:-apple-system,"PingFang SC",sans-serif;color:#d8e2ee;padding:12px;box-sizing:border-box;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #bagui-overlay.on{display:flex}
+#bagui-toast{position:fixed;left:50%;top:14%;transform:translate(-50%,-8px);z-index:1200;max-width:min(86vw,520px);padding:9px 16px;border-radius:8px;background:rgba(18,28,40,.96);border:1px solid rgba(255,210,90,.75);color:#ffe8b0;font-size:12px;line-height:1.6;text-align:center;box-shadow:0 8px 28px rgba(0,0,0,.6);opacity:0;transition:opacity .18s,transform .18s;pointer-events:none;white-space:normal}
+#bagui-toast.on{opacity:1;transform:translate(-50%,0)}
 .bagui-wrap{display:flex;flex-direction:column;height:100%;width:100%;max-width:1200px;margin:0 auto;min-height:0}
 .bagui-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:1px solid rgba(105,170,235,.3);flex-shrink:0}
 .bagui-header h2{font-size:16px;letter-spacing:4px;color:#a8d8ff;margin:0}
@@ -44,8 +46,9 @@ const CSS = `
 .bagui-item-qty{position:absolute;top:2px;right:4px;font-size:11px;color:#ffd93d;font-weight:700;pointer-events:none;text-shadow:0 1px 2px #000}
 .bagui-item-dur{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(0,0,0,.6);pointer-events:none}
 .bagui-item-dur i{display:block;height:100%}
-.bagui-item-durpct{position:absolute;bottom:4px;left:4px;font-size:9px;font-weight:800;letter-spacing:.3px;pointer-events:none;text-shadow:0 1px 2px #000}
+.bagui-item-durpct{position:absolute;bottom:4px;left:4px;font-size:9px;font-weight:800;letter-spacing:.3px;pointer-events:none;text-shadow:0 1px 2px #000;background:rgba(0,0,0,.62);padding:0 3px;border-radius:2px}
 .bagui-item-durpct.upper{bottom:16px;color:#9fd8ff}
+.bagui-item.has-dur .bagui-item-name{left:36px;right:2px;text-align:right}
 .bagui-item-sublv{position:absolute;top:2px;left:3px;font-size:9px;pointer-events:none;filter:drop-shadow(0 1px 2px #000)}
 
 .bagui-detail{position:fixed;z-index:600;display:none;width:280px;max-height:70vh;overflow-y:auto;padding:10px;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:8px;font-size:11px;line-height:1.7;box-shadow:0 6px 24px rgba(0,0,0,.7);box-sizing:border-box}
@@ -103,6 +106,17 @@ export class BagUI {
     this._expandedEffect = null;
     this._injectCSS();
     this._buildDOM();
+    // 背包打开期间让纯文字信息持续刷新（负重/状态/耐久/详情），不再必须关掉重开
+    this._liveTimer = setInterval(() => {
+      if (!this.open) return;
+      if (this._drag) return;
+      try {
+        this._renderToolbar();
+        this._renderBagEffectPanel();
+        this._renderBagStatus();
+        if (this.selectedUid) this._renderDetail();
+      } catch (_) { /* 刷新失败不影响操作 */ }
+    }, 500);
   }
 
   _injectCSS() {
@@ -457,7 +471,7 @@ export class BagUI {
     const plateTxt = platePct >= 0 ? `<span class="bagui-item-durpct upper" style="color:${platePct > 60 ? '#9fd8ff' : platePct > 30 ? '#ffe066' : '#ff8b7b'}">🛡${platePct}%</span>` : '';
     const plateUid = (item.subSlots && item.subSlots.plate) || null;
     const plateTag = plateUid ? '<span class="bagui-item-sublv" title="已装插板">🛡</span>' : '';
-    return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;position:relative">
+    return `<div class="bagui-item has-item${durPct >= 0 ? ' has-dur' : ''}" data-uid="${uid}" data-rarity="${rarity}" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;position:relative">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
       ${plateTxt}${durTxt}${plateTag}${durBar}
@@ -492,7 +506,7 @@ export class BagUI {
     }
     const plateTxt = platePct >= 0 ? `<span class="bagui-item-durpct upper" style="color:${platePct > 60 ? '#9fd8ff' : platePct > 30 ? '#ffe066' : '#ff8b7b'}">🛡${platePct}%</span>` : '';
     
-    return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
+    return `<div class="bagui-item has-item${dur >= 0 ? ' has-dur' : ''}" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
       style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px${item.damaged ? ';border-color:rgba(255,90,90,.65)' : ''}">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
@@ -728,8 +742,9 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       html += `<div>耐久：<b style="color:${pct > 60 ? '#9fe8b0' : pct > 30 ? '#ffe066' : '#ff8b7b'}">${pct}%</b></div>`;
     }
 
-    // ★ 护甲纤维：显示内嵌插板；自己身上可取出，搜刮时可单独拿走
-    if (item.table === 'vestFiber' && inMatchNow) {
+    // ★ 护甲纤维：无论在战局内还是仓库/配装页，详情都必须显示内嵌插板并允许取出。
+    //   旧版只在 inMatchNow 时渲染，导致大厅里插板“看不见也拿不出来”，等于永远困在护甲里。
+    if (item.table === 'vestFiber') {
       const pUid = item.subSlots && item.subSlots.plate;
       if (pUid) {
         const pItem = inv.items.get(pUid);
@@ -894,9 +909,11 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         if (mods.recoilMul !== 1) lines.push('后坐 ' + (pct(mods.recoilMul) > 0 ? '+' : '') + pct(mods.recoilMul) + '%');
         if (mods.magMul !== 1) lines.push('弹匣 +' + Math.round((mods.magMul - 1) * 100) + '%');
         if (mods.reloadMul !== 1) lines.push('换弹 ' + (pct(mods.reloadMul) > 0 ? '+' : '') + pct(mods.reloadMul) + '%');
+        if (mods.zoom > 1) lines.push('开镜 ' + mods.zoom.toFixed(1) + 'x');
+        if (mods.laser) lines.push('激光指示');
         html += `<div style="font-size:10px;color:#9fe0b0;margin-top:4px">配件汇总：${this._esc(lines.join(' · ') || '无')}</div>`;
       }
-      html += `<div style="font-size:9px;color:#6f8fae;margin-top:2px">拖动配件到槽位安装；点击已安装配件可拆下。</div>`;
+      html += `<div style="font-size:9px;color:#6f8fae;margin-top:2px">拖动配件到枪上/槽位快速安装或替换；点击已安装配件可拆下。</div>`;
     }
 
     if (item.effects && item.effects.length > 0) {
@@ -1072,10 +1089,13 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         const hostUid = btn.dataset.removePlate;
         const pUid = inv.detachSubSlot(hostUid, 'plate');
         if (!pUid) return;
-        const placed = inv.addToContainer('bag', pUid).ok
+        // 战局内只能放进随身容器；大厅配装/仓库里随身容器可能是关闭的，
+        // 此时退回仓库，保证插板绝不会被永久锁死在护甲子槽里。
+        let placed = inv.addToContainer('bag', pUid).ok
           || inv.addToContainer('chest', pUid).ok
           || inv.addToContainer('pocket', pUid).ok
           || inv.addToContainer('safe', pUid).ok;
+        if (!placed && !inMatchNow) placed = inv.addToContainer('stash', pUid).ok;
         if (!placed) {
           inv.attachToSubSlot(hostUid, 'plate', pUid);
           this._toast('背包没有空间，无法取出插板（可直接把新插板拖上来替换）');
@@ -1095,13 +1115,15 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         const pUid = this.viewInv.detachSubSlot(hostUid, 'plate');
         if (!pUid) return;
         let moved = false;
+        let lastReason = null;
         for (const t of ['bag', 'chest', 'pocket', 'safe']) {
           const r = this.viewInv.transferItem(this.inv, pUid, t);
           if (r.ok) { moved = true; break; }
+          lastReason = r.reason;
         }
         if (!moved) {
           this.viewInv.attachToSubSlot(hostUid, 'plate', pUid);
-          this._toast('背包没有空间拿走插板');
+          this._toast(lastReason === 'overweight' ? '负重已达硬上限，无法拿走插板' : '背包没有空间拿走插板');
         }
         this.refresh();
       };
@@ -1283,7 +1305,24 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     this.refresh();
   }
 
+  // ★ 背包遮罩的 z-index 高于 HUD，只写 world._log 玩家根本看不到。
+  //   所有重要提示（负重、失败原因、医疗预检）都要在遮罩内再弹一条 toast。
+  showToast(msg) {
+    let el = document.getElementById('bagui-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bagui-toast';
+      const host = document.getElementById('bagui-overlay') || document.body;
+      host.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.add('on');
+    if (this._toastTimer) clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => el.classList.remove('on'), 2800);
+  }
+
   _toast(msg) {
+    this.showToast(msg);
     const world = this.engine.app && this.engine.app.world;
     if (world && world._log) world._log(msg, 'y');
     else console.warn('[BagUI]', msg);
@@ -1403,6 +1442,29 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     if (attachSlotEl && srcItem) {
       this._handleAttachDrop(uid, attachSlotEl.dataset.weaponUid, attachSlotEl.dataset.attachSlot, srcInv);
       return;
+    }
+
+    // ★ 配件拖到枪上 = 快速安装/替换
+    if (srcItem && srcItem.table === 'attach') {
+      const aDef = srcInv.getDef(srcItem);
+      if (aDef && aDef.slot) {
+        let weaponUid = null;
+        if (targetUid) {
+          const tw = this.inv.items.get(targetUid) || (this.viewInv && this.viewInv.items.get(targetUid));
+          if (tw && tw.table === 'weapons') weaponUid = targetUid;
+        }
+        if (!weaponUid && (equipSlot === 'main' || equipSlot === 'side')) {
+          const isRightSide = !!(this._lootTarget && this._lootTarget.isCorpse && tgt.closest('#bagui-right'));
+          const eqInv = isRightSide ? this.viewInv : this.inv;
+          weaponUid = eqInv.equipped[equipSlot] || null;
+        }
+        if (weaponUid) {
+          this._handleAttachDrop(uid, weaponUid, aDef.slot, srcInv);
+          return;
+        }
+        this._toast('把配件拖到武器上，或拖到武器详情里的配件槽');
+        return;
+      }
     }
 
     // ★ 插板：只能装进护甲纤维。拖到护甲槽 / 背包里的护甲上都算“快速装入”
@@ -1675,6 +1737,7 @@ _swapEquipmentSlots(inv, srcSlot, dstSlot) {
       if (prevUid && inv.items.get(prevUid)) inv.equip(slot, prevUid);
       if (originalParent) this._restoreTo(uid, originalParent);
       else inv.addToContainer('stash', uid);
+      if (r.reason === 'overweight') this._toast('负重已达硬上限，无法装备该物品');
       this.refresh();
       return false;
     }
@@ -1760,6 +1823,7 @@ _swapEquipmentSlots(inv, srcSlot, dstSlot) {
     const r = srcInv.transferItem(dstInv, uid, 'eq:' + slot);
     if (!r.ok) {
       if (dstItem && backSlot && srcInv.items.get(uid)) srcInv.equip(backSlot, uid);
+      if (r.reason === 'overweight') this._toast('负重已达硬上限，无法装备该物品');
       this.refresh();
       return false;
     }
@@ -1944,13 +2008,31 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
   // 跨 Inventory（尸体上的配件）必须先转移再安装，避免 UID 悬空。
   _handleAttachDrop(attachUid, weaponUid, slot, srcInv) {
     if (!attachUid || !weaponUid || !slot) return;
-    if (!srcInv || srcInv !== this.inv) {
-      this._toast('只能安装自己携带的配件');
-      return;
+    if (!srcInv) { this._toast('找不到配件来源'); return; }
+    let aid = attachUid;
+    // 尸体/容器里的配件：先转移到玩家背包，再安装；失败则不改动源物品
+    if (srcInv !== this.inv) {
+      let newUid = null;
+      for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+        const r = srcInv.transferItem(this.inv, attachUid, t);
+        if (r.ok) { newUid = r.newUid; break; }
+      }
+      if (!newUid) { this._toast('背包没有空间放入配件'); return; }
+      aid = newUid;
     }
     const weapon = this.inv.items.get(weaponUid);
-    const attach = this.inv.items.get(attachUid);
+    const attach = this.inv.items.get(aid);
     if (!weapon || !attach) return;
+    // 从搜刮容器直接装配件也要承重；替换时只算净增重
+    if (this.inv.maxCarryWeight > 0 && !this.inv.isCarried(aid)) {
+      let extra = this.inv.getItemWeight(attach);
+      const oldA = weapon.attachments && weapon.attachments[slot];
+      if (oldA && this.inv.isCarried(oldA)) extra -= this.inv.getItemWeight(oldA);
+      if (this.inv.getCarryWeight() + Math.max(0, extra) > this.inv.maxCarryWeight + 1e-4) {
+        this._toast('负重已达硬上限，无法安装该配件');
+        return;
+      }
+    }
     const compat = this.inv.canAttach(weapon, attach, slot);
     if (!compat.ok) {
       const why = {
@@ -1961,14 +2043,37 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
       this._toast(why);
       return;
     }
-    const res = this.inv.attachTo(weaponUid, slot, attachUid);
+    // 先确认“被换下的旧配件”有地方放，避免装上新配件后旧配件变成无归属幽灵
+    const oldAid = weapon.attachments && weapon.attachments[slot];
+    const oldItem = oldAid && this.inv.items.get(oldAid);
+    if (oldItem) {
+      const fits = ['bag', 'chest', 'pocket', 'safe', 'stash'].some(name => {
+        const c = this.inv.containers[name];
+        return !!(c && c.isActive && this.inv._findSlot(c, oldItem.w, oldItem.h, false));
+      });
+      if (!fits) { this._toast('没有空间安放被换下的配件，已取消安装'); return; }
+    }
+    const res = this.inv.attachTo(weaponUid, slot, aid);
     if (!res.ok) { this._toast('安装失败'); return; }
     // 被替换下来的旧配件回到玩家背包/胸挂，不能凭空消失
-    if (res.swapped) {
-      const back = this.inv.addToContainer('bag', res.swapped).ok
+    if (res.swapped && this.inv.items.get(res.swapped)) {
+      let back = this.inv.addToContainer('bag', res.swapped).ok
         || this.inv.addToContainer('chest', res.swapped).ok
-        || this.inv.addToContainer('pocket', res.swapped).ok;
-      if (!back) this.inv.addToContainer('safe', res.swapped);
+        || this.inv.addToContainer('pocket', res.swapped).ok
+        || this.inv.addToContainer('safe', res.swapped).ok
+        || this.inv.addToContainer('stash', res.swapped).ok;
+      if (!back) {
+        const world = this.engine.app && this.engine.app.world;
+        if (world && world._dropItemToGround) back = world._dropItemToGround(res.swapped);
+        if (!back) {
+          // 最后一层兜底：撤销新配件，装回旧配件，绝不留幽灵槽位
+          this.inv.detachFrom(weaponUid, slot);
+          this.inv.attachTo(weaponUid, slot, res.swapped);
+          this._toast('没有空间安放被替换的配件，已撤销替换');
+          this.refresh();
+          return;
+        }
+      }
     }
     const world = this.engine.app && this.engine.app.world;
     if (world && world._syncWeaponsFromInventory) world._syncWeaponsFromInventory();
@@ -2004,7 +2109,7 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
 
     const r = this.inv.installPlate(fiberUid, pid);
     if (!r.ok) {
-      const why = { need_fiber: '目标不是护甲', not_plate: '这不是插板', bad_slot: '护甲没有插板槽' }[r.reason] || '安装失败';
+      const why = { need_fiber: '目标不是护甲', not_plate: '这不是插板', bad_slot: '护甲没有插板槽', overweight: '负重已达硬上限，无法装入这块插板' }[r.reason] || '安装失败';
       this._toast(why);
       return;
     }
@@ -2025,9 +2130,15 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
       if (!placed) {
         const newPlate = this.inv.detachSubSlot(fiberUid, 'plate');
         this.inv.installPlate(fiberUid, r.swapped);
+        let newPlaced = false;
         if (newPlate && oldContainer && oldPos) {
           const c = this.inv.containers[oldContainer];
-          if (c) this._placeAt(oldContainer, c, newPlate, oldPos.x, oldPos.y, oldPos.rotated, this.inv);
+          if (c) newPlaced = this._placeAt(oldContainer, c, newPlate, oldPos.x, oldPos.y, oldPos.rotated, this.inv).ok;
+        }
+        if (newPlate && !newPlaced) {
+          for (const t of ['bag', 'chest', 'pocket', 'safe', 'stash']) {
+            if (this.inv.addToContainer(t, newPlate).ok) { newPlaced = true; break; }
+          }
         }
         this._toast('没有空间安放被换下的插板，已撤销替换');
         this.refresh();
@@ -2170,6 +2281,7 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
       hypovolemia: '失血超过阈值，视野收缩、移速与操控下降。',
       pain: '疼痛干扰据枪与移动。',
       burning: '局部持续灼烧；会向相邻部位缓慢扩散，需灭火。',
+      burnShock: '大面积烧伤后的休克：持续失血、循环崩溃，不灭火会在数十秒内死亡。',
       fiber_acute: '急性玻纤滞留：剧痛、大量失血，可拔除。',
       fiber_chronic: '慢性玻纤残留：永久轻度疼痛与失血。',
       blind: '强光致盲，视野与操控严重受损。',

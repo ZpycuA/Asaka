@@ -43,7 +43,7 @@ const AMMO = {
   // 非制式穿甲弹：钨芯，穿透高、对护具耐久破坏大，但价值极高
   'ap556': { name: 'content.ammo.ap556.name', desc: 'content.ammo.ap556.desc', w: 1, h: 1, weight: 0.013, caliber: '5.56', massG: 3.6, v0: 1010, tier: 4, pen: 7, impulse: 2, effects: [], armorWearMul: 1.35, value: 360, rarity: 'L3', stackLimit: 999 },
   // 12 号独头弹：单颗重弹头，近距离对护具冲压极高
-  '12ga_slug': { name: 'content.ammo.12ga_slug.name', desc: 'content.ammo.12ga_slug.desc', w: 1, h: 1, weight: 0.05, caliber: '12ga', massG: 28.0, v0: 450, tier: 2, pen: 4, impulse: 1, effects: [], value: 120, rarity: 'L2', stackLimit: 999 },
+  '12ga_slug': { name: 'content.ammo.12ga_slug.name', desc: 'content.ammo.12ga_slug.desc', w: 1, h: 1, weight: 0.05, caliber: '12ga', massG: 28.0, v0: 450, tier: 2, pen: 4, impulse: 1, effects: [], pellets: 1, value: 120, rarity: 'L2', stackLimit: 999 },
 };
   c.registerAll('ammo', AMMO);
 
@@ -293,21 +293,36 @@ const NADES = {
     stackLimit: 3,
     color: 0x3a3a3a,
   },
-  frag_impact: {
-    name: 'content.nade.frag_impact.name',
-    desc: 'content.nade.frag_impact.desc',
-    w: 1, h: 1, weight: 0.52,
-    damage: 1850,
-    radius: 6.2,
+  stun_impact: {
+    name: 'content.nade.stun_impact.name',
+    desc: 'content.nade.stun_impact.desc',
+    w: 1, h: 1, weight: 0.48,
+    damage: 0,
+    radius: 11,
     fuse: 0.02,
     trigger: 'impact',
-    effect: 'frag',
-    fragments: 72,
-    fragmentCount: 8,
-    value: 380,
+    effect: 'stun',
+    stunDuration: 5.0,
+    value: 340,
     rarity: 'L2',
     stackLimit: 3,
-    color: 0x4a3a2a,
+    color: 0x8a8ad8,
+  },
+  flash_impact: {
+    name: 'content.nade.flash_impact.name',
+    desc: 'content.nade.flash_impact.desc',
+    w: 1, h: 1, weight: 0.4,
+    damage: 0,
+    radius: 16,
+    fuse: 0.02,
+    trigger: 'impact',
+    effect: 'flash',
+    flashDuration: 5.5,
+    flashPeak: 1.05,
+    value: 320,
+    rarity: 'L2',
+    stackLimit: 3,
+    color: 0xe8e8ff,
   },
   flashbang: {
     name: 'content.nade.flash.name',
@@ -570,12 +585,12 @@ const ATTACH = {
   sight_2x: {
     slot: 'sight', name: '2 倍战术镜', desc: '低倍率棱镜镜，中距离目标更清楚；开镜后视野略窄。',
     w: 1, h: 1, weight: 0.24, value: 900, rarity: 'L2', stackLimit: 1, icon: '🔭',
-    fits: ['ar556', 'ak762', 'sr762', 'smg45', 'sg12'], stats: { adsSpreadMul: 0.7, spreadMul: 0.94 },
+    fits: ['ar556', 'ak762', 'sr762', 'smg45', 'sg12'], stats: { adsSpreadMul: 0.7, spreadMul: 0.94, zoom: 2.0 },
   },
   sight_4x: {
     slot: 'sight', name: '4 倍狙击镜', desc: '高倍率狙击镜，远距离精度优秀，近距离视野极差。',
     w: 2, h: 1, weight: 0.38, value: 1800, rarity: 'L3', stackLimit: 1, icon: '🎯',
-    fits: ['sr762', 'ar556'], stats: { adsSpreadMul: 0.45, spreadMul: 0.88 },
+    fits: ['sr762', 'ar556'], stats: { adsSpreadMul: 0.45, spreadMul: 0.88, zoom: 4.0 },
   },
   grip_angled: {
     slot: 'grip', name: '斜角握把', desc: '前握把降低后坐力回复时间，对散布有小幅帮助。',
@@ -585,7 +600,7 @@ const ATTACH = {
   laser_sight: {
     slot: 'grip', name: '激光指示器', desc: '可见激光辅助指向，腰射散布明显收束；会暴露位置。',
     w: 1, h: 1, weight: 0.09, value: 760, rarity: 'L2', stackLimit: 1, icon: '🔴',
-    fits: ['ar556', 'ak762', 'smg45', 'p9'], stats: { spreadMul: 0.78, adsSpreadMul: 1.05 },
+    fits: ['ar556', 'ak762', 'smg45', 'p9'], stats: { spreadMul: 0.78, adsSpreadMul: 1.05, laser: true },
   },
   mag_ext_556: {
     slot: 'mag', name: '5.56 扩容弹匣', desc: '40 发扩容弹匣，换弹更慢、重量更大。',
@@ -637,9 +652,9 @@ c.registerAll('attach', ATTACH);
     hp: 102, speed: 5.0, acc: 0.68,
     weapons: ['ar556'],
     color: 0x8f5a3f, radius: 1.2,
-    ai: { aggression: 0.66, composure: 0.60, perception: 0.64, opportunism: 0.55, keepDistance: 12, meleeBias: 0.45, switchBias: 0.5 },
+    ai: { aggression: 0.66, composure: 0.60, perception: 0.64, opportunism: 0.55, keepDistance: 12, meleeBias: 0.45, switchBias: 0.5, grenade: 0.45 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv4', lv: 4 } } },
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv4', lv: 4 } }, nades: ['frag'] },
   },
   nipsel_sniper: {
     name: 'content.enemy.nipsel_sniper.name',
@@ -657,9 +672,9 @@ c.registerAll('attach', ATTACH);
     hp: 155, speed: 5.15, acc: 0.83,
     weapons: ['ar556', 'sr762'],
     color: 0xc04a4a, radius: 1.3,
-    ai: { aggression: 0.86, composure: 0.90, perception: 0.84, opportunism: 0.88, keepDistance: 20, meleeBias: 0.5, switchBias: 0.95 },
+    ai: { aggression: 0.86, composure: 0.90, perception: 0.84, opportunism: 0.88, keepDistance: 20, meleeBias: 0.5, switchBias: 0.95, grenade: 0.8 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
+    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } }, nades: ['frag', 'flashbang'] },
   },
   nipsel_mobile: {
     name: 'content.enemy.nipsel_mobile.name',
@@ -667,9 +682,19 @@ c.registerAll('attach', ATTACH);
     hp: 88, speed: 5.6, acc: 0.60,
     weapons: ['smg45', 'sg12'],
     color: 0xb05a4a, radius: 1.18,
-    ai: { aggression: 0.92, composure: 0.44, perception: 0.60, opportunism: 0.40, keepDistance: 7, meleeBias: 0.55, switchBias: 0.8 },
+    ai: { aggression: 0.92, composure: 0.44, perception: 0.60, opportunism: 0.40, keepDistance: 7, meleeBias: 0.55, switchBias: 0.8, grenade: 0.85 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } } },
+    // ★ 战术机动人员是激进的特殊兵种：高概率携带特种装备组合。
+    //   special 是“额外抽取档”，未抽中时仍使用下面的基础配装。
+    //   ammo 按口径映射：sg12 -> 12ga 龙息弹；smg45 -> .45acp 玻纤弹。
+    special: {
+      chance: 0.72,
+      weaponSets: [['sg12', 'smg45'], ['sg12'], ['smg45']],
+      ammo: { '12ga': 'dragon', '.45acp': '45acp_gf', '9mm': '9mm_gf' },
+      armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } },
+      nades: ['frag', 'flashbang', 'stun'],
+    },
+    gear: { armor: { shell: { defId: 'lv3', lv: 3 }, visor: { defId: 'lv3', lv: 3 }, fiber: { defId: 'lv3', lv: 3 }, plate: { defId: 'lv3', lv: 3 } }, nades: ['frag'] },
   },
   // ================= 第 2 组 · 大陆银行武装部 =================
   bank_guard: {
@@ -678,9 +703,9 @@ c.registerAll('attach', ATTACH);
     hp: 148, speed: 4.35, acc: 0.70,
     weapons: ['ar556'],
     color: 0x3f6a9a, radius: 1.35,
-    ai: { aggression: 0.58, composure: 0.72, perception: 0.62, opportunism: 0.52, keepDistance: 14, meleeBias: 0.35, switchBias: 0.4 },
+    ai: { aggression: 0.58, composure: 0.72, perception: 0.62, opportunism: 0.52, keepDistance: 14, meleeBias: 0.35, switchBias: 0.4, grenade: 0.6 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv5', lv: 5 }, plate: { defId: 'lv5', lv: 5 } } },
+    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv5', lv: 5 }, plate: { defId: 'lv5', lv: 5 } }, nades: ['frag'] },
   },
   bank_sniper: {
     name: 'content.enemy.bank_sniper.name',
@@ -709,9 +734,9 @@ c.registerAll('attach', ATTACH);
     hp: 132, speed: 5.05, acc: 0.80,
     weaponSets: [['sr762', 'ar556'], ['sr762', 'smg45']],
     color: 0x9a5ac0, radius: 1.25,
-    ai: { aggression: 0.74, composure: 0.82, perception: 0.78, opportunism: 0.84, keepDistance: 22, meleeBias: 0.4, switchBias: 0.9 },
+    ai: { aggression: 0.74, composure: 0.82, perception: 0.78, opportunism: 0.84, keepDistance: 22, meleeBias: 0.4, switchBias: 0.9, grenade: 0.7 },
     prazer: false, A: 0,
-    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } } },
+    gear: { armor: { shell: { defId: 'lv4', lv: 4 }, visor: { defId: 'lv4', lv: 4 }, fiber: { defId: 'lv4', lv: 4 }, plate: { defId: 'lv5', lv: 5 } }, nades: ['frag', 'flashbang'] },
   },
   // ================= 靶场 =================
   training_dummy: {
@@ -956,6 +981,7 @@ c.registerAll('attach', ATTACH);
   hypovolemia:   { name: '失血过多', icon: '💔', positive: false, awareness: 0 },
   pain:          { name: '疼痛',     icon: '💢', positive: false, awareness: 0 },
   burning:       { name: '燃烧',     icon: '🔥', positive: false, awareness: 0 },
+  burnShock:     { name: '烧伤休克', icon: '🔥', positive: false, awareness: 0 },
   fiber_acute:   { name: '玻纤滞留·急性', icon: '🧪', positive: false, awareness: 0 },
   fiber_chronic: { name: '玻纤滞留·慢性', icon: '🧬', positive: false, awareness: 0 },
   blind:         { name: '闪光失明', icon: '😵', positive: false, awareness: 0 },
@@ -988,6 +1014,11 @@ c.registerAll('attach', ATTACH);
   bandaged:      { name: '已包扎',   icon: '🩹', positive: true,  awareness: 0 },
   tinnitus:      { name: '耳鸣',     icon: '🔔', positive: false, awareness: 0 },
   deafened:      { name: '听力受损', icon: '🔇', positive: false, awareness: 0 },
+  // ★ 止痛药/兴奋剂副作用：药不是越多越好，重复用药必须付出代价
+  nausea:        { name: '恶心',     icon: '🤢', positive: false, awareness: 0 },
+  sedation:      { name: '镇静过度', icon: '😴', positive: false, awareness: 0 },
+  overdose:      { name: '药物过量', icon: '☠️', positive: false, awareness: 0 },
+  stim_crash:    { name: '药效反噬', icon: '🥀', positive: false, awareness: 0 },
 };
 c.registerAll('effects', EFFECTS);
 

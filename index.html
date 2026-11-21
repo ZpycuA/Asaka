@@ -203,6 +203,23 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #nearby-list .nb-item .nb-dist{font-size:9px;color:#7fa0bc;flex-shrink:0}
 #nearby-list .nb-empty{padding:8px 10px;background:rgba(14,22,34,.8);border:1px solid rgba(80,125,175,.2);border-radius:5px;font-size:11px;color:#5c82a8;text-align:center}
 
+#squad-chat{position:absolute;left:12px;bottom:196px;width:min(360px,46vw);max-height:118px;overflow-y:auto;z-index:27;pointer-events:auto;font-size:11px;line-height:1.55;color:#cfe4f8;text-shadow:0 1px 3px #000,0 0 6px rgba(0,0,0,.8);white-space:normal;word-break:break-word;user-select:text;-webkit-user-select:text;scrollbar-width:thin;overscroll-behavior:contain}
+#squad-chat .sc-line{margin:0 0 2px 0}
+#squad-chat .sc-name{color:#7fe8ff;font-weight:700;margin-right:4px}
+#squad-chat .sc-name.enemy{color:#ff9b8b}
+@media (max-width:900px){#squad-chat{left:auto;right:8px;top:180px;bottom:auto;width:46vw;max-height:88px;font-size:10px}}
+#ally-care{position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:29;pointer-events:auto;width:min(300px,42vw);max-height:44vh;overflow-y:auto;padding:8px 10px;background:rgba(8,18,28,.94);border:1px solid rgba(120,190,255,.45);border-radius:8px;color:#cfe4f8;font-size:10px;line-height:1.55;box-shadow:0 8px 24px rgba(0,0,0,.55)}
+#ally-care.active{border-color:rgba(120,240,180,.9);box-shadow:0 0 0 2px rgba(120,240,180,.18),0 8px 24px rgba(0,0,0,.55)}
+#ally-care .ac-title{font-size:12px;font-weight:800;color:#9fe8ff;letter-spacing:1px;margin-bottom:4px}
+#ally-care .ac-bar{height:4px;background:rgba(0,0,0,.5);border-radius:2px;overflow:hidden;margin:3px 0 6px}
+#ally-care .ac-bar i{display:block;height:100%;background:#5fd47a}
+#ally-care .ac-med{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+#ally-care .ac-med button{padding:3px 7px;border-radius:5px;background:rgba(40,110,80,.8);border:1px solid rgba(120,240,180,.6);color:#d8ffe8;font-size:9px;font-family:inherit;cursor:pointer}
+#ally-care .ac-med button:disabled{opacity:.4;cursor:not-allowed}
+#squad-advance-btn,#squad-retreat-btn{position:absolute;left:12px;bottom:322px;z-index:28;pointer-events:auto;padding:4px 9px;border-radius:5px;background:rgba(30,70,110,.85);border:1px solid rgba(120,190,255,.6);color:#d8f0ff;font-size:10px;font-family:inherit;font-weight:700;cursor:pointer}
+#squad-retreat-btn{left:112px;background:rgba(110,65,30,.85);border-color:rgba(255,190,120,.65);color:#ffe8c8}
+@media (max-width:900px){#ally-care{left:8px;top:auto;bottom:150px;transform:none;width:54vw;max-height:30vh}#squad-advance-btn,#squad-retreat-btn{bottom:278px;font-size:9px}#squad-retreat-btn{left:104px}}
+
 /* ---------- 移动端 HUD 重排：武器栏贴底让出右侧操作区，附近列表靠右、击杀提示上移 ---------- */
 @media (max-width:900px){
   #minimap-container{width:110px;height:110px;top:60px;right:8px}
@@ -321,6 +338,10 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div id="difficulty-display" style="margin-top:10px;padding:12px;background:var(--panel2);border-radius:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center">
         <span style="color:var(--dim)">—</span>
       </div>
+      <label id="match-allies-row" style="margin-top:10px;padding:10px 12px;background:var(--panel2);border-radius:10px;font-size:12px;color:#cfe4f8;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="chk-match-allies" style="width:16px;height:16px;accent-color:#3fa8ff;cursor:pointer">
+        <span>匹配友方 AI 小队 <span style="color:#7fa0bc;font-size:10px">（2 人，共享标记 / 战术对话 / 支援治疗）</span></span>
+      </label>
       <div class="action-bar">
         <div class="btn-row">
           <button class="btn ghost" id="btn-loadout-ticket">制式券 / 配装</button>
@@ -499,13 +520,17 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
      <div id="weapon-bar"></div>
 <div id="nearby-list"></div>
+<div id="squad-chat"></div>
+<button id="squad-advance-btn" style="display:none">前进建议 P</button>
+<button id="squad-retreat-btn" style="display:none">撤退建议 O</button>
+<div id="ally-care" style="display:none"></div>
 <div id="status-bar"></div>
 <div id="tactical-state"></div>
 <div id="skill-bar"></div>
 <div id="throwable-hint"></div>
 <button id="throwable-arm-btn" style="display:none;position:absolute;left:50%;bottom:226px;transform:translateX(-50%);z-index:28;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.82);border:1px solid rgba(255,120,120,.8);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">解除保险</button>
-<button id="nade-wheel-btn" style="display:none;position:absolute;right:16px;bottom:248px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(120,90,40,.82);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">💣 投掷轮盘</button>
-<button id="med-wheel-btn" style="display:none;position:absolute;right:16px;bottom:280px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(40,110,80,.82);border:1px solid rgba(120,240,180,.7);color:#d8ffe8;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">🩹 医疗轮盘</button>
+<button id="nade-wheel-btn" style="display:none;position:absolute;right:16px;bottom:404px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(120,90,40,.82);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">💣 投掷轮盘</button>
+<button id="med-wheel-btn" style="display:none;position:absolute;right:16px;bottom:436px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(40,110,80,.82);border:1px solid rgba(120,240,180,.7);color:#d8ffe8;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">🩹 医疗轮盘</button>
 <button id="fiber-pull-btn" style="display:none;position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.75);border:1px solid rgba(255,120,120,.7);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">拔除玻纤</button>
 <button id="extinguish-btn" style="display:none;position:absolute;left:50%;bottom:104px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(180,90,20,.8);border:1px solid rgba(255,170,80,.8);color:#fff0d8;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">灭火</button>
 <div id="alert-bar"></div>
@@ -657,6 +682,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
     setTimeout(() => {
       document.getElementById('boot-screen').classList.remove('on');
       document.getElementById('menu-screen').classList.add('on');
+      document.getElementById('pause-btn').style.display = 'none';
       engine.start();
     }, 300);
   } catch (err) {
