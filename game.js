@@ -130,6 +130,11 @@ const ACTION_MAP = {
 protectL2:    { keys: [']'], label: '防护 L2' },
 protectL3:    { keys: ['\\'], label: '防护 L3' },
 hazardAction:{ keys: ['k'], label: '拔除/灭火' },
+  tailStrike: {
+    keys: ['m'],
+    label: '尾击',
+    mobile: { right: '196px', bottom: '100px', size: 54, color: 'rgba(255,190,80,.32)', border: 'rgba(255,210,120,.75)', mode: 'click' },
+  },
    weaponSlot1: { keys: ['1'], label: '武器一' },
 weaponSlot2: { keys: ['2'], label: '武器二' },
 weaponSlot3: { keys: ['3'], label: '副武器' },
@@ -929,6 +934,14 @@ const AISystem = {
       enemy._hazardType = onFire ? 'fire' : 'fiber';
     }
 
+    // ★ 自我急救：没有视线（或已退到安全距离）时，受伤 AI 会停下给自己包扎。
+    //   旧版只有玩家医疗兵 `_allySupport` 会自愈，普通敌人和医疗兵自己都不会用药。
+    const canSelfAid = !canSee || (enemy.state === 'retreat' && dist > 18);
+    if (canSelfAid && enemy.state !== 'selfaid' && enemy.state !== 'nade'
+        && enemy.state !== 'aid' && enemy.state !== 'remove' && enemy.state !== 'flee') {
+      this._considerSelfAid(world, enemy);
+    }
+
     switch (enemy.state) {
       case 'patrol': this._patrol(world, enemy, dt); break;
       case 'investigate': this._investigate(world, enemy, dt); break;
@@ -941,6 +954,7 @@ const AISystem = {
       case 'remove': this._removeFiber(world, enemy, dt); break;
       case 'nade': this._throwEnemyGrenade(world, enemy, dt); break;
       case 'aid': this._aidDowned(world, enemy, dt); break;
+      case 'selfaid': this._aidSelf(world, enemy, dt, canSee, dist); break;
     }
 
     // 被压制：移动速度明显下降，配合射击散布惩罚形成“抬不起头”的效果
@@ -1205,7 +1219,7 @@ const AISystem = {
     const list = world.projectiles || [];
     let best = null, bestD = 9.5;
     for (const pr of list) {
-      if (!pr || pr.effect === 'marker') continue;
+      if (!pr) continue;
       const d = Math.hypot(pr.pos.x - enemy.body.position.x, pr.pos.z - enemy.body.position.z);
       if (d < bestD) { bestD = d; best = pr; }
     }
@@ -1368,18 +1382,34 @@ const AISystem = {
     const dx = enemy.body.position.x - home.x;
     const dz = enemy.body.position.z - home.z;
     const away = Math.hypot(dx, dz);
-    if (away > (enemy.patrolRadius || 15)) {
-      // 离出生点太远：先往回走，避免 AI 全图乱窜
-      enemy.wanderDir = Math.atan2(-dz, -dx);
-      enemy.wanderT = Math.max(0.4, enemy.wanderT);
-    } else if (enemy.wanderT <= 0) {
-      enemy.wanderT = 1.8 + Math.random() * 1.8;
-      enemy.wanderDir = Math.random() * Math.PI * 2;
+    const radius = enemy.patrolRadius || 15;
+    let target = enemy._patrolTarget;
+    const targetLeft = target && Math.hypot(target.x - enemy.body.position.x, target.z - enemy.body.position.z) > 1.2;
+    if (!target || enemy.wanderT <= 0 || !targetLeft) {
+      if (away > radius) {
+        target = { x: home.x, z: home.z };
+      } else {
+        // 在防区内找一个“看得见”的点，再交给 _aiMoveTo 绕墙
+        let picked = null;
+        for (let i = 0; i < 8; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const d = 4 + Math.random() * Math.min(10, radius);
+          const tx = home.x + Math.cos(a) * d;
+          const tz = home.z + Math.sin(a) * d;
+          if (world._navLineClear(enemy.body.position.x, enemy.body.position.z, tx, tz)) {
+            picked = { x: tx, z: tz };
+            break;
+          }
+        }
+        target = picked || { x: home.x, z: home.z };
+      }
+      enemy._patrolTarget = target;
+      enemy.wanderT = 2.2 + Math.random() * 2.4;
     }
-    enemy.angle = enemy.wanderDir;
-    const mul = away > (enemy.patrolRadius || 15) ? 0.7 : 0.4;
-    enemy.body.velocity.x = Math.cos(enemy.wanderDir) * enemy.spec.speed * mul;
-    enemy.body.velocity.z = Math.sin(enemy.wanderDir) * enemy.spec.speed * mul;
+    if (target) {
+      const sp = enemy.spec.speed * (away > radius ? 0.7 : 0.38);
+      world._aiMoveTo(enemy, target.x, target.z, sp, dt);
+    }
   },
 
   // ★ 找附近可搜刮目标（优先未搜过的尸体/已开的容器）
@@ -1420,10 +1450,7 @@ const AISystem = {
     const dz = tg.z - enemy.body.position.z;
     const d = Math.hypot(dx, dz);
     if (d > 1.8) {
-      const ang = Math.atan2(dz, dx);
-      enemy.angle = ang;
-      enemy.body.velocity.x = Math.cos(ang) * enemy.spec.speed * 0.8;
-      enemy.body.velocity.z = Math.sin(ang) * enemy.spec.speed * 0.8;
+      world._aiMoveTo(enemy, tg.x, tg.z, enemy.spec.speed * 0.8, dt);
     } else {
       enemy.body.velocity.x = 0;
       enemy.body.velocity.z = 0;
@@ -1443,10 +1470,8 @@ const AISystem = {
       const dz = enemy.targetPos.z - enemy.body.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 2) {
-        const ang = Math.atan2(dz, dx);
-        enemy.angle = ang;
-        enemy.body.velocity.x = Math.cos(ang) * enemy.spec.speed * 0.8;
-        enemy.body.velocity.z = Math.sin(ang) * enemy.spec.speed * 0.8;
+        // 不再直线撞墙：视线被挡时走 A* 路点
+        world._aiMoveTo(enemy, enemy.targetPos.x, enemy.targetPos.z, enemy.spec.speed * 0.8, dt);
       } else {
         enemy.body.velocity.x = 0;
         enemy.body.velocity.z = 0;
@@ -1533,13 +1558,17 @@ const AISystem = {
       const adv = sprint * (0.55 + (ai.aggression || 0.5) * 0.45);
       enemy.isCrouching = false;
       enemy.body.height = 2.4; enemy.body.halfH = 1.2;
-      enemy.body.velocity.x = Math.cos(enemy.angle) * adv;
-      enemy.body.velocity.z = Math.sin(enemy.angle) * adv;
+      world._aiMoveTo(enemy, target.body.position.x, target.body.position.z, adv, dt);
+      // 绕路时朝向可能被路径点改写；开火仍要面向目标
+      enemy.angle = Math.atan2(dz, dx);
     } else if (tooClose && dist > 3.2) {
       enemy.isCrouching = false;
       enemy.body.height = 2.4; enemy.body.halfH = 1.2;
-      enemy.body.velocity.x = -Math.cos(enemy.angle) * sprint * 0.55;
-      enemy.body.velocity.z = -Math.sin(enemy.angle) * sprint * 0.55;
+      world._aiMoveTo(enemy,
+        enemy.body.position.x - dx / (dist || 1) * 5,
+        enemy.body.position.z - dz / (dist || 1) * 5,
+        sprint * 0.55, dt);
+      enemy.angle = Math.atan2(dz, dx);
     } else if (isOpportunist && dist > 8) {
       // 机会主义者：在射程边界蹲下侧移，降低被命中率
       enemy.isCrouching = true;
@@ -1626,8 +1655,13 @@ const AISystem = {
       enemy.body.velocity.x = 0;
       enemy.body.velocity.z = 0;
       if (enemy.fireCd <= 0) {
-        world._meleeAttack(enemy, enemy.weapon);
-        enemy.fireCd = (enemy.weapon.def.cooldown || 0.65) + 0.15;
+        // Prazer 近战会随机改用尾击：伤害更高、前摇更长
+        if (enemy.spec && enemy.spec.prazer && Math.random() < 0.35 && world._tailStrike(enemy)) {
+          enemy.fireCd = 1.15;
+        } else {
+          world._meleeAttack(enemy, enemy.weapon);
+          enemy.fireCd = (enemy.weapon.def.cooldown || 0.65) + 0.15;
+        }
       }
     }
     // 近战一轮后：低侵略/高机会主义性格会退开重新拿枪
@@ -1667,14 +1701,20 @@ const AISystem = {
     const mx = -dx / d + (-dz / d) * side * 0.35;
     const mz = -dz / d + (dx / d) * side * 0.35;
     const ml = Math.hypot(mx, mz) || 1;
-    enemy.body.velocity.x = mx / ml * enemy.spec.speed * 0.95;
-    enemy.body.velocity.z = mz / ml * enemy.spec.speed * 0.95;
+    world._aiMoveTo(enemy,
+      enemy.body.position.x + mx / ml * 6,
+      enemy.body.position.z + mz / ml * 6,
+      enemy.spec.speed * 0.95, dt);
     // 后撤时仍会边退边打（精度由 _blindFire/散布惩罚体现）
     if (enemy.fireCd > 0) enemy.fireCd -= dt;
     if (enemy.fireCd <= 0 && enemy.weapon && !enemy.weapon.def.melee && enemy.weapon.mag > 0) {
+      // 寻路会把朝向改成“后撤方向”，开枪前临时转回目标方向
+      const moveAngle = enemy.angle;
+      enemy.angle = Math.atan2(dz, dx);
       enemy._blindFire = true;
       world.enemyFire(enemy, target);
       enemy._blindFire = false;
+      enemy.angle = moveAngle;
       enemy.fireCd = Math.max(enemy.fireCd, 0.35);
     }
   },
@@ -1725,9 +1765,7 @@ const AISystem = {
     const d = Math.hypot(dx, dz);
     enemy.angle = Math.atan2(dz, dx);
     if (d > 2.3) {
-      const sp = (enemy.spec.speed || 4.6) * 0.9;
-      enemy.body.velocity.x = dx / d * sp;
-      enemy.body.velocity.z = dz / d * sp;
+      world._aiMoveTo(enemy, mate.body.position.x, mate.body.position.z, (enemy.spec.speed || 4.6) * 0.9, dt);
       enemy._aidT = 0;
       return;
     }
@@ -1783,6 +1821,12 @@ const AISystem = {
         mate.body.position.z - target.body.position.z);
       if (dm < clearR) return false;
     }
+    // 友方投掷还要避开玩家：玩家不在 world.enemies 里，旧版会朝玩家脚边的敌人扔雷
+    if (enemy.isAlly && world.player && world.player.alive) {
+      const dp = Math.hypot(world.player.body.position.x - target.body.position.x,
+        world.player.body.position.z - target.body.position.z);
+      if (dp < clearR + 2) return false;
+    }
     // 目标贴得太近，自己也在爆区里：不扔。破片/燃烧按真实半径 + 落点散布留安全余量；
     // 闪光/震撼对投掷者本人豁免（AI 会闭眼/背身），但仍要求基本距离。
     const minSelf = def.effect === 'frag' ? (def.radius || 6) + 3 : 9;
@@ -1815,6 +1859,12 @@ const AISystem = {
       return;
     }
 
+    // ★ 玩家被判定为叛徒：队友立刻脱离队伍逻辑，把玩家当敌人并拉开枪线
+    if (world._betrayedByPlayer) {
+      this._updateBetrayedAlly(world, enemy, dt);
+      return;
+    }
+
     // 防区跟随玩家：不改这个，_combat 会把队友当成“追出防区”拉回出生点
     enemy.home = { x: p.body.position.x, z: p.body.position.z };
     enemy.patrolRadius = 800;
@@ -1828,10 +1878,36 @@ const AISystem = {
       this._switchEnemyWeapon(world, enemy, dist, true);
     } else {
       enemy.targetEntity = null;
-      const marked = this._findMarkedTarget(world, enemy, 70);
+      // ★ 共享标记（无人机自动标记 / 队友标记）：即使目标在 70m 外也要记住最后位置，
+      //   追击 18s 直到看到本人或标记过期。旧版只在 70m 内找标记，无人机在高空
+      //   标到的远处敌人队友根本不会去。
+      const marked = this._findMarkedTarget(world, enemy, 120);
       if (marked) {
+        enemy._allyMarkedTarget = marked;
+        enemy._allyMarkedUntil = world.time + 18;
         enemy.targetPos = { x: marked.body.position.x, z: marked.body.position.z };
         enemy.awareness = Math.max(enemy.awareness, 0.7);
+        if (enemy.state === 'patrol' || enemy.state === 'follow' || enemy.state === 'explore') {
+          enemy.state = 'investigate';
+          enemy.stateT = 0;
+        }
+        if (enemy._allyMarkSaidFor !== marked) {
+          enemy._allyMarkSaidFor = marked;
+          world._squadSay(enemy.allyName, '共享标记有目标，我过去确认。');
+        }
+      } else if (enemy._allyMarkedTarget && enemy._allyMarkedTarget.alive
+          && world.time < (enemy._allyMarkedUntil || 0)) {
+        enemy.targetPos = {
+          x: enemy._allyMarkedTarget.body.position.x,
+          z: enemy._allyMarkedTarget.body.position.z,
+        };
+        enemy.awareness = Math.max(enemy.awareness, 0.6);
+      } else {
+        enemy._allyMarkedTarget = null;
+        enemy._allyMarkSaidFor = null;
+        if (enemy.state !== 'combat' && enemy.state !== 'retreat' && enemy.state !== 'aid') {
+          enemy.targetPos = null;
+        }
       }
     }
 
@@ -1852,11 +1928,24 @@ const AISystem = {
     }
 
     // ★ 队友优先互救：玩家或队友倒下时，先救人再打
-    const downedMate = this._findDownedMate(world, enemy, 16);
+    const downedMate = this._findDownedMate(world, enemy, 24);
     if (downedMate && this._aiHasAid(enemy)) {
+      if (enemy._allyAidFor !== downedMate) {
+        enemy._allyAidFor = downedMate;
+        world._squadSay(enemy.allyName,
+          (downedMate === p ? '队长倒下了，我去拉人！' : '有人倒了，我去救！'));
+      }
       enemy.state = 'aid';
       enemy.aidTarget = downedMate;
       this._aidDowned(world, enemy, dt);
+      this._avoidObstacles(world, enemy, dt);
+      return;
+    }
+    if (enemy._allyAidFor) enemy._allyAidFor = null;
+
+    // ★ 正在自我包扎：停步蹲下，完成后再回到战斗/跟随
+    if (enemy.state === 'selfaid') {
+      this._aidSelf(world, enemy, dt, canSee, dist);
       this._avoidObstacles(world, enemy, dt);
       return;
     }
@@ -1875,14 +1964,17 @@ const AISystem = {
       const dOrd = Math.hypot(dxo, dzo);
       enemy.state = order.type === 'retreat' ? 'retreat' : 'advance';
       if (dOrd > 2.2) {
-        const ang = Math.atan2(dzo, dxo);
-        enemy.angle = ang;
         const sp = (enemy.spec.speed || 4.8) * (order.type === 'retreat' ? 1.05 : 0.9);
-        enemy.body.velocity.x = Math.cos(ang) * sp;
-        enemy.body.velocity.z = Math.sin(ang) * sp;
+        world._aiMoveTo(enemy, order.x, order.z, sp, dt);
       } else {
         enemy.body.velocity.x = 0;
         enemy.body.velocity.z = 0;
+      }
+      // 执行建议途中如果伤势过重且没看到敌人，先停下自救
+      if (!target && this._considerSelfAid(world, enemy)) {
+        this._aidSelf(world, enemy, dt, canSee, dist);
+        this._avoidObstacles(world, enemy, dt);
+        return;
       }
       this._allySupport(world, enemy, dt, target);
       this._avoidObstacles(world, enemy, dt);
@@ -1895,10 +1987,11 @@ const AISystem = {
       enemy._allyRetreatSaid = false;
       enemy._allyRetreatUntil = 0;
     }
-    if (hpQ < 55) {
+    const allyBleed = st && st.effectiveBleedLevel ? st.effectiveBleedLevel() : 0;
+    if (hpQ < 55 || allyBleed >= 2) {
       if (!enemy._allyRetreating) enemy._allyRetreatUntil = world.time + 12;
       enemy._allyRetreating = true;
-    } else if (hpQ > 68) {
+    } else if (hpQ > 68 && allyBleed <= 0) {
       enemy._allyRetreating = false;
       enemy._allyRetreatUntil = 0;
     }
@@ -1909,10 +2002,10 @@ const AISystem = {
       const az = enemy.body.position.z - target.body.position.z;
       const ad = Math.hypot(ax, az) || 1;
       if (ad < 18) {
-        enemy.angle = Math.atan2(az, ax);
         const sp = (enemy.spec.speed || 4.8) * 1.05;
-        enemy.body.velocity.x = ax / ad * sp;
-        enemy.body.velocity.z = az / ad * sp;
+        world._aiMoveTo(enemy,
+          enemy.body.position.x + ax / ad * 6,
+          enemy.body.position.z + az / ad * 6, sp, dt);
       } else {
         enemy.body.velocity.x *= 0.8;
         enemy.body.velocity.z *= 0.8;
@@ -1923,11 +2016,51 @@ const AISystem = {
         enemy._allyRetreatSaid = true;
         world._squadSay(enemy.allyName, '我伤得太重，先撤到掩体后！');
       }
+      // 退到 16m 外、暂时没被贴脸时，停下用自带药品给自己包扎
+      if (ad > 16 && this._considerSelfAid(world, enemy)) {
+        this._aidSelf(world, enemy, dt, canSee, dist);
+        this._avoidObstacles(world, enemy, dt);
+        return;
+      }
       this._allySupport(world, enemy, dt, target);
       this._avoidObstacles(world, enemy, dt);
       return;
     }
     enemy._allyRetreatSaid = false;
+
+    // 没有可见敌人但伤势明显：先自救，不带着半血去探索/接战
+    if (!target && this._considerSelfAid(world, enemy)) {
+      this._aidSelf(world, enemy, dt, canSee, dist);
+      this._avoidObstacles(world, enemy, dt);
+      return;
+    }
+
+    // ★ 队伍撤离计划优先于搜索/交战：队长进撤离区、时间不足时会主动靠拢
+    if (world._squadPlan === 'extract' && world._squadExtract) {
+      const ex = world._squadExtract;
+      const ed = Math.hypot(ex.x - enemy.body.position.x, ex.z - enemy.body.position.z);
+      enemy.state = 'extract';
+      if (ed > 4) {
+        world._aiMoveTo(enemy, ex.x, ex.z, (enemy.spec.speed || 4.8) * 1.02, dt);
+      } else if (target && canSee) {
+        // 已经在撤离区：就地防守，而不是站着挨打
+        enemy.isCrouching = false;
+        enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+        if (enemy.weapon && enemy.weapon.def && enemy.weapon.def.melee) {
+          this._meleeCombat(world, enemy, dt, dist, ai);
+        } else {
+          this._combat(world, enemy, dt, dist, true, ai);
+        }
+      } else {
+        enemy.body.velocity.x = 0;
+        enemy.body.velocity.z = 0;
+        enemy.isCrouching = true;
+        enemy.body.height = 1.6; enemy.body.halfH = 0.8;
+      }
+      this._allySupport(world, enemy, dt, target);
+      this._avoidObstacles(world, enemy, dt);
+      return;
+    }
 
     // 投掷前摇期间不再执行其它动作
     if (enemy.state === 'nade') {
@@ -1944,26 +2077,26 @@ const AISystem = {
         this._combat(world, enemy, dt, dist, true, ai);
       }
       if (enemy.state === 'combat') this._considerGrenade(world, enemy, target, dist, ai);
+      // 友方投掷：真正出手时用一句短报点告诉玩家，而不是悄悄扔雷
+      if (enemy.state === 'nade' && !enemy._allyNadeSaid) {
+        enemy._allyNadeSaid = true;
+        world._squadSay(enemy.allyName, '吃颗手雷，注意爆区！');
+      }
       this._allyCombatTalk(world, enemy, target, dist);
     } else if (enemy.targetPos) {
       enemy.state = 'investigate';
       this._investigate(world, enemy, dt);
+      // 调查结束（8s）后清掉旧点，否则队友会永远朝同一个空位置来回走
+      if (enemy.state === 'patrol') enemy.targetPos = null;
     } else {
-      // 跟随玩家：远时追，近时停；不挡玩家枪线
-      enemy.state = 'follow';
-      const dx = p.body.position.x - enemy.body.position.x;
-      const dz = p.body.position.z - enemy.body.position.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 8) {
-        const ang = Math.atan2(dz, dx);
-        enemy.angle = ang;
-        const sp = (d > 18 ? 1.0 : 0.72) * (enemy.spec.speed || 4.8);
-        enemy.body.velocity.x = Math.cos(ang) * sp;
-        enemy.body.velocity.z = Math.sin(ang) * sp;
-      } else {
-        enemy.body.velocity.x *= 0.82;
-        enemy.body.velocity.z *= 0.82;
-        if (d > 0.1) enemy.angle = Math.atan2(dz, dx);
+      this._allyIdleChat(world, enemy);
+      const dPlayer = Math.hypot(p.body.position.x - enemy.body.position.x,
+        p.body.position.z - enemy.body.position.z);
+      // 队长走远了先归队；否则主动去地图上没探索过的区域
+      if (dPlayer > 50) {
+        this._allyFollowPlayer(world, enemy, dt);
+      } else if (!this._allyExplore(world, enemy, dt)) {
+        this._allyFollowPlayer(world, enemy, dt);
       }
     }
 
@@ -1975,13 +2108,67 @@ const AISystem = {
     if (enemy.hitFlash > 0) enemy.hitFlash -= dt;
   },
 
+  // 背叛状态：不再跟随/治疗/接受命令；低距离优先脱离，远距离把玩家当目标射击
+  _updateBetrayedAlly(world, enemy, dt) {
+    const p = world.player;
+    if (!p || !p.body || !p.alive) return;
+    enemy.isBetrayed = true;
+    enemy.targetEntity = p;
+    const dx = p.body.position.x - enemy.body.position.x;
+    const dz = p.body.position.z - enemy.body.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    if (d < 26) {
+      enemy.state = 'flee';
+      world._aiMoveTo(enemy,
+        enemy.body.position.x - dx / d * 20,
+        enemy.body.position.z - dz / d * 20,
+        (enemy.spec.speed || 4.8) * 1.35, dt);
+    } else {
+      enemy.state = 'combat';
+      enemy.body.velocity.x = 0;
+      enemy.body.velocity.z = 0;
+      enemy.angle = Math.atan2(dz, dx);
+    }
+    // 拉开到 8m 外后仍会还击；近身时优先逃，不站着对枪
+    if (d > 8 && d < 46 && enemy.weapon && enemy.weapon.loaded && enemy.weapon.loaded.qty > 0) {
+      if (enemy.fireCd > 0) enemy.fireCd -= dt;
+      if (enemy.fireCd <= 0) {
+        world.enemyFire(enemy, p);
+        enemy.fireCd = 0.4 + Math.random() * 0.5;
+      }
+    }
+    this._avoidObstacles(world, enemy, dt);
+  },
+
   _allyCombatTalk(world, enemy, target, dist) {
     if (world.time < (enemy._allySpotCd || 0)) return;
     enemy._allySpotCd = world.time + 9 + Math.random() * 5;
     // 有时选择无线电静默：不是每次发现都播报，保留“说不说”的随机性
     if (Math.random() < 0.22) return;
     const eName = target && target.spec ? world.engine.i18n.t(target.spec.name) : '敌人';
-    world._squadSay(enemy.allyName, '发现' + eName + '，距离 ' + Math.round(dist) + ' 米，准备接战。');
+    const lines = [
+      '发现' + eName + '，距离 ' + Math.round(dist) + ' 米，准备接战。',
+      eName + '在' + Math.round(dist) + '米，我先架住。',
+      '有动静，' + eName + '，别急着冲。',
+      '看到' + eName + '了，掩护我换位。',
+    ];
+    world._squadSay(enemy.allyName, lines[Math.floor(Math.random() * lines.length)]);
+  },
+
+  _allyIdleChat(world, enemy) {
+    if (world.time < (enemy._allyIdleCd || 0)) return;
+    enemy._allyIdleCd = world.time + 18 + Math.random() * 16;
+    const lines = [
+      '弹药还够，继续搜。',
+      '这一片没人，我去前面看看。',
+      '注意高点，别被人架枪。',
+      '有药就留着，别急着用。',
+      '队长，撤离点在哪边？',
+      '我尾巴有点痒……不，没事。',
+      '箱子都翻过了，没值钱货。',
+      '脚步轻点，这附近可能有埋伏。',
+    ];
+    world._squadSay(enemy.allyName, lines[Math.floor(Math.random() * lines.length)]);
   },
 
   _allySupport(world, enemy, dt, target) {
@@ -1990,11 +2177,8 @@ const AISystem = {
     const st = enemy.status;
     if (!p || !st) return;
 
-    // 自我急救：血量低于 60% 时用自带药品给自己包扎（和医疗兵救人共用药品库存）
-    if (st.healthQuality < 60 && now > (enemy._allySelfHealCd || 0)) {
-      enemy._allySelfHealCd = now + 22;
-      world._aiHealByAI(enemy, enemy);
-    }
+    // 自我急救已改成可见的 `selfaid` 状态（见 _considerSelfAid / _aidSelf）：
+    // 队友会先停步、蹲下包扎，再回到战斗，不再在奔跑中瞬间回血。
 
     // 侦察/标记：队内第一名负责共享标记，其他人直接受益
     if (enemy.allyIndex === 0 && target && now > (enemy._allyMarkCd || 0)) {
@@ -2044,13 +2228,142 @@ const AISystem = {
       world._allyPlayerDownSaid = true;
       world._squadSay(enemy.allyName, '队长倒下了！');
     }
+    // 低弹量报点：让队友的弹药状态也成为可听信息
+    const w = enemy.weapon;
+    if (w && w.loaded && w.magCap && w.loaded.qty <= Math.max(2, Math.floor(w.magCap * 0.2))
+        && now > (enemy._allyAmmoCd || 0)) {
+      enemy._allyAmmoCd = now + 14;
+      world._squadSay(enemy.allyName, w.reserve > 0 ? '弹匣快空了，我换弹。' : '我没子弹了，谁有多的弹匣？');
+    }
     if (enemy.allyIndex === 0 && now > (enemy._allyPlanCd || 0)) {
       enemy._allyPlanCd = now + 32 + Math.random() * 16;
       const lines = target
-        ? ['我从左侧包抄，你压住正面。', '目标被压制，准备推进。', '我换弹，帮我掩护两秒。']
-        : ['我在你右后方，继续搜索。', '这一片暂时安全。', '有情况就喊我，我会共享标记。'];
+        ? ['我从左侧包抄，你压住正面。', '目标被压制，准备推进。', '我换弹，帮我掩护两秒。',
+           '别追太深，先确认侧翼。', '他躲在掩体后，我扔雷逼一下。']
+        : ['我在你右后方，继续搜索。', '这一片暂时安全。', '有情况就喊我，我会共享标记。',
+           '我去前面那栋楼看看。', '箱子翻完了，往下一个点走。', '队长，注意时间。'];
       world._squadSay(enemy.allyName, lines[Math.floor(Math.random() * lines.length)]);
     }
+  },
+
+  /* ===================== 友方 AI 探索 / 跟随 ===================== */
+  _allyFollowPlayer(world, enemy, dt) {
+    const p = world.player;
+    if (!p || !p.body) return;
+    enemy.state = 'follow';
+    const dx = p.body.position.x - enemy.body.position.x;
+    const dz = p.body.position.z - enemy.body.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 8) {
+      const sp = (d > 18 ? 1.0 : 0.72) * (enemy.spec.speed || 4.8);
+      world._aiMoveTo(enemy, p.body.position.x, p.body.position.z, sp, dt);
+    } else {
+      enemy.body.velocity.x *= 0.82;
+      enemy.body.velocity.z *= 0.82;
+      if (d > 0.1) enemy.angle = Math.atan2(dz, dx);
+    }
+  },
+
+  // 主动探索：没有敌人、没有共享标记时，队友不再原地转圈，
+  // 而是去地图上尚未探索、且当前看得见的区域；到达后标记该格并换下一个点。
+  _allyExplore(world, enemy, dt) {
+    const p = world.player;
+    if (!p || !p.body) return false;
+    let ep = enemy._explorePoint;
+    let needNew = !ep;
+    if (ep) {
+      const pd = Math.hypot(ep.x - p.body.position.x, ep.z - p.body.position.z);
+      if (pd > 48 || world.time > (enemy._exploreUntil || 0) || (enemy._stuckT || 0) > 1.2) needNew = true;
+    }
+    if (needNew && ep) {
+      world._markExplored(ep.x, ep.z, 1);
+      ep = null;
+      enemy._explorePoint = null;
+      enemy._explorePauseUntil = world.time + 0.8;
+    }
+    if (!ep) {
+      if (world.time < (enemy._explorePauseUntil || 0)) {
+        // 到达一个探索点后原地观察/等待，不要立刻往玩家方向折返
+        enemy.state = 'explore';
+        enemy.body.velocity.x = 0;
+        enemy.body.velocity.z = 0;
+        return true;
+      }
+      ep = world._pickAllyExplorePoint(enemy);
+      if (!ep) {
+        // 附近没有可去的未探索点时别每帧重算 32 条射线
+        enemy._explorePauseUntil = world.time + 2 + Math.random() * 2;
+        return false;
+      }
+      enemy._explorePoint = ep;
+      enemy._exploreUntil = world.time + 16;
+      enemy.state = 'explore';
+    }
+    const dx = ep.x - enemy.body.position.x;
+    const dz = ep.z - enemy.body.position.z;
+    const d = Math.hypot(dx, dz);
+    enemy.state = 'explore';
+    if (d > 2.4) {
+      const sp = (enemy.spec.speed || 4.8) * (d > 12 ? 0.8 : 0.55);
+      world._aiMoveTo(enemy, ep.x, ep.z, sp, dt);
+    } else {
+      enemy.body.velocity.x = 0;
+      enemy.body.velocity.z = 0;
+      world._markExplored(ep.x, ep.z, 1);
+      enemy._explorePoint = null;
+      enemy._explorePauseUntil = world.time + 1.2 + Math.random() * 1.4;
+    }
+    return true;
+  },
+
+  /* ===================== AI 自我急救 ===================== */
+  // 进入 selfaid：先判定有没有对症药品，再决定是否值得停步。
+  // 敌我通用；是否安全由调用处（!canSee / 撤退距离）决定。
+  _considerSelfAid(world, enemy) {
+    if (!world || !enemy || !enemy.alive || !enemy.status) return false;
+    if (enemy.state === 'selfaid') return true;
+    if (!this._aiHasAid(enemy)) return false;
+    if (enemy._selfAidCd && world.time < enemy._selfAidCd) return false;
+    const st = enemy.status;
+    if (st.isDowned() || st.isDead()) return false;
+    const bleed = st.effectiveBleedLevel ? st.effectiveBleedLevel() : 0;
+    // 轻伤不浪费药品；出血或健康度明显下降才停下来处理
+    if (st.healthQuality >= 68 && bleed <= 0) return false;
+    enemy.state = 'selfaid';
+    enemy.stateT = 0;
+    enemy._selfAidNeed = bleed > 0 ? 2.6 : (st.healthQuality < 45 ? 3.6 : 2.8);
+    enemy._selfAidCd = world.time + 26;
+    enemy.body.velocity.x = 0;
+    enemy.body.velocity.z = 0;
+    if (enemy.isAlly) world._squadSay(enemy.allyName, '我处理一下伤口，掩护我。');
+    return true;
+  },
+
+  _aidSelf(world, enemy, dt, canSee, dist) {
+    enemy.stateT += dt;
+    enemy.isCrouching = true;
+    enemy.body.height = 1.6;
+    enemy.body.halfH = 0.8;
+    enemy.body.velocity.x = 0;
+    enemy.body.velocity.z = 0;
+    // 包扎到一半被贴脸：立刻放弃自救回到战斗，避免站着挨打
+    if (canSee && dist < 15 && enemy.status.healthQuality > 35) {
+      enemy.state = 'combat';
+      enemy.stateT = 0;
+      enemy.isCrouching = false;
+      enemy.body.height = 2.4;
+      enemy.body.halfH = 1.2;
+      enemy._selfAidCd = world.time + 8;
+      return;
+    }
+    if (enemy.stateT < (enemy._selfAidNeed || 2.8)) return;
+    const ok = world._aiHealByAI(enemy, enemy);
+    if (!ok) enemy._selfAidCd = world.time + 10;
+    enemy.state = 'patrol';
+    enemy.stateT = 0;
+    enemy.isCrouching = false;
+    enemy.body.height = 2.4;
+    enemy.body.halfH = 1.2;
   },
 
   _throwEnemyGrenade(world, enemy, dt) {
@@ -2080,6 +2393,7 @@ const AISystem = {
         enemy._nadeCd = world.time + 12 + Math.random() * 10;
         enemy.fireCd = Math.max(enemy.fireCd || 0, 0.55);
         enemy.awareness = Math.max(enemy.awareness || 0, 0.8);
+        enemy._allyNadeSaid = false;
       }
       enemy.state = 'combat';
       enemy.stateT = 0;
@@ -2122,9 +2436,9 @@ const AISystem = {
       const dz = enemy.targetPos.z - enemy.body.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 1.5) {
-        enemy.angle = Math.atan2(dz, dx);
-        moveX = Math.cos(enemy.angle) * enemy.spec.speed;
-        moveZ = Math.sin(enemy.angle) * enemy.spec.speed;
+        world._aiMoveTo(enemy, enemy.targetPos.x, enemy.targetPos.z, enemy.spec.speed, dt);
+        moveX = enemy.body.velocity.x;
+        moveZ = enemy.body.velocity.z;
       } else {
         enemy.isCrouching = true;
         enemy.body.height = 1.6; enemy.body.halfH = 0.8;
@@ -2436,7 +2750,7 @@ this._renderEffects(p);
 
 // ★ 负重显示
 if (p.carryWeight !== undefined) {
-  const lim = p.carryLimit || 24;
+  const lim = p.carryLimit || 34;
   const hard = p.carryHardLimit || Math.round(lim * 1.35 * 10) / 10;
   // 超过软上限后把“硬上限”一起显示：玩家需要知道最多还能超到多少，而不是以为没有上限
   const hardTxt = p.carryWeight > lim ? '（硬上限 ' + hard.toFixed(1) + '）' : '';
@@ -2895,6 +3209,32 @@ ctx.fillRect(0, 0, w, h);
       ctx.lineWidth = 1.2;
       ctx.stroke();
       // 不再绘制大范围侦测圈：它会盖住半张小地图，只保留无人机图标与敌人标记
+    }
+  }
+
+  // ★ 共享队友位置：友方 AI 的位置/倒地状态画在小地图上
+  if (this.world.allies) {
+    for (const a of this.world.allies) {
+      if (!a || !a.alive || !a.body) continue;
+      const sx = cx + (a.body.position.x - px) * scale;
+      const sy = cy + (a.body.position.z - pz) * scale;
+      if (sx < -8 || sx > w + 8 || sy < -8 || sy > h + 8) continue;
+      const downed = a.status && a.status.isDowned();
+      ctx.fillStyle = (downed || a.isBetrayed) ? '#ff6b6b' : '#51e08a';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 3.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      if (downed) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(sx - 3, sy - 3); ctx.lineTo(sx + 3, sy + 3);
+        ctx.moveTo(sx + 3, sy - 3); ctx.lineTo(sx - 3, sy + 3);
+        ctx.stroke();
+      }
     }
   }
 
@@ -3584,6 +3924,20 @@ this.matchAllies = !!config.matchAllies && config.kind !== 'training';
 this.allies = [];
 this._squadChat = [];
 this._squadOrder = null;
+// ★ 队友自己的战术计划：search / fight / extract；与玩家 P/O 建议分开
+this._squadPlan = null;
+this._squadPlanT = 0;
+this._squadExtract = null;
+// ★ 背叛判定：玩家连续/重度误伤队友后，友方 AI 会立刻敌对并脱离枪线
+this._betrayedByPlayer = false;
+this._betrayalAt = 0;
+this._ffLog = [];
+// ★ 友方 AI 探索记忆：所有队友与玩家走过的格子记为“已探索”，
+//   队友空闲时会优先去地图上还没去过的区域，而不是原地打转。
+this._exploredCells = new Set();
+this._exploreTick = 0;
+// ★ AI 导航网格：2m 一格，首次需要寻路时构建；只服务 CPU AI，不参与渲染/存档
+this._navGrid = null;
 
   if (!this.mapSpec)   throw new Error('[World] 地图不存在: ' + this.mapId);
   if (!this.charSpec)  throw new Error('[World] 角色不存在: ' + this.charId);
@@ -3762,6 +4116,8 @@ _buildFromLayout(layout){
       radius: 0,
       userData: { type: 'obstacle' },
     }));
+    // ★ 只有矮墙/箱子/台阶/平台能翻越；建筑、屋顶、高墙不可攀爬
+    body.climbable = !!(o.climbable || ['lowWall', 'crate', 'step', 'platform'].includes(o.type));
     this.obstacles.push({ mesh, body });
     this.pois.push({ x: o.x, z: o.z, type: 'obstacle', w, h: d, color: 'rgba(120,140,160,0.65)' });
   }
@@ -3810,6 +4166,7 @@ _buildRandomObstacles(half){
       radius: 0,
       userData: { type: 'obstacle' },
     }));
+    body.climbable = h <= 2.2;
     this.obstacles.push({ mesh, body });
     this.pois.push({ x, z, type: 'obstacle', w, h: d, color: 'rgba(120,140,160,0.65)' });
   }
@@ -4008,6 +4365,129 @@ _spawnExtractAt(ex, ez){
   this.pois.push({ x: ex, z: ez, type: 'extract', color: '#5fd4ff' });
 }
 
+  /* ===================== 力量 / 负重 / 攀爬 ===================== */
+  // 设定：Aselevel 为 A 的 Prazer 徒手硬拉力约 140·ln(A) kg。
+  // 人类按受过训练的军人约 80kg 硬拉；负重不线性放大，用 0.6 次方折算。
+  _strengthPullKg(spec) {
+    if (!spec || !spec.prazer) return 80;
+    const A = Math.max(1, spec.A || 1);
+    return 140 * Math.log(A);
+  }
+
+  _carryLimitFor(spec) {
+    const bonus = 1 + (spec && spec.carryBonus ? spec.carryBonus : 0);
+    const base = 34; // 人类士兵战斗负重基准
+    if (!spec || !spec.prazer) return Math.round(base * bonus * 10) / 10;
+    const pull = this._strengthPullKg(spec);
+    return Math.round(base * Math.pow(Math.max(0.5, pull / 80), 0.6) * bonus * 10) / 10;
+  }
+
+  _meleeStrengthMul(owner) {
+    const spec = (owner && owner.charSpec) || (owner && owner.spec) || {};
+    if (!spec.prazer) return 1;
+    // 拳击/近战能量与力量同阶增长；上限防止高 A 一拳秒杀全场
+    return Math.max(1, Math.min(4.5, this._strengthPullKg(spec) / 80));
+  }
+
+  _climbHeight(owner) {
+    const spec = (owner && owner.charSpec) || (owner && owner.spec) || {};
+    if (!spec.prazer) return 1.05;
+    const pull = this._strengthPullKg(spec);
+    return Math.max(1.15, Math.min(2.3, 0.9 + pull / 120));
+  }
+
+  _pointBlocked(x, y, z, r = 0) {
+    const bodies = [];
+    for (const o of (this.obstacles || [])) if (o.body) bodies.push(o.body);
+    for (const c of (this.containers || [])) if (c.body) bodies.push(c.body);
+    for (const b of bodies) {
+      const hh = b.halfH || (b.height || 2.4) / 2;
+      const y0 = b.yMin !== null && b.yMin !== undefined ? b.yMin : (b.position.y - hh);
+      const y1 = b.yMax !== null && b.yMax !== undefined ? b.yMax : (b.position.y + hh);
+      if (y < y0 - 0.02 || y > y1 + 0.02) continue;
+      if (b.shape === 'aabb') {
+        if (Math.abs(x - b.position.x) < (b.halfW || 0) + r &&
+            Math.abs(z - b.position.z) < (b.halfD || 0) + r) return true;
+      } else if (Math.hypot(x - b.position.x, z - b.position.z) < (b.radius || 1) + r) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  _ceilingClearanceAt(x, y, z, max = 3) {
+    const hit = this.physics.raycast(x, y, z, 0, 1, 0, max,
+      body => body.userData && body.userData.type === 'obstacle');
+    return hit ? Math.max(0, hit.t) : max;
+  }
+
+  _ceilingClearance(ent) {
+    if (!ent || !ent.body) return 3;
+    const b = ent.body;
+    return this._ceilingClearanceAt(b.position.x, b.position.y + b.halfH - 0.05, b.position.z, 3);
+  }
+
+  // 自动跨越/攀爬：只对 climbable（矮墙/箱子/台阶/平台）生效。
+  // 低矮障碍移动时自动越过；较高的需要按跳跃，且不超过 Prazer 力量对应高度。
+  _tryMantle(p, moving, jumpPressed, engine) {
+    if (!p || !p.body || !engine) return false;
+    if (p._mantleCd && this.time < p._mantleCd) return false;
+    if (!p.body.grounded) return false;
+    if (!moving && !jumpPressed) return false;
+    const yaw = engine.cameraCtl.yaw;
+    const fx = Math.sin(yaw), fz = -Math.cos(yaw);
+    const foot = p.body.position.y - p.body.halfH;
+    const originY = foot + Math.min(0.55, p.body.height * 0.28);
+    const hit = this.physics.raycast(
+      p.body.position.x, originY, p.body.position.z, fx, 0, fz, 2.0,
+      body => body.userData && body.userData.type === 'obstacle' && body.climbable
+    );
+    if (!hit || hit.t < 0.2 || hit.t > 1.95) return false;
+    const b = hit.body;
+    const hh = b.halfH || (b.height || 2.4) / 2;
+    const top = b.yMax !== null && b.yMax !== undefined ? b.yMax : (b.position.y + hh);
+    const rise = top - foot;
+    if (rise < 0.2 || rise > this._climbHeight(p)) return false;
+    // 低矮障碍自动跨越；超过 1m 必须有跳跃动作
+    if (!jumpPressed && rise > 1.0) return false;
+    // 越过障碍厚度 + 身体半径，落点不能还在墙体内
+    const thickness = b.shape === 'aabb'
+      ? Math.abs(fx) * (b.halfW || 0) * 2 + Math.abs(fz) * (b.halfD || 0) * 2
+      : (b.radius || 0) * 2;
+    const clear = Math.max(0.35, (p.body.radius || 1.2)) + 0.25;
+    // 低矮障碍“跨过去”，较高障碍“爬上去站到顶面”
+    const highClimb = rise > 1.0;
+    const forwardDist = highClimb
+      ? hit.t + Math.min(0.9, thickness * 0.5 + 0.25)
+      : hit.t + thickness + clear;
+    const landX = p.body.position.x + fx * forwardDist;
+    const landZ = p.body.position.z + fz * forwardDist;
+    const landY = top + p.body.halfH + 0.04;
+    const half = ((this.mapSpec && this.mapSpec.size) || 200) / 2 - 2;
+    if (landX < -half || landX > half || landZ < -half || landZ > half) return false;
+    if (this._pointBlocked(landX, landY, landZ, 0.28)) return false;
+    if (this._ceilingClearanceAt(landX, landY + p.body.halfH - 0.05, landZ, 2.4) < 0.22) return false;
+    const cost = 7 + rise * 4;
+    if (p.stamina < cost) {
+      if (!p._mantleHintAt || this.time - p._mantleHintAt > 2) {
+        p._mantleHintAt = this.time;
+        this._hint('体力不足，无法翻越', 'y');
+      }
+      return false;
+    }
+    p.stamina -= cost;
+    p.body.position.x = landX;
+    p.body.position.z = landZ;
+    p.body.position.y = landY;
+    p.body.velocity.x = 0;
+    p.body.velocity.y = 0;
+    p.body.velocity.z = 0;
+    p.body.wake();
+    p._mantleCd = this.time + 0.55;
+    if (engine.cameraCtl.shake) engine.cameraCtl.shake(0.2, 0.12);
+    return true;
+  }
+
   _spawnPlayer(){
   const spec = this.charSpec;
   const mesh = this.engine.meshes.build('player', spec);
@@ -4062,6 +4542,10 @@ const body = this.physics.add(new Body({
   const invArmor = this._buildArmorFromInventory(inv);
 
   const fist = { def: FIST_DEF, fireCd: 0, isFist: true };
+  const carryLimit = this._carryLimitFor(spec);
+  const maxStamina = spec.prazer
+    ? 110 + Math.round(2 * Math.max(1, spec.A || 1))
+    : 100;
 
   let activeSlot = 'fist';
   if (invPrimary) activeSlot = 'primary';
@@ -4076,7 +4560,7 @@ const body = this.physics.add(new Body({
   faction: 'player',
   hp: spec.hp,
   maxHp: spec.hp,
-  carryLimit: 24 * (1 + (spec.carryBonus || 0)),
+  carryLimit,
   carryWeight: 0,
   loadState: 'normal',
   _adaptBonus: spec.carryBonus || 0,
@@ -4117,8 +4601,8 @@ const body = this.physics.add(new Body({
   carriedValue: 0,
   limbDamage: 0,
   speedMul: 1,
-  stamina: 100,
-  maxStamina: 100,
+  stamina: maxStamina,
+  maxStamina,
   armor: invArmor || {
      shell: { lv: 3, dur: 100, max: 100, red: 0.52 },
      visor: { lv: 3, dur: 100, max: 100, red: 0.52 },
@@ -4745,7 +5229,13 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     const mainId = mainItem && mainItem.table === 'weapons' ? mainItem.defId : null;
     const sideId = sideItem && sideItem.table === 'weapons' ? sideItem.defId : null;
     const armor = this._allyArmorFromPlayer(inv);
-    const charIds = ['kate', 'lingna'];
+    // ★ 队友随机：凯特/玲娜/布雯，且尽量不与玩家本人重复；每次开局重新洗牌
+    const allyPool = ['kate', 'lingna', 'buwen'].filter(id => id !== this.charId);
+    for (let i = allyPool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = allyPool[i]; allyPool[i] = allyPool[j]; allyPool[j] = t;
+    }
+    const charIds = allyPool.slice(0, Math.min(2, allyPool.length));
     const names = [];
     for (let i = 0; i < charIds.length; i++) {
       const char = content.get('characters', charIds[i]);
@@ -4761,9 +5251,10 @@ _consumeAmmoInInventory(inv, ammoType, count) {
         ai: {
           aggression: 0.68, composure: 0.78, perception: 0.72,
           opportunism: 0.6, keepDistance: 14, meleeBias: 0.3,
-          switchBias: 0.65, grenade: 0.55,
+          switchBias: 0.65, grenade: 0.68,
         },
-        gear: { armor, nades: ['frag'] },
+        // 队友带两枚破片：AI 有实物库存才会进入 nade 状态，扔一枚少一枚
+        gear: { armor, nades: ['frag', 'frag'] },
         alertness: char.alertness || 2,
         prazer: false, A: 0,
       };
@@ -4848,17 +5339,21 @@ _configureTrainingDummy(enemy) {
   const hp = Math.max(10, this.training.dummyHp || 100);
   const ratio = hp / 100;
   const st = enemy.status;
-  if (!enemy._dummyBase) {
-    enemy._dummyBase = { maxBlood: st.maxBlood, parts: {} };
-    for (const k in st.parts) enemy._dummyBase.parts[k] = st.parts[k].maxHp;
-  }
+  // ★ 基准值必须来自固定的部位上限，而不是“当前 status”。
+  //   旧版只在第一次配置时缓存；若中途被 EMP/爆炸改过 maxHp 或进入过异常状态，
+  //   后续“应用设置”会以受伤后的数值为基准，人偶看起来永远带伤。
+  enemy._dummyBase = {
+    maxBlood: st.isPrazer ? 6000 : 5000,
+    parts: Object.assign({}, PART_MAX_HP),
+  };
   st.maxBlood = Math.round(enemy._dummyBase.maxBlood * ratio);
   st.blood = st.maxBlood;
   for (const k in st.parts) {
     const part = st.parts[k];
-    part.maxHp = Math.max(10, enemy._dummyBase.parts[k] * ratio);
+    part.maxHp = Math.max(10, (enemy._dummyBase.parts[k] || part.maxHp) * ratio);
     part.hp = part.maxHp;
     part.wounds = [];
+    part.wound = 0;
     part.fracture = 0;
   }
   st.effects.clear();
@@ -4866,6 +5361,7 @@ _configureTrainingDummy(enemy) {
   st._burnSpreadT = 0;
   st._burnRampT = 0;
   st.bleedSeal = 0;
+  st.healthQuality = 100;
   st.updateOverallHealth();
   // 彻底清掉上次战斗残留的负面来源：否则复活后仍会继续流血/着火/玻纤/眩晕
   enemy._hazardType = null;
@@ -4965,8 +5461,10 @@ _reviveTrainingDummy(enemy) {
       const part = st.parts[k];
       part.hp = part.maxHp;
       part.wounds = [];
+      part.wound = 0;
       part.fracture = 0;
     }
+    st.healthQuality = 100;
     st.updateOverallHealth();
   }
   enemy._hazardType = null;
@@ -5015,6 +5513,8 @@ _applyTrainingSettings() {
     if (!e.alive) this._reviveTrainingDummy(e);
     if (e.alive) this._configureTrainingDummy(e);
   }
+  // 详情面板有签名缓存；复位后必须强制重绘，否则仍显示上一轮的伤口/状态
+  if (this.hud) this.hud._dummyInfoSig = '';
   this._refillTrainingLoadout();
   if (this.training.noCd && this.player && this.player.skills) {
     for (const sk of this.player.skills) {
@@ -5143,6 +5643,8 @@ _refillTrainingLoadout() {
   // ★ 4. 其他逻辑更新
   this.actionProcess.update(dt);
   this._updateEnemies(dt);
+  this._updateExplorationMemory(dt);
+  this._updateSquadPlan(dt);
   this._updateSoundSystem(dt);
   this._updateExtracts(dt);
   this._updateContainers(dt);
@@ -5229,7 +5731,7 @@ _updatePlayer(dt){
     p.carryWeight = inv ? inv.getCarryWeight() : 0;
     // 装备槽变化（脱甲/换甲/背包内挪甲）同步到承伤模型
     this._syncArmorFromInventory();
-    const lim = p.carryLimit || 24;
+    const lim = p.carryLimit || 34;
     p.loadState = p.carryWeight > lim ? 'overweight' : (p.carryWeight > lim * 0.75 ? 'loaded' : 'normal');
     // ★ 负重硬上限：允许短时超载到 1.35 倍，但不能无限背。
     //   超过后 Inventory.addToContainer 会拒绝新物品进入随身容器（转移/拾取会提示“超重”）。
@@ -5257,9 +5759,12 @@ _updatePlayer(dt){
   if (p._controllingDrone && this.drones && this.drones[0]) {
     this._updateDroneControl(dt, e, p);
     if (e.input.isActive('fire')) this._droneScanAttack(p);
-    if (this._edge.throw) this._droneDropBeacon(p);
     if (this._edge.weaponSlot1) this._droneThrowPayload(p, 'frag');
     if (this._edge.weaponSlot2) this._droneThrowPayload(p, 'emp');
+    // ★ 无人机视角下也能下战术建议：P/O 用当前（无人机）准星落点生成标记，
+    //   否则一进无人机就被前面的 return 吃掉按键，队友完全不听指挥。
+    if (this._edge.squadAdvance) this._issueSquadOrder('advance');
+    if (this._edge.squadRetreat) this._issueSquadOrder('retreat');
     return;
   }
 
@@ -5297,22 +5802,24 @@ const wantsToSprint = e.input.keys.has('shift') ||
                       (e.input.joystickLeft && e.input.joystickLeft.vector.magnitude > 0.9);
 
 const spec = p.charSpec || {};
-const baseCost        = spec.sprintCost !== undefined ? spec.sprintCost : 2.5;
+const baseCost        = spec.sprintCost !== undefined ? spec.sprintCost : 3.0;
 const baseIdleRegen   = spec.staminaRegen && spec.staminaRegen.idle !== undefined ? spec.staminaRegen.idle : 6;
 const baseMoveRegen   = spec.staminaRegen && spec.staminaRegen.move !== undefined ? spec.staminaRegen.move : 1.5;
 
 const staminaRatio = p.stamina / p.maxStamina;
 const downedNow = !!(p.status && p.status.isDowned());
-const fatigueMul   = 1 + (1 - staminaRatio) * 1.5;   // 越累消耗越快：1~2.5
-const recoveryMul  = 1 + (1 - staminaRatio) * 2.0;   // 越累恢复越快：1~3
+// 越累消耗越快；恢复反而变慢（旧版写成“越累恢复越快”，等于跑不死）
+const fatigueMul   = 1 + (1 - staminaRatio) * 1.2;   // 1~2.2
+const recoveryMul  = 0.55 + staminaRatio * 0.9;      // 0.55~1.45
+const loadFactor   = 1 + Math.min(0.8, (p.carryWeight || 0) / Math.max(1, p.carryLimit || 34)) * 0.55;
 
 // 蹲着不能疾跑：想跑就站起来。旧版允许蹲姿冲刺，视觉和体力都不合理。
-const canSprint = !downedNow && isMoving && wantsToSprint && !p.isCrouching && p.stamina > 2 && staminaRatio > 0.15;
+const canSprint = !downedNow && isMoving && wantsToSprint && !p.isCrouching && p.stamina > 2 && staminaRatio > 0.08;
 
 let isSprinting = false;
 if (canSprint) {
   isSprinting = true;
-  p.stamina = Math.max(0, p.stamina - dt * baseCost * fatigueMul);
+  p.stamina = Math.max(0, p.stamina - dt * baseCost * fatigueMul * loadFactor);
 } else {
   const regen = isMoving ? baseMoveRegen : baseIdleRegen;
   p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen * recoveryMul);
@@ -5363,11 +5870,20 @@ p.body.velocity.x = moveX * finalSpeed;
 p.body.velocity.z = moveZ * finalSpeed;
 if (isMoving && !this._searching) p.body.wake();
 
- // ★ 4. 跳跃检测（grounded 标志）
+ // ★ 4. 自动跨越/攀爬 + 跳跃检测（grounded 标志）
 const jumpPressed = !downedNow && (e.input.keys.has(' ') || e.input.isActive('jump'));
-if (jumpPressed && p.body.grounded && p.body.velocity.y <= 0.1) {
-  p.body.velocity.y = 9.5;
-  p.body.wake();
+const mantled = this._tryMantle(p, isMoving, jumpPressed, e);
+if (!mantled && jumpPressed && p.body.grounded && p.body.velocity.y <= 0.1) {
+  // 低矮屋内跳跃：按头顶净空限制初速，避免头穿过屋顶后被物理挤飞
+  const headClear = this._ceilingClearance(p);
+  const maxRise = Math.max(0, headClear - 0.12);
+  if (maxRise > 0.08) {
+    p.body.velocity.y = Math.min(9.5, Math.sqrt(2 * 20 * maxRise));
+    p.body.wake();
+  } else if (!p._ceilHintAt || this.time - p._ceilHintAt > 2) {
+    p._ceilHintAt = this.time;
+    this._hint('头顶空间不足，无法起跳', 'y');
+  }
 }
 
 // ★ 战术动作：蹲下（点按切换，不再需要一直按住）
@@ -5506,6 +6022,7 @@ if (!this._searching && !isDowned) {
   if (this._edge.squadAdvance) this._issueSquadOrder('advance');
   if (this._edge.squadRetreat) this._issueSquadOrder('retreat');
   if (this._edge.allyCare) this._toggleAllyCare();
+  if (this._edge.tailStrike) this._tailStrike(p);
   if (this._edge.bag && this.engine.app && this.engine.app.bagUI) this.engine.app.bagUI.toggle();
   if (this._edge.skill1) this._useSkill(0);
   if (this._edge.skill2) this._useSkill(1);
@@ -5613,7 +6130,7 @@ _updateSpeedFeedback(dt, isMoving) {
 _refreshEdges() {
   if (!this._actionPrev) this._actionPrev = {};
   if (!this._edge) this._edge = {};
-  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode', 'crouch', 'ads', 'throw', 'armThrow', 'hazardAction', 'bag', 'throwWheel', 'medWheel', 'droneControl', 'squadAdvance', 'squadRetreat', 'allyCare', 'lean_left', 'lean_right'];
+  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode', 'crouch', 'ads', 'throw', 'armThrow', 'hazardAction', 'tailStrike', 'bag', 'throwWheel', 'medWheel', 'droneControl', 'squadAdvance', 'squadRetreat', 'allyCare', 'lean_left', 'lean_right'];
   for (let i = 0; i < names.length; i++) {
     const a = names[i];
     const cur = !!this.engine.input.isActive(a);
@@ -5940,7 +6457,8 @@ _meleeAttack(owner, weapon) {
     body => body !== owner.body && (body.userData && (body.userData.type === 'enemy' || body.userData.type === 'player'))
   );
 
-  const energy = def.damage || 80;
+  // ★ Prazer 的拳/近战伤害按 Aselevel 力量放大；人类保持基准
+  const energy = (def.damage || 80) * this._meleeStrengthMul(owner);
   const pen = 6;
   const ownerFaction = owner.faction || 'player';
 
@@ -5977,6 +6495,89 @@ _meleeAttack(owner, weapon) {
     }, 120);
   }
 }
+
+  /* ===================== 尾击（Prazer 专属） ===================== */
+  // 尾部最大绕力约 730·ln(A) kg，是徒手硬拉力的 5 倍以上；
+  // 游戏内取 2.2 倍拳击能量，代价是 24 点体力和 1.1s 冷却。
+  _tailStrike(owner) {
+    if (!owner || !owner.body) return false;
+    const spec = owner.charSpec || owner.spec || {};
+    if (!spec.prazer) {
+      if (owner === this.player) this._hint('人类没有可用的尾巴', 'y');
+      return false;
+    }
+    if (owner === this.player) {
+      if (owner._controllingDrone) return false;
+      if (owner.status && owner.status.isDowned()) return false;
+      if (owner._tailCd && this.time < owner._tailCd) return false;
+      const cost = 24;
+      if (owner.stamina < cost) {
+        this._hint('体力不足，无法尾击', 'y');
+        return false;
+      }
+      owner.stamina -= cost;
+      owner._tailCd = this.time + 1.1;
+      owner.fireCd = Math.max(owner.fireCd || 0, 0.55);
+    } else {
+      if (owner._tailCd && this.time < owner._tailCd) return false;
+      owner._tailCd = this.time + 1.6;
+    }
+
+    const range = 2.8;
+    const cam = this.engine.renderer.camera;
+    let ox, oy, oz, dx, dy, dz;
+    if (owner === this.player) {
+      const origin = new THREE.Vector3();
+      cam.getWorldPosition(origin);
+      const dir = new THREE.Vector3();
+      cam.getWorldDirection(dir);
+      ox = origin.x; oy = origin.y; oz = origin.z;
+      dx = dir.x; dy = dir.y; dz = dir.z;
+    } else {
+      const yaw = owner.angle || 0;
+      ox = owner.body.position.x;
+      oy = owner.body.position.y;
+      oz = owner.body.position.z;
+      dx = Math.cos(yaw); dy = 0; dz = Math.sin(yaw);
+    }
+    const hit = this.physics.raycast(ox, oy, oz, dx, dy, dz, range,
+      body => body !== owner.body && (body.userData && (body.userData.type === 'enemy' || body.userData.type === 'player')));
+    const energy = (FIST_DEF.damage || 80) * this._meleeStrengthMul(owner) * 2.2;
+    const end = hit && hit.point ? hit.point : new THREE.Vector3(ox + dx * range, oy + dy * range, oz + dz * range);
+    this._spawnTracer(ox, oy - 0.2, oz, end.x, end.y, end.z, 0xffcc66);
+    if (owner === this.player && this.engine.cameraCtl) {
+      this.engine.cameraCtl.shake(0.35, 0.18);
+    }
+    if (hit) {
+      const targetBody = hit.body;
+      const relY = hit.point.y - targetBody.position.y;
+      const hh = targetBody.halfH || 1.2;
+      const r = relY / hh;
+      let part = 'thorax';
+      if (r > 0.5625) part = 'head';
+      else if (r > 0.0833) part = 'thorax';
+      else if (r > -0.1667) part = 'abdomen';
+      else part = 'legs';
+      if (targetBody.userData.type === 'enemy') {
+        const targetEnemy = targetBody.userData.ref;
+        this._damageEnemy(targetEnemy, energy, 7, part, owner === this.player, 'melee');
+      } else if (targetBody.userData.type === 'player') {
+        const targetPlayer = targetBody.userData.ref;
+        this._damagePlayer(targetPlayer, energy, 7, part,
+          owner.body.position.x, owner.body.position.z, owner, 'melee');
+      }
+      this._playSFX('hit', { volume: 0.65 });
+    } else {
+      this._playSFX('switch', { volume: 0.35 });
+    }
+    // 尾部横扫的视觉：角色轻微侧转
+    if (owner.mesh && owner !== this.player) {
+      const orig = owner.mesh.rotation.y;
+      owner.mesh.rotation.y = orig + (Math.random() < 0.5 ? -0.5 : 0.5);
+      setTimeout(() => { if (owner.mesh) owner.mesh.rotation.y = orig; }, 140);
+    }
+    return true;
+  }
 
   /* ===================== 投掷物（有 owner） ===================== */
   _throwGrenade(owner) {
@@ -6167,26 +6768,6 @@ _meleeAttack(owner, weapon) {
     const def = pr.def || this.engine.content.get('nade', 'frag');
     const effect = (def && def.effect) || pr.effect || 'frag';
 
-    // ===== 无人机标记信标 =====
-    if (effect === 'marker') {
-      const R = (def && def.radius) || 18;
-      let n = 0;
-      for (const e of this.enemies) {
-        if (!e.alive || e.isAlly) continue;
-        const ex = e.body.position.x, ey = e.body.position.y + 0.4, ez = e.body.position.z;
-        const ddx = ex - x, ddy = ey - (y + 0.3), ddz = ez - z;
-        const dd = Math.hypot(ddx, ddy, ddz);
-        if (dd > R) continue;
-        if (this.physics.raycast(x, y + 0.3, z, ddx, ddy, ddz, dd,
-          body => body.userData && body.userData.type === 'obstacle')) continue;
-        this._markEntity(e, 12, 'drone_beacon', 'player');
-        n++;
-      }
-      this._spawnSkillAura({ body: { position: { x, y: 0.2, z }, halfH: 0.1 } }, 0x66e8ff, 0.8);
-      this._log('标记信标落地：标记 ' + n + ' 个目标', n ? 'p' : 'y');
-      return;
-    }
-
     // ===== 闪光弹 =====
     if (effect === 'flash') {
       const dur = (def && def.flashDuration) || 2.6;
@@ -6264,7 +6845,14 @@ _meleeAttack(owner, weapon) {
 
     for (const v of victims) {
       if (!v.body) continue;
-      const d = Math.hypot(v.body.position.x - x, v.body.position.z - z);
+      // ★ 爆炸判定必须是三维距离：旧版只看水平距离，手雷扔到 30m 高空仍能炸到
+      //   正下方的人。这里取“爆心到身体胶囊最近点”的距离，贴脚爆炸仍是 0m，
+      //   头顶/高空爆炸则按真实高度差迅速衰减。
+      const vHalfH = v.body.halfH || 1.2;
+      const vFoot = v.body.position.y - vHalfH;
+      const vHead = v.body.position.y + vHalfH;
+      const nearestY = Math.max(vFoot, Math.min(vHead, y));
+      const d = Math.hypot(v.body.position.x - x, nearestY - y, v.body.position.z - z);
       if (d > pr.radius) continue;
       const falloff = Math.max(0, 1 - d / pr.radius);
       const energy = pr.damage * falloff * falloff;
@@ -6401,23 +6989,37 @@ _meleeAttack(owner, weapon) {
     }, holdMs);
   }
 
-  /* ===================== 投掷物选择 / 投掷 ===================== */
-  _getThrowableList() {
+  /* ===================== 随身物品递归收集 ===================== */
+  // 胸挂/背包/口袋/安全箱 → 背包 innerGrid → 嵌套背包 innerGrid。
+  // 轮盘、快捷投掷、医疗都必须走这里，否则“药放在背包内部网格里”会被判定为没药。
+  _collectCarriedItems(filter) {
     const inv = this.engine.app && this.engine.app.inventory;
     if (!inv) return [];
-    const map = new Map();
-    for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
-      const c = inv.containers[cName];
-      if (!c) continue;
-      for (const uid of c.items.keys()) {
+    const out = [];
+    const seen = new Set();
+    const walk = (grid) => {
+      if (!grid || seen.has(grid)) return;
+      seen.add(grid);
+      for (const uid of grid.items.keys()) {
         const it = inv.items.get(uid);
-        if (!it || it.table !== 'nade') continue;
+        if (!it) continue;
         const def = inv.getDef(it);
         if (!def) continue;
-        const cur = map.get(it.defId) || { defId: it.defId, def, qty: 0 };
-        cur.qty += it.qty || 1;
-        map.set(it.defId, cur);
+        if (!filter || filter(it, def)) out.push({ uid, it, def });
+        if (it.innerGrid) walk(it.innerGrid);
       }
+    };
+    for (const cName of ['chest', 'pocket', 'bag', 'safe']) walk(inv.containers[cName]);
+    return out;
+  }
+
+  /* ===================== 投掷物选择 / 投掷 ===================== */
+  _getThrowableList() {
+    const map = new Map();
+    for (const { it, def } of this._collectCarriedItems(it => it.table === 'nade')) {
+      const cur = map.get(it.defId) || { defId: it.defId, def, qty: 0 };
+      cur.qty += it.qty || 1;
+      map.set(it.defId, cur);
     }
     // 靶场无限投掷物：即使背包里没有，也把全部投掷物列出来供测试
     if (this.training && this.training.infiniteNades) {
@@ -6437,16 +7039,10 @@ _meleeAttack(owner, weapon) {
     if (this.training && this.training.infiniteNades) return true;
     const inv = this.engine.app && this.engine.app.inventory;
     if (!inv) return false;
-    for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
-      const c = inv.containers[cName];
-      if (!c) continue;
-      for (const uid of Array.from(c.items.keys())) {
-        const it = inv.items.get(uid);
-        if (!it || it.table !== 'nade' || it.defId !== defId) continue;
-        it.qty -= 1;
-        if (it.qty <= 0) inv.destroyItem(uid);
-        return true;
-      }
+    for (const { uid, it } of this._collectCarriedItems(it => it.table === 'nade' && it.defId === defId)) {
+      it.qty -= 1;
+      if (it.qty <= 0) inv.destroyItem(uid);
+      return true;
     }
     return false;
   }
@@ -6723,10 +7319,6 @@ _meleeAttack(owner, weapon) {
     if (this._nadeWheelOpen) {
       if (this._wheelMode === 'med') { this._closeNadeWheel(); return; }
       this._wheelMode = 'med';
-      if (document.pointerLockElement) {
-        this._wheelHadLock = true;
-        try { document.exitPointerLock(); } catch (_) {}
-      }
       this._renderNadeWheel();
       this._updateWheelAim(0, 0, false);
       return;
@@ -6736,19 +7328,10 @@ _meleeAttack(owner, weapon) {
   }
 
   _getMedicalWheelList() {
-    const inv = this.engine.app && this.engine.app.inventory;
-    if (!inv) return [];
     const out = [];
-    for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
-      const c = inv.containers[cName];
-      if (!c) continue;
-      for (const uid of c.items.keys()) {
-        const it = inv.items.get(uid);
-        if (!it || it.table !== 'medical') continue;
-        const def = inv.getDef(it);
-        if (!def || !def.use) continue;
-        out.push({ uid, def, qty: it.qty || 1 });
-      }
+    for (const { uid, it, def } of this._collectCarriedItems(it => it.table === 'medical')) {
+      if (!def || !def.use) continue;
+      out.push({ uid, def, qty: it.qty || 1 });
     }
     return out;
   }
@@ -6765,11 +7348,8 @@ _meleeAttack(owner, weapon) {
     if (this.player) this.player._throwAiming = false;
     this._clearThrowPreview();
     this._wheelHadLock = document.pointerLockElement === this.engine.renderer.canvas;
-    // 医疗轮盘允许鼠标直接点卡片：打开时释放 Pointer Lock，关闭时再恢复。
-    // 投掷轮盘仍保持锁定，用鼠标位移推动摇杆。
-    if (this._wheelMode === 'med' && document.pointerLockElement) {
-      try { document.exitPointerLock(); } catch (_) {}
-    }
+    // ★ 医疗轮盘与投掷轮盘完全同构：保持 Pointer Lock，用鼠标位移/拖拽选择，
+    //   松手或点击确认。旧版医疗轮盘会退出鼠标锁定，导致“按了 N 鼠标飞出/点不到”。
     this._renderNadeWheel();
     el.classList.add('on');
     this._updateWheelAim(0, 0, false);
@@ -7232,6 +7812,12 @@ _meleeAttack(owner, weapon) {
   }
 const def = weapon.def;
 
+// ★ AI 不穿过队友/玩家开火：枪线里有同阵营单位时先停火，避免“队友互射”
+if (!isPlayer && target && this._hasFriendlyInLine(owner, target)) {
+  owner.fireCd = 0.45 + Math.random() * 0.25;
+  return;
+}
+
 // ★ 彩虹子弹：从队列中取出当前一发
 let currentAmmoId = def.ammoType;
 if (weapon.loaded && weapon.loaded.queue && weapon.loaded.queue.length > 0) {
@@ -7531,6 +8117,34 @@ const pen = currentPen;
   this._fireWeapon(enemy, enemy.weapon, false, target);
 }
 
+  // 同阵营单位是否挡在 AI 的枪线上。玩家/队友/同派系敌人都会让 AI 停火，
+  // 只有已经判定玩家为叛徒的队友才会越过这条检查。
+  _hasFriendlyInLine(owner, target) {
+    if (!owner || !target || !target.body || !owner.body) return false;
+    if (owner.isBetrayed) return false;
+    const ox = owner.body.position.x, oz = owner.body.position.z;
+    const tx = target.body.position.x, tz = target.body.position.z;
+    const dx = tx - ox, dz = tz - oz;
+    const dist = Math.hypot(dx, dz) || 1;
+    const ux = dx / dist, uz = dz / dist;
+    const ownerFaction = owner.faction || (owner.spec && owner.spec.faction) || 'enemy';
+    const candidates = [this.player, ...(this.enemies || [])];
+    for (const other of candidates) {
+      if (!other || other === owner || other === target || !other.alive || !other.body) continue;
+      const of = other === this.player ? 'player' : (other.faction || (other.spec && other.spec.faction));
+      const friendly = owner.isAlly ? (of === 'player') : (of === ownerFaction);
+      if (!friendly) continue;
+      const rx = other.body.position.x - ox;
+      const rz = other.body.position.z - oz;
+      const along = rx * ux + rz * uz;
+      if (along < 0.5 || along > dist + 1.0) continue;
+      const lateral = Math.abs(rx * uz - rz * ux);
+      const radius = other.body.radius || 1;
+      if (lateral < radius * 0.9 + 0.35) return true;
+    }
+    return false;
+  }
+
 _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
   let remaining = energy;
   let snapshot = null;
@@ -7620,6 +8234,53 @@ _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
     }
   }
 
+  // 友伤判定：第一次非致命命中只警告；6 秒内第二次，或单次打掉 >45% 健康/
+  // 直接击倒，才认定为“故意背刺”，避免流弹误伤立即翻脸。
+  _noteFriendlyFire(enemy, energy, remaining, hpBefore) {
+    if (!enemy || !enemy.isAlly || this.training) return;
+    if (this._betrayedByPlayer) return;
+    const now = this.time;
+    this._ffLog = (this._ffLog || []).filter(e => now - e.t < 6);
+    const drop = Math.max(0, (hpBefore || 0) - (enemy.status ? enemy.status.healthQuality : 0));
+    const last = this._ffLog[this._ffLog.length - 1];
+    if (last && last.t === now) {
+      // 同一帧的多枚霰弹/破片算一次射击，避免一次误伤就判定背叛
+      last.drop = Math.max(last.drop, drop);
+      last.energy = Math.max(last.energy, Math.max(0, remaining || 0));
+    } else {
+      this._ffLog.push({ t: now, drop, energy: Math.max(0, remaining || 0) });
+    }
+    const downed = enemy.status && enemy.status.isDowned();
+    const lethal = !enemy.alive || downed || drop > 60;
+    if (lethal || this._ffLog.length >= 2) {
+      this._triggerBetrayal(enemy);
+    } else {
+      this._hint('停火！你打到了队友', 'r');
+      this._squadSay(enemy.allyName || '队友', '喂！你打到我身上了！');
+    }
+  }
+
+  _triggerBetrayal(source) {
+    if (this._betrayedByPlayer) return;
+    this._betrayedByPlayer = true;
+    this._betrayalAt = this.time;
+    this._squadPlan = 'fight';
+    this._squadOrder = null;
+    for (const a of (this.allies || [])) {
+      if (!a || !a.alive) continue;
+      a.isBetrayed = true;
+      a._allyAidFor = null;
+      a._allyMarkedTarget = null;
+      a._allyMarkSaidFor = null;
+      a.state = 'flee';
+      a._betrayalFleeUntil = this.time + 30;
+    }
+    this._log('队友已判定你为叛徒：他们不再接受指令，并会远离你的枪线。', 'r');
+    this._hint('你被队伍判定为叛徒！', 'r');
+    const leader = (this.allies || []).find(a => a.alive) || source;
+    if (leader) this._squadSay(leader.allyName || '队友', '你疯了吗？我们不是你的敌人！所有人散开！');
+  }
+
 _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType = 'ballistic'){
   if (!enemy.alive) return;
   if (hitPart === true) hitPart = 'head';
@@ -7704,6 +8365,10 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType
 
   // ★ 统一生死同步：持续伤害也能立即触发倒地/死亡
   const ended = this._syncEntityLifecycle(enemy, false);
+  // ★ 玩家对队友的枪/近战伤害才纳入背叛判定；爆炸/燃烧不当作“故意瞄准”
+  if (byPlayer && enemy.isAlly && (damageType === 'ballistic' || damageType === 'melee')) {
+    this._noteFriendlyFire(enemy, energy, remaining, hpBefore);
+  }
   if (!ended && enemy.alive) {
     // 任何来源的伤害都会触发敌人的受击反击；来源坐标用真实弹道起点，而不是玩家位置
     const srcX = enemy._lastHitSrcX !== undefined ? enemy._lastHitSrcX : this.player.body.position.x;
@@ -8642,6 +9307,11 @@ _updateDeathCamera(dt) {
     this.replayMode = true;
     this.running = true;
     this.paused = false;
+    // ★ 回放里不能出现战术聊天/队内建议标记：它们属于当前战局 UI，不是死亡记录
+    this._squadOrder = null;
+    this._clearSquadMarkers();
+    const _chatEl = document.getElementById('squad-chat');
+    if (_chatEl) _chatEl.style.display = 'none';
     // 回放时把玩家实体显示出来：击杀者视角必须能看见“我”
     if (this.player && this.player.mesh) this.player.mesh.visible = true;
     this._removeHeldThrowable();
@@ -9178,6 +9848,9 @@ _updateDeathCamera(dt) {
     this._replayHitTimer = null;
     const hud = document.getElementById('hud');
     if (hud) { hud.style.visibility = ''; hud.classList.remove('replay-hud'); }
+    const chatEl = document.getElementById('squad-chat');
+    if (chatEl) chatEl.style.display = '';
+    this._clearSquadMarkers();
     const vig = document.getElementById('fx-vignette');
     if (vig) vig.style.opacity = '0';
     const hf = document.getElementById('fx-hit-flash');
@@ -9922,6 +10595,11 @@ _updateMobileButtons(){
   // 无人机操控时收起人类的换弹/切枪/技能/轮盘按钮
   for (const n of ['reload', 'switchWeapon', 'throwWheel', 'skill1', 'skill2', 'ads', 'holdBreath', 'lean_left', 'lean_right']) {
     if (buttons[n]) buttons[n].style.display = droneMode ? 'none' : '';
+  }
+  // 尾击按钮只对 Prazer 显示，无人机操控时隐藏
+  if (buttons.tailStrike) {
+    const canTail = !!(p && p.charSpec && p.charSpec.prazer && !droneMode);
+    buttons.tailStrike.style.display = canTail ? '' : 'none';
   }
 
   // ★ 移动端技能按钮显示真实技能名（永远不再显示「技能1/技能2」或键位字母）
@@ -10759,34 +11437,6 @@ _trySearchContainer(){
     this._log('无人机投下 ' + this.engine.i18n.t(def.name) + '（剩余 ' + d.payload[type] + '）', 'p');
   }
 
-  // 无人机的“投掷物”：从空中抛下一枚标记信标，落地后标记范围内敌人
-  _droneDropBeacon(p){
-    const d = this.drones && this.drones[0];
-    if (!d || !d.alive) return;
-    if (d.beaconCd && this.time < d.beaconCd) return;
-    d.beaconCd = this.time + 8;
-    const cam = this.engine.renderer.camera;
-    const dir = new THREE.Vector3();
-    cam.getWorldDirection(dir);
-    const origin = new THREE.Vector3(d.mesh.position.x, d.mesh.position.y - 0.3, d.mesh.position.z);
-    const geo = new THREE.SphereGeometry(0.18, 8, 6);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x66e8ff, emissive: 0x1a5a7a, emissiveIntensity: 1.0 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(origin);
-    this.engine.renderer.scene.add(mesh);
-    this.projectiles.push({
-      owner: p, mesh,
-      pos: origin.clone(),
-      vel: new THREE.Vector3(dir.x * 12, dir.y * 12 + 1.5, dir.z * 12),
-      fuse: 2.0,
-      damage: 0,
-      radius: 18,
-      def: { effect: 'marker', fuse: 2.0, radius: 18, name: '标记信标' },
-      effect: 'marker',
-      name: '标记信标',
-    });
-    this._log('无人机投出标记信标', 'p');
-  }
 
   _destroyDrone(d){
     if (!d || !d.alive) return;
@@ -11596,6 +12246,7 @@ _trySearchContainer(){
     if (!best) {
       if (el.style.display !== 'none') el.style.display = 'none';
       this._careAlly = null;
+      this._allyCareOpen = false;
       return;
     }
     this._careAlly = best;
@@ -11605,7 +12256,8 @@ _trySearchContainer(){
     const effectSig = Array.from(st.effects.keys()).join(',');
     const medSig = meds.map(m => m.uid + ':' + (m.qty || 1)).join(',');
     const sig = best.allyIndex + ':' + Math.round(st.healthQuality) + ':' + Math.round(st.blood) + ':'
-      + (st.isDowned() ? 1 : 0) + ':' + effectSig + ':' + medSig + ':' + best.alive;
+      + (st.isDowned() ? 1 : 0) + ':' + effectSig + ':' + medSig + ':' + best.alive
+      + ':' + (this._allyCareOpen ? 1 : 0);
     if (sig === this._allyCareSig && el.style.display !== 'none') return;
     this._allyCareSig = sig;
 
@@ -11641,6 +12293,18 @@ _trySearchContainer(){
     } else {
       medHtml = '<div style="color:#6f8fae;font-size:9px;margin-top:4px">你没有可用的医疗用品</div>';
     }
+    if (!this._allyCareOpen) {
+      // 默认只显示一行队友状态，按 U 才展开部位/药品，避免站旁边时糊满屏幕
+      el.innerHTML =
+        '<div class="ac-title">' + this._esc(best.allyName || '队友') + ' · <span style="color:' + col + '">'
+        + (st.isDowned() ? '倒地' : this._esc(st.getHealthText())) + '</span>'
+        + ' <span style="color:#8fb0c8;font-weight:400">' + hp + '%</span></div>'
+        + '<div style="font-size:9px;color:#8fb0c8">距离 ' + bestD.toFixed(1) + 'm · 按 U 查看伤情/用药</div>';
+      el.style.pointerEvents = 'none';
+      el.style.display = 'block';
+      return;
+    }
+    el.style.pointerEvents = 'auto';
     el.innerHTML =
       '<div class="ac-title">' + this._esc(best.allyName || '队友') + ' · ' + (st.isDowned() ? '倒地' : this._esc(st.getHealthText())) + '</div>' +
       '<div style="font-size:10px;color:#8fb0c8">距离 ' + bestD.toFixed(1) + 'm · 血量 ' + Math.round(st.blood) + '/' + Math.round(st.maxBlood) + ' ml</div>' +
@@ -11648,7 +12312,7 @@ _trySearchContainer(){
       '<div style="font-size:9px;color:#8fb0c8">部位：' + parts + '</div>' +
       '<div style="font-size:9px;color:#8fb0c8;margin-top:2px">状态：' + this._esc(eff) + '</div>' +
       medHtml +
-      '<div style="font-size:8px;color:#5c82a8;margin-top:4px">靠近 4.5m 内可见 · 按 U 锁定鼠标/关闭面板</div>';
+      '<div style="font-size:8px;color:#5c82a8;margin-top:4px">靠近 4.5m 内可见 · 按 U 关闭面板</div>';
     el.style.display = 'block';
     if (!this._allyCareHinted) {
       this._allyCareHinted = true;
@@ -11794,10 +12458,13 @@ _trySearchContainer(){
   }
 
   /* ===================== AI 互救 / 用药 ===================== */
-  _takeMedicalForAI(healer, forRevive = false) {
+  _takeMedicalForAI(healer, forRevive = false, prefer = null) {
     const inv = healer && healer.lootInv;
     if (!inv) return null;
-    const order = forRevive ? ['surgery', 'blood', 'bandage'] : ['bandage', 'blood', 'surgery'];
+    let order = forRevive ? ['surgery', 'blood', 'bandage'] : ['bandage', 'blood', 'surgery'];
+    // 对症下药：出血优先绷带，低血容量优先血浆，其余才用手术包。
+    // 旧版永远先拿绷带，AI 自己低血量时也会把绷带当万能药。
+    if (prefer) order = [prefer, ...order.filter(k => k !== prefer)];
     for (const kind of order) {
       for (const [uid, it] of inv.items) {
         if (!it || it.table !== 'medical') continue;
@@ -11813,22 +12480,44 @@ _trySearchContainer(){
 
   _aiHealByAI(target, healer) {
     if (!target || !target.alive || !target.status) return false;
-    const def = this._takeMedicalForAI(healer, false);
-    if (!def) return false;
     const st = target.status;
-    st.blood = Math.min(st.maxBlood, st.blood + st.maxBlood * 0.1);
-    st.sealBleeding(1);
-    let worst = null, ratio = 1;
-    for (const k in st.parts) {
-      const r = st.parts[k].hp / st.parts[k].maxHp;
-      if (r < ratio) { ratio = r; worst = k; }
+    // 按当前伤情挑药：出血→绷带，低血容量→血浆，否则→手术包/绷带
+    const bleed = st.effectiveBleedLevel ? st.effectiveBleedLevel() : 0;
+    const prefer = bleed > 0 ? 'bandage' : (st.blood < st.maxBlood * 0.72 ? 'blood' : 'surgery');
+    const def = this._takeMedicalForAI(healer, false, prefer);
+    if (!def) return false;
+    const use = def.use || {};
+    const kind = use.kind;
+    if (kind === 'blood') {
+      st.blood = Math.min(st.maxBlood, st.blood + (use.blood || 600));
+      if (bleed > 0) st.sealBleeding(1);
+    } else if (kind === 'surgery') {
+      st.sealBleeding(use.bleedSeal || 2);
+      st.blood = Math.min(st.maxBlood, st.blood + st.maxBlood * 0.12 + (use.blood || 0));
+      let worst = null, ratio = 1;
+      for (const k in st.parts) {
+        const r = st.parts[k].hp / st.parts[k].maxHp;
+        if (r < ratio) { ratio = r; worst = k; }
+      }
+      if (worst) st.parts[worst].hp = Math.min(st.parts[worst].maxHp,
+        st.parts[worst].hp + st.parts[worst].maxHp * 0.15);
+    } else {
+      st.blood = Math.min(st.maxBlood, st.blood + st.maxBlood * 0.08);
+      st.sealBleeding(use.bleedSeal || 1);
+      let worst = null, ratio = 1;
+      for (const k in st.parts) {
+        const r = st.parts[k].hp / st.parts[k].maxHp;
+        if (r < ratio) { ratio = r; worst = k; }
+      }
+      if (worst) st.parts[worst].hp = Math.min(st.parts[worst].maxHp,
+        st.parts[worst].hp + st.parts[worst].maxHp * 0.1);
+      st.addEffect('bandaged', 15, 1);
     }
-    if (worst) st.parts[worst].hp = Math.min(st.parts[worst].maxHp,
-      st.parts[worst].hp + st.parts[worst].maxHp * 0.1);
-    st.addEffect('bandaged', 15, 1);
     st.updateOverallHealth();
     if (healer && healer.isAlly) {
-      this._squadSay(healer.allyName, target === healer ? '给自己包扎一下。' : '给' + (target.allyName || '队友') + '包扎好了。');
+      const done = kind === 'blood' ? '打了一袋血浆。' : (kind === 'surgery' ? '给自己做了手术。' : '给自己包扎一下。');
+      this._squadSay(healer.allyName,
+        target === healer ? done : '给' + (target.allyName || '队友') + '处理好了。');
     }
     return true;
   }
@@ -12411,10 +13100,343 @@ _trySearchContainer(){
     t = Math.max(2, Math.min(70, t));
     const pt = origin.clone().add(dir.clone().multiplyScalar(t));
     pt.y = 0.2;
+    // 无人机在高空俯视时落点可能超出地图；建议点必须落在地图内
+    const half = ((this.mapSpec && this.mapSpec.size) || 200) / 2 - 3;
+    pt.x = Math.max(-half, Math.min(half, pt.x));
+    pt.z = Math.max(-half, Math.min(half, pt.z));
     return pt;
   }
 
+  /* ===================== 队友战术计划 ===================== */
+  _nearestExtract(x, z) {
+    let best = null, bestD = Infinity;
+    for (const ex of (this.extracts || [])) {
+      const d = Math.hypot(ex.x - x, ex.z - z);
+      if (d < bestD) { bestD = d; best = ex; }
+    }
+    return best;
+  }
+
+  _updateSquadPlan(dt) {
+    if (!this.allies || !this.allies.length) return;
+    if (this.time < 8) return;
+    if (this.time < (this._squadPlanT || 0)) return;
+    this._squadPlanT = this.time + 6;
+    const p = this.player;
+    if (!p || !p.body || !p.alive) return;
+    const ex = this._nearestExtract(p.body.position.x, p.body.position.z);
+    const exDist = ex ? Math.hypot(ex.x - p.body.position.x, ex.z - p.body.position.z) : Infinity;
+    const timeLow = this.timeLimit > 0 && (this.timeLimit - this.time) < 75;
+    let plan = 'search';
+    if (ex && (exDist < COMBAT.EXTRACT_RADIUS + 2 || timeLow || (ex.active && ex.timer > 0))) {
+      plan = 'extract';
+    } else if (this._squadOrder && this.time < this._squadOrder.t) {
+      plan = 'order';
+    } else if (this.allies.some(a => a.alive && a.targetEntity)) {
+      plan = 'fight';
+    }
+    if (plan !== this._squadPlan) {
+      const leader = this.allies.find(a => a.alive && a.allyIndex === 0) || this.allies.find(a => a.alive);
+      if (leader) {
+        const line = plan === 'extract' ? '时间不多了，往撤离点靠，别恋战。'
+          : (plan === 'fight' ? '保持火力，别追太深。' : '这一片暂时安全，继续搜。');
+        this._squadSay(leader.allyName, line);
+      }
+    }
+    this._squadPlan = plan;
+    this._squadExtract = ex;
+  }
+
+  /* ===================== AI 导航网格 / A* ===================== */
+  // 纯 CPU 的 2m 网格寻路：不是完美 navmesh，但能解决“所有 AI 直线撞墙”的主问题。
+  // 建筑内部没有多层 navmesh，因此门洞/楼梯仍靠 _avoidObstacles 兜底。
+  _ensureNavGrid() {
+    if (this._navGrid) return this._navGrid;
+    const size = (this.mapSpec && this.mapSpec.size) || 200;
+    const cell = 2.0;
+    const cols = Math.max(8, Math.ceil(size / cell));
+    const rows = cols;
+    const min = -size / 2;
+    const blocked = new Uint8Array(cols * rows);
+    const bodies = [];
+    for (const o of (this.obstacles || [])) if (o && o.body) bodies.push(o.body);
+    for (const c of (this.containers || [])) if (c && c.body) bodies.push(c.body);
+    for (let gy = 0; gy < rows; gy++) {
+      for (let gx = 0; gx < cols; gx++) {
+        const x = min + (gx + 0.5) * cell;
+        const z = min + (gy + 0.5) * cell;
+        let b = 0;
+        for (const body of bodies) {
+          if (this._navBodyBlocked(body, x, z, 0.55)) { b = 1; break; }
+        }
+        blocked[gy * cols + gx] = b;
+      }
+    }
+    this._navGrid = { cell, cols, rows, min, blocked };
+    return this._navGrid;
+  }
+
+  _navBodyBlocked(body, x, z, r) {
+    if (!body) return false;
+    const halfH = body.halfH || (body.height || 2.4) / 2;
+    const y0 = body.yMin !== null && body.yMin !== undefined ? body.yMin : (body.position.y - halfH);
+    const y1 = body.yMax !== null && body.yMax !== undefined ? body.yMax : (body.position.y + halfH);
+    // 脚踝以下可跨/头顶以上可穿，其余都按阻挡处理
+    if (y1 <= 0.45 || y0 >= 2.1) return false;
+    if (body.shape === 'aabb') {
+      return Math.abs(x - body.position.x) < (body.halfW || 0) + r &&
+        Math.abs(z - body.position.z) < (body.halfD || 0) + r;
+    }
+    return Math.hypot(x - body.position.x, z - body.position.z) < (body.radius || 1) + r;
+  }
+
+  _navCellIndex(x, z, g) {
+    const gx = Math.max(0, Math.min(g.cols - 1, Math.floor((x - g.min) / g.cell)));
+    const gy = Math.max(0, Math.min(g.rows - 1, Math.floor((z - g.min) / g.cell)));
+    return gy * g.cols + gx;
+  }
+
+  _navCellCenter(idx, g) {
+    const gx = idx % g.cols;
+    const gy = Math.floor(idx / g.cols);
+    return { x: g.min + (gx + 0.5) * g.cell, z: g.min + (gy + 0.5) * g.cell };
+  }
+
+  _navNearestWalkable(idx, g, maxRing = 4) {
+    if (idx < 0 || idx >= g.blocked.length) return -1;
+    if (!g.blocked[idx]) return idx;
+    const cx = idx % g.cols, cy = Math.floor(idx / g.cols);
+    for (let r = 1; r <= maxRing; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const x = cx + dx, y = cy + dy;
+          if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) continue;
+          const ni = y * g.cols + x;
+          if (!g.blocked[ni]) return ni;
+        }
+      }
+    }
+    return -1;
+  }
+
+  _findNavPath(sx, sz, tx, tz) {
+    const g = this._ensureNavGrid();
+    let start = this._navNearestWalkable(this._navCellIndex(sx, sz, g), g);
+    let goal = this._navNearestWalkable(this._navCellIndex(tx, tz, g), g);
+    if (start < 0 || goal < 0) return null;
+    if (start === goal) return [this._navCellCenter(goal, g)];
+
+    const n = g.blocked.length;
+    const gScore = new Float32Array(n);
+    gScore.fill(Infinity);
+    const came = new Int32Array(n);
+    came.fill(-1);
+    const closed = new Uint8Array(n);
+    const heap = [];
+    const h = (i) => {
+      const ax = i % g.cols, ay = Math.floor(i / g.cols);
+      const bx = goal % g.cols, by = Math.floor(goal / g.cols);
+      return Math.hypot(ax - bx, ay - by);
+    };
+    const push = (idx, f) => {
+      heap.push([f, idx]);
+      let i = heap.length - 1;
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (heap[p][0] <= heap[i][0]) break;
+        const t = heap[p]; heap[p] = heap[i]; heap[i] = t; i = p;
+      }
+    };
+    const pop = () => {
+      const top = heap[0];
+      const last = heap.pop();
+      if (heap.length && last) {
+        heap[0] = last;
+        let i = 0;
+        while (true) {
+          let l = i * 2 + 1, r = l + 1, m = i;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === i) break;
+          const t = heap[m]; heap[m] = heap[i]; heap[i] = t; i = m;
+        }
+      }
+      return top;
+    };
+
+    gScore[start] = 0;
+    push(start, h(start));
+    const dirs = [[1,0,1],[-1,0,1],[0,1,1],[0,-1,1],[1,1,1.414],[1,-1,1.414],[-1,1,1.414],[-1,-1,1.414]];
+    let found = false;
+    while (heap.length) {
+      const cur = pop()[1];
+      if (closed[cur]) continue;
+      closed[cur] = 1;
+      if (cur === goal) { found = true; break; }
+      const cx = cur % g.cols, cy = Math.floor(cur / g.cols);
+      for (const [dx, dz, cost] of dirs) {
+        const nx = cx + dx, ny = cy + dz;
+        if (nx < 0 || ny < 0 || nx >= g.cols || ny >= g.rows) continue;
+        const ni = ny * g.cols + nx;
+        if (g.blocked[ni] || closed[ni]) continue;
+        // 斜向不允许切墙角
+        if (dx !== 0 && dz !== 0) {
+          if (g.blocked[cy * g.cols + nx] || g.blocked[ny * g.cols + cx]) continue;
+        }
+        const ng = gScore[cur] + cost;
+        if (ng < gScore[ni]) {
+          gScore[ni] = ng;
+          came[ni] = cur;
+          push(ni, ng + h(ni));
+        }
+      }
+    }
+    if (!found) return null;
+    const cells = [];
+    let cur = goal;
+    for (let guard = 0; guard < n && cur !== -1; guard++) {
+      cells.push(cur);
+      if (cur === start) break;
+      cur = came[cur];
+    }
+    if (cells[cells.length - 1] !== start) return null;
+    cells.reverse();
+    const path = cells.map(idx => this._navCellCenter(idx, g));
+    if (path.length) path.shift(); // 起点格不需要作为路点
+    return path;
+  }
+
+  _navLineClear(sx, sz, tx, tz) {
+    const dx = tx - sx, dz = tz - sz;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.15) return true;
+    const filter = body => body.userData && (body.userData.type === 'obstacle' || body.userData.type === 'container');
+    // 小腿高度也要探：矮墙/箱子在 1.05m 视线高度可能“看得过去”，但身体过不去
+    const low = this.physics.raycast(sx, 0.55, sz, dx / len, 0, dz / len, len, filter);
+    if (low && low.t < len - 0.25) return false;
+    const hit = this.physics.raycast(sx, 1.05, sz, dx / len, 0, dz / len, len, filter);
+    return !hit || hit.t >= len - 0.25;
+  }
+
+  // 所有 AI 的目标移动统一入口：视线直通就走直线，被挡就 A* 绕路。
+  _aiMoveTo(enemy, tx, tz, speed, dt) {
+    if (!enemy || !enemy.body) return false;
+    const ex = enemy.body.position.x, ez = enemy.body.position.z;
+    const dx0 = tx - ex, dz0 = tz - ez;
+    const dist = Math.hypot(dx0, dz0);
+    if (dist < 0.2) {
+      enemy.body.velocity.x = 0;
+      enemy.body.velocity.z = 0;
+      return true;
+    }
+    const setDirect = () => {
+      enemy.angle = Math.atan2(dz0, dx0);
+      enemy.body.velocity.x = dx0 / dist * speed;
+      enemy.body.velocity.z = dz0 / dist * speed;
+    };
+    if (dist < 1.2 || this._navLineClear(ex, ez, tx, tz)) {
+      enemy._navPath = null;
+      setDirect();
+      return true;
+    }
+    const now = this.time;
+    const goalMoved = !enemy._navGoal || Math.hypot(tx - enemy._navGoal.x, tz - enemy._navGoal.z) > 2.2;
+    if (goalMoved || now > (enemy._navRepathAt || 0) || !enemy._navPath || (enemy._stuckT || 0) > 0.9) {
+      enemy._navPath = this._findNavPath(ex, ez, tx, tz);
+      enemy._navGoal = { x: tx, z: tz };
+      enemy._navRepathAt = now + 1.4 + Math.random() * 0.6;
+      enemy._navIndex = 0;
+      enemy._stuckT = 0;
+    }
+    const path = enemy._navPath;
+    if (!path || !path.length) { setDirect(); return true; }
+    let idx = enemy._navIndex || 0;
+    while (idx < path.length - 1) {
+      const wp0 = path[idx];
+      if (Math.hypot(wp0.x - ex, wp0.z - ez) > 0.7) break;
+      idx++;
+    }
+    enemy._navIndex = idx;
+    const wp = path[Math.min(idx, path.length - 1)];
+    const dx = wp.x - ex, dz = wp.z - ez;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.15) { setDirect(); return true; }
+    enemy.angle = Math.atan2(dz, dx);
+    enemy.body.velocity.x = dx / d * speed;
+    enemy.body.velocity.z = dz / d * speed;
+    return true;
+  }
+
+  /* ===================== 友方 AI 探索记忆 ===================== */
+  // 10m 一格；玩家与所有活着的队友每 0.5s 把周围 3×3 格记为已探索。
+  // 这个集合只服务友方 AI，不参与战斗/伤害/存档。
+  _updateExplorationMemory(dt) {
+    if (!this.allies || !this.allies.length) return;
+    if (!this._exploredCells) this._exploredCells = new Set();
+    if (this._exploreTick > 0) { this._exploreTick -= dt; return; }
+    this._exploreTick = 0.5;
+    if (this.player && this.player.alive) this._markExplored(this.player.body.position.x, this.player.body.position.z);
+    for (const a of this.allies) {
+      if (a && a.alive && a.body) this._markExplored(a.body.position.x, a.body.position.z);
+    }
+  }
+
+  _markExplored(x, z, r = 1) {
+    if (!this._exploredCells) this._exploredCells = new Set();
+    const cs = 10;
+    const cx = Math.floor(x / cs), cz = Math.floor(z / cs);
+    for (let i = -r; i <= r; i++) {
+      for (let j = -r; j <= r; j++) this._exploredCells.add((cx + i) + ',' + (cz + j));
+    }
+  }
+
+  _isExplored(x, z) {
+    if (!this._exploredCells) return false;
+    return this._exploredCells.has(Math.floor(x / 10) + ',' + Math.floor(z / 10));
+  }
+
+  // 给队友挑一个“没去过、看得见、别离队长太远”的探索点。
+  // 不用完整 A*：候选点先做视线检查，移动中再由 _avoidObstacles 绕墙。
+  _pickAllyExplorePoint(enemy) {
+    const p = this.player;
+    if (!enemy || !enemy.body || !p || !p.body || !this.mapSpec) return null;
+    const half = (this.mapSpec.size || 200) / 2 - 3;
+    const ex = enemy.body.position.x, ez = enemy.body.position.z;
+    const py = enemy.body.position.y || 1;
+    let best = null, bestScore = -Infinity;
+    for (let i = 0; i < 32; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 10 + Math.random() * 28;
+      const x = Math.max(-half, Math.min(half, ex + Math.cos(ang) * dist));
+      const z = Math.max(-half, Math.min(half, ez + Math.sin(ang) * dist));
+      if (Math.hypot(x - ex, z - ez) < 7) continue;
+      if (this._isExplored(x, z)) continue;
+      const dp = Math.hypot(x - p.body.position.x, z - p.body.position.z);
+      if (dp > 48) continue;
+      // 别两个队友抢同一个角落
+      let taken = false;
+      for (const mate of (this.allies || [])) {
+        if (!mate || mate === enemy || !mate.alive || !mate._explorePoint) continue;
+        if (Math.hypot(mate._explorePoint.x - x, mate._explorePoint.z - z) < 9) { taken = true; break; }
+      }
+      if (taken) continue;
+      const dx = x - ex, dz = z - ez;
+      const len = Math.hypot(dx, dz) || 1;
+      // 视线检查：从胸口高度看向目标点，墙体/大箱子后面的点不选
+      const hit = this.physics.raycast(ex, py + 0.4, ez, dx / len, 0, dz / len, len,
+        body => body.userData && (body.userData.type === 'obstacle' || body.userData.type === 'container'));
+      if (hit && hit.t < len - 1.2) continue;
+      // 偏好 15~22m、离队长 15~35m 的点，避免全队挤在出生点
+      let score = 20 - Math.abs(dist - 18) - Math.abs(dp - 25) * 0.18 + Math.random() * 3;
+      if (dp < 10) score -= 4;
+      if (score > bestScore) { bestScore = score; best = { x, z }; }
+    }
+    return best;
+  }
+
   _issueSquadOrder(type) {
+    if (this.replayMode) return;
     if (!this.allies || !this.allies.some(a => a.alive)) {
       this._hint('当前没有可指挥的友方 AI', 'y');
       return;
@@ -12432,6 +13454,7 @@ _trySearchContainer(){
   }
 
   _spawnSquadOrderMarker(x, z, color) {
+    if (this.replayMode) return;
     const group = new THREE.Group();
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.65, 0.95, 28), mat);
@@ -12444,12 +13467,16 @@ _trySearchContainer(){
     group.add(beam);
     group.position.set(x, 0, z);
     this.engine.renderer.scene.add(group);
+    if (!this._squadMarkers) this._squadMarkers = [];
+    this._squadMarkers.push(group);
     const start = performance.now();
     const step = () => {
       const t = (performance.now() - start) / 5000;
       if (t >= 1) {
         this.engine.renderer.scene.remove(group);
         group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        const idx = this._squadMarkers ? this._squadMarkers.indexOf(group) : -1;
+        if (idx >= 0) this._squadMarkers.splice(idx, 1);
         return;
       }
       const s = 1 + Math.sin(t * Math.PI * 8) * 0.08;
@@ -12459,6 +13486,15 @@ _trySearchContainer(){
       requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  }
+
+  _clearSquadMarkers() {
+    if (!this._squadMarkers) { this._squadMarkers = []; return; }
+    for (const group of this._squadMarkers) {
+      this.engine.renderer.scene.remove(group);
+      group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    }
+    this._squadMarkers.length = 0;
   }
 
   _updateSquadOrderUI() {
@@ -12480,7 +13516,7 @@ _trySearchContainer(){
 
   /* ===================== 友方小队对话（纯文字，无框） ===================== */
   _squadSay(name, text) {
-    if (!text) return;
+    if (!text || this.replayMode) return;
     const line = { name: name || '队友', text: String(text), t: this.time };
     const last = this._squadChat[this._squadChat.length - 1];
     if (last && last.name === line.name && last.text === line.text && this.time - last.t < 3) return;
@@ -12492,13 +13528,13 @@ _trySearchContainer(){
   _renderSquadChat() {
     const el = document.getElementById('squad-chat');
     if (!el) return;
-    // 只显示最近几条；历史保留在滚动区里，玩家可以往上翻
-    const lines = this._squadChat.slice(-12);
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    // ★ 顶部战术字幕：只显示最近 4 条，单行省略，不接收滚动事件。
+    //   历史仍保留在 _squadChat 里供回放/调试，但不再撑出一个可误触的滚动区。
+    const lines = this._squadChat.slice(-4);
     el.innerHTML = lines.map(l =>
-      '<div class="sc-line"><span class="sc-name">' + this._esc(l.name) + '</span>' + this._esc(l.text) + '</div>'
+      '<div class="sc-line"><span class="sc-name">' + this._esc(l.name) + '</span>'
+      + '<span class="sc-text">' + this._esc(l.text) + '</span></div>'
     ).join('');
-    if (atBottom) el.scrollTop = el.scrollHeight;
   }
 
    _checkPlayerEffects(dt) {
@@ -13075,10 +14111,6 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   };
 
   // 无人机专用投掷按钮（触屏/鼠标均可）
-  document.getElementById('drone-throw-btn')?.addEventListener('click', (ev) => {
-    ev.preventDefault(); ev.stopPropagation();
-    if (this.world && this.world._droneDropBeacon) this.world._droneDropBeacon(this.world.player);
-  });
   document.getElementById('drone-frag-btn')?.addEventListener('click', (ev) => {
     ev.preventDefault(); ev.stopPropagation();
     if (this.world && this.world._droneThrowPayload) this.world._droneThrowPayload(this.world.player, 'frag');
@@ -13087,6 +14119,13 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
     ev.preventDefault(); ev.stopPropagation();
     if (this.world && this.world._droneThrowPayload) this.world._droneThrowPayload(this.world.player, 'emp');
   });
+  // 无人机 HUD 的前进/撤退点：移动端没有 P/O 键盘也能在鸟瞰视角下指挥队友
+  for (const [id, type] of [['drone-advance-btn', 'advance'], ['drone-retreat-btn', 'retreat']]) {
+    document.getElementById(id)?.addEventListener('click', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      if (this.world) this.world._issueSquadOrder(type);
+    });
+  }
 
   // 靶场设置
   document.getElementById('training-settings-btn')?.addEventListener('click', () => this._openTrainingModal());
@@ -14964,6 +16003,10 @@ _bindCameraControls() {
   if (this.world) this.world._useSkill(1);
 } else if (name === 'throwWheel') {
   if (this.world) this.world._toggleNadeWheel();
+} else if (name === 'medWheel') {
+  if (this.world) this.world._toggleMedWheel();
+} else if (name === 'tailStrike') {
+  if (this.world) this.world._tailStrike(this.world.player);
 } else if (name === 'throw') {
   if (this.world) this.world._quickThrow(this.world.player);
 } else if (name === 'droneControl') {

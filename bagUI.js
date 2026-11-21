@@ -750,12 +750,21 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         const pItem = inv.items.get(pUid);
         const pDef = pItem ? inv.getDef(pItem) : null;
         const pPct = pItem && pItem.durMax > 0 ? Math.round(pItem.dur / pItem.durMax * 100) : 0;
-        html += `<div style="margin-top:6px;padding:5px 6px;background:rgba(20,32,46,.7);border-left:3px solid #7fd0ff;border-radius:4px">
-          <div style="color:#9fd8ff">内嵌插板：${pItem ? this._esc(this.engine.i18n.t(pDef ? pDef.name : '?')) : '—'} · ${pPct}%</div>
-          ${inv === this.inv
-            ? `<button class="bagui-btn bagui-mini" data-remove-plate="${uid}" style="margin-top:4px">取出插板</button>`
-            : `<button class="bagui-btn bagui-mini" data-take-plate="${uid}" style="margin-top:4px">取下插板带走</button>`}
-        </div>`;
+        if (pItem && inv === this.inv && !this._lootTarget) {
+          // 把插板渲染成和背包相同的 1×1 网格格，直接拖出即可取出
+          const pw = pItem.w || 1, ph = pItem.h || 1;
+          html += `<div class="bagui-attach-title">内嵌插板 · ${pPct}%</div>`;
+          html += `<div class="bagui-grid-wrap" data-container="sub:${uid}:plate" style="width:${pw * CELL}px;height:${ph * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px">`;
+          html += this._itemHtml(pUid, { x: 0, y: 0, w: pw, h: ph, rotated: false }, `sub:${uid}:plate`, inv);
+          html += `</div><div style="font-size:9px;color:#6f8fae;margin-top:2px">把插板拖到背包/胸挂即可取出</div>`;
+        } else {
+          html += `<div style="margin-top:6px;padding:5px 6px;background:rgba(20,32,46,.7);border-left:3px solid #7fd0ff;border-radius:4px">
+            <div style="color:#9fd8ff">内嵌插板：${pItem ? this._esc(this.engine.i18n.t(pDef ? pDef.name : '?')) : '—'} · ${pPct}%</div>
+            ${inv === this.inv
+              ? `<button class="bagui-btn bagui-mini" data-remove-plate="${uid}" style="margin-top:4px">取出插板</button>`
+              : `<button class="bagui-btn bagui-mini" data-take-plate="${uid}" style="margin-top:4px">取下插板带走</button>`}
+          </div>`;
+        }
       } else if (inv === this.inv) {
         html += `<div style="font-size:10px;color:#6f8fae;margin-top:6px">未装插板（把插板拖到这件护甲上即可装入）</div>`;
       }
@@ -925,7 +934,21 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       html += '</div>';
     }
 
-    if (item.innerGrid && inv === this.inv) {
+    if (item.innerGrid && inv === this.inv && !this._lootTarget && item.innerGrid.w > 0 && item.innerGrid.h > 0) {
+      // ★ 不再弹一个“打开内部网格”按钮：直接把内部网格嵌在详情里，
+      //   与背包主网格同构，物品可拖进拖出。
+      html += `<div class="bagui-attach-title">内部网格 ${item.innerGrid.w}×${item.innerGrid.h}</div>`;
+      html += `<div class="bagui-grid-wrap" data-container="inner:${uid}" style="width:${item.innerGrid.w * CELL}px;height:${item.innerGrid.h * CELL}px;position:relative;background:rgba(10,18,30,.8);border:1px solid rgba(80,125,175,.2);border-radius:4px;max-width:100%;overflow:auto">`;
+      for (let y = 0; y < item.innerGrid.h; y++) {
+        for (let x = 0; x < item.innerGrid.w; x++) {
+          html += `<div class="bagui-cell" style="left:${x * CELL}px;top:${y * CELL}px;width:${CELL}px;height:${CELL}px"></div>`;
+        }
+      }
+      for (const [childUid, pos] of item.innerGrid.items) {
+        html += this._itemHtml(childUid, pos, `inner:${uid}`, inv);
+      }
+      html += `</div><div style="font-size:9px;color:#6f8fae;margin-top:2px">物品可直接拖进/拖出这个内部网格</div>`;
+    } else if (item.innerGrid && inv === this.inv) {
       html += `<button class="bagui-btn" id="bagui-open-inner" data-uid="${uid}">打开内部网格 (${item.innerGrid.w}x${item.innerGrid.h})</button>`;
     }
 
@@ -1089,16 +1112,18 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         const hostUid = btn.dataset.removePlate;
         const pUid = inv.detachSubSlot(hostUid, 'plate');
         if (!pUid) return;
-        // 战局内只能放进随身容器；大厅配装/仓库里随身容器可能是关闭的，
-        // 此时退回仓库，保证插板绝不会被永久锁死在护甲子槽里。
-        let placed = inv.addToContainer('bag', pUid).ok
-          || inv.addToContainer('chest', pUid).ok
-          || inv.addToContainer('pocket', pUid).ok
-          || inv.addToContainer('safe', pUid).ok;
-        if (!placed && !inMatchNow) placed = inv.addToContainer('stash', pUid).ok;
+        // 优先回安装前腾出的原格；插板本来就在身上，回格子时不再重复计重。
+        let placed = this._restoreStoredPos(inv, pUid);
+        if (!placed) {
+          placed = inv.addToContainer('bag', pUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('chest', pUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('pocket', pUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('safe', pUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('stash', pUid, { ignoreWeight: true }).ok;
+        }
         if (!placed) {
           inv.attachToSubSlot(hostUid, 'plate', pUid);
-          this._toast('背包没有空间，无法取出插板（可直接把新插板拖上来替换）');
+          this._toast('背包、胸挂、口袋与仓库都没有空间，无法取出插板');
         } else {
           const worldNow = this.engine.app && this.engine.app.world;
           if (worldNow && worldNow._syncArmorFromInventory) worldNow._syncArmorFromInventory();
@@ -1140,14 +1165,20 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         if (!wItem || !wItem.attachments || !wItem.attachments[slotName]) return;
         const aUid = inv.detachFrom(wUid, slotName);
         if (!aUid) return;
-        const placed = inv.addToContainer('bag', aUid).ok
-          || inv.addToContainer('chest', aUid).ok
-          || inv.addToContainer('pocket', aUid).ok
-          || inv.addToContainer('safe', aUid).ok;
+        // 优先回到安装前腾出的原格；其次背包/胸挂/口袋/安全箱；最后仓库兜底。
+        // 配件本来就在身上，重新放回格子不应再被“负重硬上限”拦一次。
+        let placed = this._restoreStoredPos(inv, aUid);
+        if (!placed) {
+          placed = inv.addToContainer('bag', aUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('chest', aUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('pocket', aUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('safe', aUid, { ignoreWeight: true }).ok
+            || inv.addToContainer('stash', aUid, { ignoreWeight: true }).ok;
+        }
         if (!placed) {
           // 放不下就装回去，绝不把配件丢到虚空
           inv.attachTo(wUid, slotName, aUid);
-          this._toast('背包没有空间，无法拆下配件');
+          this._toast('背包、胸挂、口袋与仓库都没有空间，无法拆下配件');
         } else {
           const worldNow = this.engine.app && this.engine.app.world;
           if (worldNow && worldNow._syncWeaponsFromInventory) worldNow._syncWeaponsFromInventory();
@@ -1187,6 +1218,8 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         }
       };
     }
+    // 详情里的内嵌网格物品也必须能拖拽；否则“同构格子”只是贴图
+    if (el.querySelector('.bagui-item.has-item')) this._bindItemEvents(el);
   }
 
  _loadAmmoFrom(weaponUid, ammoUid, count) {
@@ -1426,6 +1459,13 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     
     const wrap = tgt.closest('.bagui-grid-wrap');
 
+    // 详情里的内嵌插板格：把插板拖到这格 = 装入护甲
+    const subSlotWrap = tgt.closest('.bagui-grid-wrap[data-container^="sub:"]');
+    if (subSlotWrap && srcItem && srcItem.table === 'vestPlate') {
+      const parts = String(subSlotWrap.dataset.container || '').split(':');
+      if (parts[1]) { this._installPlateDrop(uid, parts[1], srcInv); return; }
+    }
+
     // 装备槽判定：左右两侧的装备槽分属不同 Inventory（左玩家 / 右尸体）
     const equipSlotEl = tgt.closest('.bagui-slot[data-src-type="equip"]') || tgt.closest('.bagui-item[data-src-type="equip"]');
     const equipSlot = equipSlotEl ? equipSlotEl.dataset.srcSlot : null;
@@ -1479,8 +1519,11 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         if (t && t.table === 'vestFiber') fiberUid = targetUid;
       }
       if (fiberUid) { this._installPlateDrop(uid, fiberUid, srcInv); return; }
-      this._toast('插板只能装进护甲纤维：把插板拖到「护甲」上');
-      return;
+      // 不是拖到护甲上：如果落点是普通网格，就按普通挪位处理（从内嵌格拖出到背包）
+      if (!wrap) {
+        this._toast('插板只能装进护甲纤维：把插板拖到「护甲」上');
+        return;
+      }
     }
 
     // ★ 兼容装备槽：优先走装备逻辑（含玩家↔尸体双向交换），
@@ -2043,37 +2086,57 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
       this._toast(why);
       return;
     }
+    // 记录配件安装前所在的格子：拆下时优先回到原格，避免“包里明明很大却说没位置”
+    const storedFrom = this._captureStoredPos(this.inv, aid);
+    if (storedFrom) attach._storedFrom = storedFrom;
     // 先确认“被换下的旧配件”有地方放，避免装上新配件后旧配件变成无归属幽灵
     const oldAid = weapon.attachments && weapon.attachments[slot];
     const oldItem = oldAid && this.inv.items.get(oldAid);
     if (oldItem) {
-      const fits = ['bag', 'chest', 'pocket', 'safe', 'stash'].some(name => {
-        const c = this.inv.containers[name];
-        return !!(c && c.isActive && this.inv._findSlot(c, oldItem.w, oldItem.h, false));
-      });
+      const fits = this._storedPosFree(this.inv, oldItem._storedFrom, oldAid) ||
+        ['bag', 'chest', 'pocket', 'safe', 'stash'].some(name => {
+          const c = this.inv.containers[name];
+          return !!(c && c.isActive && this.inv._findSlot(c, oldItem.w, oldItem.h, false));
+        });
       if (!fits) { this._toast('没有空间安放被换下的配件，已取消安装'); return; }
     }
     const res = this.inv.attachTo(weaponUid, slot, aid);
     if (!res.ok) { this._toast('安装失败'); return; }
     // 被替换下来的旧配件回到玩家背包/胸挂，不能凭空消失
     if (res.swapped && this.inv.items.get(res.swapped)) {
-      let back = this.inv.addToContainer('bag', res.swapped).ok
-        || this.inv.addToContainer('chest', res.swapped).ok
-        || this.inv.addToContainer('pocket', res.swapped).ok
-        || this.inv.addToContainer('safe', res.swapped).ok
-        || this.inv.addToContainer('stash', res.swapped).ok;
+      let back = this._restoreStoredPos(this.inv, res.swapped);
+      if (!back) {
+        back = this.inv.addToContainer('bag', res.swapped, { ignoreWeight: true }).ok
+          || this.inv.addToContainer('chest', res.swapped, { ignoreWeight: true }).ok
+          || this.inv.addToContainer('pocket', res.swapped, { ignoreWeight: true }).ok
+          || this.inv.addToContainer('safe', res.swapped, { ignoreWeight: true }).ok
+          || this.inv.addToContainer('stash', res.swapped, { ignoreWeight: true }).ok;
+      }
       if (!back) {
         const world = this.engine.app && this.engine.app.world;
         if (world && world._dropItemToGround) back = world._dropItemToGround(res.swapped);
         if (!back) {
-          // 最后一层兜底：撤销新配件，装回旧配件，绝不留幽灵槽位
+          // 最后一层兜底：撤销新配件，装回旧配件，绝不留幽灵槽位。
+          // ★ 撤销前必须把“新配件”放回它原来的格子，否则它的 parentOf 会被清空，
+          //   变成一个不在任何容器里的幽灵 UID。
           this.inv.detachFrom(weaponUid, slot);
+          if (!this._restoreStoredPos(this.inv, aid)) {
+            this.inv.addToContainer('bag', aid, { ignoreWeight: true }).ok
+              || this.inv.addToContainer('chest', aid, { ignoreWeight: true }).ok
+              || this.inv.addToContainer('pocket', aid, { ignoreWeight: true }).ok
+              || this.inv.addToContainer('safe', aid, { ignoreWeight: true }).ok
+              || this.inv.addToContainer('stash', aid, { ignoreWeight: true }).ok;
+          }
           this.inv.attachTo(weaponUid, slot, res.swapped);
           this._toast('没有空间安放被替换的配件，已撤销替换');
           this.refresh();
           return;
         }
       }
+      // 旧配件的新落点就是下次拆下时的首选回格，避免连续换装后总是兜底
+      const newPos = this._captureStoredPos(this.inv, res.swapped);
+      const newItem = this.inv.items.get(res.swapped);
+      if (newPos && newItem) newItem._storedFrom = newPos;
     }
     const world = this.engine.app && this.engine.app.world;
     if (world && world._syncWeaponsFromInventory) world._syncWeaponsFromInventory();
@@ -2096,6 +2159,9 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
     }
     const plate = this.inv.items.get(pid);
     if (!plate || plate.table !== 'vestPlate') return;
+    // 记录新插板安装前的位置：以后取下时优先回原格
+    const plateFrom = this._captureStoredPos(this.inv, pid);
+    if (plateFrom) plate._storedFrom = plateFrom;
 
     // 记录插板移动前的容器坐标，用于安放被替换下来的旧插板
     const parent = this.inv.parentOf.get(pid);
@@ -2120,10 +2186,11 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
         const c = this.inv.containers[oldContainer];
         if (c) placed = this._placeAt(oldContainer, c, r.swapped, oldPos.x, oldPos.y, oldPos.rotated, this.inv).ok;
       }
-      // 2) 退到随身容器
+      // 2) 回旧插板原来的格子，再退到随身容器；旧插板本来就在身上，不重复计重
+      if (!placed) placed = this._restoreStoredPos(this.inv, r.swapped);
       if (!placed) {
         for (const t of ['bag', 'chest', 'pocket', 'safe']) {
-          if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+          if (this.inv.addToContainer(t, r.swapped, { ignoreWeight: true }).ok) { placed = true; break; }
         }
       }
       // 3) 仍然放不下：撤销本次替换，保持原状
@@ -2131,13 +2198,14 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
         const newPlate = this.inv.detachSubSlot(fiberUid, 'plate');
         this.inv.installPlate(fiberUid, r.swapped);
         let newPlaced = false;
-        if (newPlate && oldContainer && oldPos) {
+        if (newPlate) newPlaced = this._restoreStoredPos(this.inv, newPlate);
+        if (newPlate && !newPlaced && oldContainer && oldPos) {
           const c = this.inv.containers[oldContainer];
           if (c) newPlaced = this._placeAt(oldContainer, c, newPlate, oldPos.x, oldPos.y, oldPos.rotated, this.inv).ok;
         }
         if (newPlate && !newPlaced) {
           for (const t of ['bag', 'chest', 'pocket', 'safe', 'stash']) {
-            if (this.inv.addToContainer(t, newPlate).ok) { newPlaced = true; break; }
+            if (this.inv.addToContainer(t, newPlate, { ignoreWeight: true }).ok) { newPlaced = true; break; }
           }
         }
         this._toast('没有空间安放被换下的插板，已撤销替换');
@@ -2182,6 +2250,63 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
     item.rotated = rotated;
     inv.parentOf.set(uid, containerName.startsWith('inner:') ? containerName : 'c:' + containerName);
     return { ok: true };
+  }
+
+  // 记录/恢复物品原来的网格位置（配件、插板拆下时优先回原格）
+  _captureStoredPos(inv, uid) {
+    if (!inv || !uid) return null;
+    const parent = inv.parentOf.get(uid);
+    if (!parent) return null;
+    if (parent.startsWith('c:')) {
+      const name = parent.slice(2);
+      // 搜刮临时容器会随界面关闭失效，不把“回原格”记录到 loot
+      if (name === 'loot') return null;
+      const c = inv.containers[name];
+      const pos = c && c.items.get(uid);
+      return pos ? { kind: 'c', name, x: pos.x, y: pos.y, rotated: !!pos.rotated } : null;
+    }
+    if (parent.startsWith('inner:')) {
+      const hostUid = parent.slice(6);
+      const host = inv.items.get(hostUid);
+      const pos = host && host.innerGrid && host.innerGrid.items.get(uid);
+      return pos ? { kind: 'inner', hostUid, x: pos.x, y: pos.y, rotated: !!pos.rotated } : null;
+    }
+    return null;
+  }
+
+  _storedPosFree(inv, from, uid) {
+    if (!inv || !from || !uid) return false;
+    const item = inv.items.get(uid);
+    if (!item) return false;
+    let grid = null;
+    if (from.kind === 'c') {
+      const c = inv.containers[from.name];
+      if (c && c.isActive) grid = c;
+    } else if (from.kind === 'inner') {
+      const host = inv.items.get(from.hostUid);
+      if (host && host.innerGrid) grid = host.innerGrid;
+    }
+    if (!grid) return false;
+    const w = from.rotated ? item.h : item.w;
+    const h = from.rotated ? item.w : item.h;
+    return inv._regionFree(grid, from.x, from.y, w, h);
+  }
+
+  _restoreStoredPos(inv, uid) {
+    const item = inv && inv.items.get(uid);
+    if (!item || !item._storedFrom) return false;
+    const from = item._storedFrom;
+    if (from.kind === 'c') {
+      const c = inv.containers[from.name];
+      if (!c || !c.isActive) return false;
+      return this._placeAt(from.name, c, uid, from.x, from.y, from.rotated, inv).ok;
+    }
+    if (from.kind === 'inner') {
+      const host = inv.items.get(from.hostUid);
+      if (!host || !host.innerGrid) return false;
+      return this._placeAt('inner:' + from.hostUid, host.innerGrid, uid, from.x, from.y, from.rotated, inv).ok;
+    }
+    return false;
   }
 
   _restoreTo(uid, parent) {

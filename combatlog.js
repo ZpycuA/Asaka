@@ -34,8 +34,12 @@ const PART_NAMES = {
 
 export const FILTER_GROUPS = {
   all: () => true,
-  dealt: e => e.type === 'damage_dealt' || e.type === 'kill' || e.type === 'shot_fired',
-  taken: e => e.type === 'damage_taken' || e.type === 'downed' || e.type === 'revived' || e.type === 'coupling_hit' || e.type === 'death',
+  // ★ 敌人被击倒属于“造成/打出”的战果，不能放进“承受”；
+  //   只有 self=true（玩家自己倒地）才归入承受。
+  dealt: e => e.type === 'damage_dealt' || e.type === 'kill' || e.type === 'shot_fired'
+    || (e.type === 'downed' && !e.self),
+  taken: e => e.type === 'damage_taken' || (e.type === 'downed' && !!e.self)
+    || e.type === 'revived' || e.type === 'coupling_hit' || e.type === 'death',
   items: e => e.type === 'loot' || e.type === 'search' || e.type === 'extract' || e.type === 'medical_use',
   throwables: e => e.type === 'nade_throw',
   skills: e => e.type === 'skill_use',
