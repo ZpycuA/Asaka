@@ -7,7 +7,7 @@ export class MarketSystem {
 
   generatePrices() {
     const content = this.engine.content;
-    const tables = ['weapons', 'ammo', 'melee', 'nade', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig', 'valuables', 'medical'];
+    const tables = ['weapons', 'ammo', 'melee', 'nade', 'attach', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig', 'valuables', 'medical'];
     
     for (const t of tables) {
       for (const item of content.all(t)) {

@@ -94,18 +94,13 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #game-screen.on{display:block}
 #hud{position:absolute;inset:0;pointer-events:none;z-index:30}
 
-#fx-filter,#fx-vignette,#fx-coupling,#fx-hit-flash,#fx-skill,#fx-skill-lines{position:absolute;inset:0;pointer-events:none;transition:opacity 0.3s}
+#fx-filter,#fx-vignette,#fx-coupling,#fx-hit-flash,#fx-skill{position:absolute;inset:0;pointer-events:none;transition:opacity 0.3s}
 #fx-filter{z-index:10}#fx-vignette{z-index:11;opacity:0;background:radial-gradient(ellipse at center, transparent 50%, rgba(120,0,0,0.55) 95%, rgba(40,0,0,0.9) 100%)}
 #fx-coupling{z-index:12;box-shadow:none}#fx-hit-flash{z-index:13;background:rgba(255,0,0,0.15);opacity:0}
 #fx-skill{z-index:14;opacity:0}
-/* 技能持续期间的流动能量线：颜色由 JS 用 --sk-color 注入 */
-#fx-skill-lines{opacity:0;z-index:14;mix-blend-mode:screen;background-repeat:repeat;background-size:220px 220px;background-image:repeating-linear-gradient(115deg,transparent 0 18px,var(--sk-color,rgba(255,90,190,.55)) 18px 19px,transparent 19px 48px);animation:sk-lines 2.2s linear infinite}
-#fx-skill-lines.on{opacity:.55}
-#fx-skill-lines.fast{animation-duration:1.1s}
 #drone-interference{position:fixed;inset:0;z-index:414;pointer-events:none;opacity:0;transition:opacity .12s;background:repeating-linear-gradient(0deg,rgba(80,220,255,.10) 0 2px,transparent 2px 5px);mix-blend-mode:screen}
 #drone-interference.on{opacity:.7;animation:drone-glitch .16s steps(2) infinite}
 @keyframes drone-glitch{0%{transform:translate(0,0);filter:none}50%{transform:translate(-2px,1px);filter:hue-rotate(25deg)}100%{transform:translate(2px,-1px);filter:none}}
-@keyframes sk-lines{from{background-position:0 0}to{background-position:220px 220px}}
 #dmg-indicator{position:absolute;inset:0;pointer-events:none;z-index:15}
 #hazard-overlay{position:fixed;inset:0;z-index:408;pointer-events:none;opacity:0;transition:opacity .4s;mix-blend-mode:screen}
 #hazard-overlay.burning{opacity:.8;background:radial-gradient(ellipse at 50% 100%,rgba(255,120,30,.5) 0%,rgba(255,80,20,.22) 35%,transparent 72%);animation:hazard-flicker .45s ease-in-out infinite alternate}
@@ -170,7 +165,9 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #hud.drone-mode #bottom-right,
 #hud.drone-mode #weapon-bar,
 #hud.drone-mode #nade-wheel-btn,
+#hud.drone-mode #med-wheel-btn,
 #hud.drone-mode #throwable-hint,
+#hud.drone-mode #throwable-arm-btn,
 #hud.drone-mode #protect-group,
 #hud.drone-mode #skill-bar{display:none!important}
 #drone-hud{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:27;pointer-events:none;padding:8px 16px;border-radius:8px;background:rgba(8,22,36,.9);border:1px solid rgba(80,200,255,.6);color:#bfe8ff;font-size:11px;letter-spacing:1px;display:none;text-align:center;box-shadow:0 0 18px rgba(50,180,255,.18)}
@@ -235,10 +232,12 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #hud.replay-hud #protect-group,
 #hud.replay-hud #extract-progress,
 #hud.replay-hud #nade-wheel-btn,
+#hud.replay-hud #med-wheel-btn,
 #hud.replay-hud #fiber-pull-btn,
 #hud.replay-hud #extinguish-btn,
 #hud.replay-hud #tactical-state,
 #hud.replay-hud #throwable-hint,
+#hud.replay-hud #throwable-arm-btn,
 #hud.replay-hud #drone-panel,
 #hud.replay-hud #drone-hud,
 #hud.replay-hud #training-attack-panel,
@@ -247,7 +246,6 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #hud.replay-hud #fx-filter,
 #hud.replay-hud #fx-coupling,
 #hud.replay-hud #fx-skill,
-#hud.replay-hud #fx-skill-lines,
 #hud.replay-hud #dmg-indicator{display:none!important}
 #extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
 #extract-progress.on{display:block}
@@ -298,6 +296,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div class="menu-tab" data-tab="asaka">Asaka 剧情</div>
     </div>
     <div class="menu-top-actions">
+      <span id="menu-credits" style="display:inline-flex;align-items:center;padding:8px 14px;font-size:12px;font-weight:800;letter-spacing:1px;color:#ffd93d;background:rgba(40,32,10,.6);border:1px solid rgba(255,217,61,.35);border-radius:6px">0 cp</span>
       <button class="icon-btn" id="btn-market">市场</button>
       <button class="icon-btn" id="btn-settings">设置</button>
       <button class="icon-btn" id="btn-dev-console">DEV</button>
@@ -324,7 +323,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       </div>
       <div class="action-bar">
         <div class="btn-row">
-          <button class="btn ghost" id="btn-loadout-ticket">领取制式券</button>
+          <button class="btn ghost" id="btn-loadout-ticket">制式券 / 配装</button>
           <button class="btn ghost" id="btn-stash">打开仓库 / 配装</button>
         </div>
         <div class="btn-row">
@@ -341,6 +340,32 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
         Asaka 剧情模式 开发中
         <br><br>
         <button class="btn ghost" style="max-width:200px;margin:0 auto">查看计划树</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 制式券配装页 -->
+<div id="loadout-page" class="screen" style="z-index:70;background:radial-gradient(circle at 50% 20%,#0f1a28 0%,#05070a 82%);align-items:stretch;justify-content:flex-start;overflow-y:auto">
+  <div class="menu-header" style="flex:0 0 auto">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="font-size:18px;font-weight:900;letter-spacing:4px;color:#7fd0ff">制式券 · 配装</div>
+      <span style="font-size:10px;color:#5c82a8;letter-spacing:2px">每次刷新都会重新随机；也可以在仓库里自己配装后空装进入</span>
+    </div>
+    <div class="menu-top-actions">
+      <span id="loadout-credits" style="display:inline-flex;align-items:center;padding:8px 14px;font-size:12px;font-weight:800;color:#ffd93d;background:rgba(40,32,10,.6);border:1px solid rgba(255,217,61,.35);border-radius:6px">0 cp</span>
+      <button class="icon-btn" id="btn-loadout-close">返回</button>
+    </div>
+  </div>
+  <div style="max-width:1080px;width:100%;margin:0 auto;padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div id="loadout-tiers" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px"></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px" id="loadout-main">
+      <div id="loadout-preview" style="background:rgba(14,22,34,.9);border:1px solid rgba(105,170,235,.28);border-radius:10px;padding:14px;min-height:300px;font-size:12px;line-height:1.7"></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div id="loadout-summary" style="background:rgba(14,22,34,.9);border:1px solid rgba(105,170,235,.28);border-radius:10px;padding:14px;font-size:12px;line-height:1.8"></div>
+        <button class="btn primary" id="btn-loadout-equip">领取并装备</button>
+        <button class="btn ghost" id="btn-loadout-reroll">刷新随机配装</button>
+        <button class="btn ghost" id="btn-loadout-empty" style="border-color:rgba(255,140,120,.5);color:#ffb0a0">空装进入（随身装备移入仓库，使用仓库自配）</button>
       </div>
     </div>
   </div>
@@ -406,7 +431,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 <div id="game-screen" class="screen">
   <canvas id="game-canvas"></canvas>
   <div id="hud">
-    <div id="fx-filter"></div><div id="fx-vignette"></div><div id="fx-coupling"></div><div id="fx-hit-flash"></div><div id="fx-skill"></div><div id="fx-skill-lines"></div><div id="drone-interference"></div>
+    <div id="fx-filter"></div><div id="fx-vignette"></div><div id="fx-coupling"></div><div id="fx-hit-flash"></div><div id="fx-skill"></div><div id="drone-interference"></div>
     <canvas id="dmg-indicator"></canvas>
     <canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16"></canvas>
     
@@ -478,7 +503,9 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 <div id="tactical-state"></div>
 <div id="skill-bar"></div>
 <div id="throwable-hint"></div>
+<button id="throwable-arm-btn" style="display:none;position:absolute;left:50%;bottom:226px;transform:translateX(-50%);z-index:28;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.82);border:1px solid rgba(255,120,120,.8);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">解除保险</button>
 <button id="nade-wheel-btn" style="display:none;position:absolute;right:16px;bottom:248px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(120,90,40,.82);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">💣 投掷轮盘</button>
+<button id="med-wheel-btn" style="display:none;position:absolute;right:16px;bottom:280px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(40,110,80,.82);border:1px solid rgba(120,240,180,.7);color:#d8ffe8;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">🩹 医疗轮盘</button>
 <button id="fiber-pull-btn" style="display:none;position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.75);border:1px solid rgba(255,120,120,.7);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">拔除玻纤</button>
 <button id="extinguish-btn" style="display:none;position:absolute;left:50%;bottom:104px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(180,90,20,.8);border:1px solid rgba(255,170,80,.8);color:#fff0d8;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">灭火</button>
 <div id="alert-bar"></div>

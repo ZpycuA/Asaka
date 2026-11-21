@@ -1195,11 +1195,34 @@ this.register('humanoid', (spec) => {
     /* -------- container -------- */
     this.register('container', (spec) => {
       const color = spec.color !== undefined ? spec.color : 0xffcc33;
+      const w = spec.w || 1.6, h = spec.h || 1.3, d = spec.d || 1.6;
       const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(1.6, 1.3, 1.6),
-        new THREE.MeshStandardMaterial({ color, emissive: 0x553300, emissiveIntensity: 0.4, roughness: 0.6 })
+        new THREE.BoxGeometry(w, h, d),
+        new THREE.MeshStandardMaterial({ color, emissive: 0x553300, emissiveIntensity: 0.25, roughness: 0.65, metalness: 0.25 })
       );
-      mesh.position.y = 0.65;
+      mesh.position.y = h / 2;
+      // 箱盖 + 两道加固带：让不同容器至少有可辨识的轮廓差异
+      const lid = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 1.04, h * 0.12, d * 1.04),
+        new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.8 })
+      );
+      lid.position.y = h * 0.48;
+      mesh.add(lid);
+      for (const dir of [-1, 1]) {
+        const band = new THREE.Mesh(
+          new THREE.BoxGeometry(w * 1.02, h * 0.9, 0.06),
+          new THREE.MeshStandardMaterial({ color: 0x202020, roughness: 0.9 })
+        );
+        band.position.set(0, 0, dir * d * 0.32);
+        mesh.add(band);
+      }
+      // 顶面识别色条：靠颜色快速区分容器类型
+      const tag = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 0.36, 0.03, d * 0.36),
+        new THREE.MeshBasicMaterial({ color: spec.marker || 0xffcc33 })
+      );
+      tag.position.y = h * 0.56;
+      mesh.add(tag);
       return mesh;
     });
 
@@ -1330,7 +1353,9 @@ class CameraController {
     }
 
     const ox = this.target.x + this.shakeOffset.x + this.hurtOffsetX;
-    const oy = this.target.y + this.shakeOffset.y + this.hurtOffsetY + this.bobOffsetY - this.deathDrop;
+    // ★ 硬性抬到地面以上：倒地/死亡时相机基准高度很低，近裁剪面会切进地板，
+    //   表现就是“趴下后视角穿到地面底下”。0.32m 低于任何站/蹲姿态，不影响正常视角。
+    const oy = Math.max(0.32, this.target.y + this.shakeOffset.y + this.hurtOffsetY + this.bobOffsetY - this.deathDrop);
     const oz = this.target.z + this.shakeOffset.z;
 
     this.camera.position.set(ox, oy, oz);
@@ -2610,7 +2635,7 @@ class Engine {
 
     // ---- 7. 音频（延迟到首次交互） ----
     const initAudioOnce = () => {
-      this.audio.init();
+      this.audio.init().then(() => this.audio.resume()).catch(() => {});
       window.removeEventListener('pointerdown', initAudioOnce);
       window.removeEventListener('keydown', initAudioOnce);
     };

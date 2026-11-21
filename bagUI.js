@@ -44,6 +44,9 @@ const CSS = `
 .bagui-item-qty{position:absolute;top:2px;right:4px;font-size:11px;color:#ffd93d;font-weight:700;pointer-events:none;text-shadow:0 1px 2px #000}
 .bagui-item-dur{position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(0,0,0,.6);pointer-events:none}
 .bagui-item-dur i{display:block;height:100%}
+.bagui-item-durpct{position:absolute;bottom:4px;left:4px;font-size:9px;font-weight:800;letter-spacing:.3px;pointer-events:none;text-shadow:0 1px 2px #000}
+.bagui-item-durpct.upper{bottom:16px;color:#9fd8ff}
+.bagui-item-sublv{position:absolute;top:2px;left:3px;font-size:9px;pointer-events:none;filter:drop-shadow(0 1px 2px #000)}
 
 .bagui-detail{position:fixed;z-index:600;display:none;width:280px;max-height:70vh;overflow-y:auto;padding:10px;background:rgba(14,22,34,.97);border:1px solid rgba(105,170,235,.45);border-radius:8px;font-size:11px;line-height:1.7;box-shadow:0 6px 24px rgba(0,0,0,.7);box-sizing:border-box}
 .bagui-detail.on{display:block}
@@ -97,6 +100,7 @@ export class BagUI {
     this.openedBagUid = null;
     this._drag = null;
     this._lootTarget = null;
+    this._expandedEffect = null;
     this._injectCSS();
     this._buildDOM();
   }
@@ -170,6 +174,7 @@ export class BagUI {
     this._lootTarget = null;
     if (this.engine.app && this.engine.app.world && this.engine.app.world.running) {
   this.engine.app.world._syncWeaponsFromInventory();
+  if (this.engine.app.world._syncArmorFromInventory) this.engine.app.world._syncArmorFromInventory();
     }
     if (this._charPreviewRenderer) {
       this._charPreviewRenderer.dispose();
@@ -187,6 +192,8 @@ export class BagUI {
     this.open = true;
     this._clearGhosts();
     document.getElementById('bagui-overlay').classList.add('on');
+    const world = this.engine.app && this.engine.app.world;
+    if (world && world._playSFX) world._playSFX('loot', { volume: 0.45 });
     this.refresh();
   }
 
@@ -233,8 +240,11 @@ export class BagUI {
       const p = this.engine.app && this.engine.app.world && this.engine.app.world.player;
       const w = this.inv.getCarryWeight();
       const lim = p ? (p.carryLimit || 24) : 24;
+      const hard = p && p.carryHardLimit ? p.carryHardLimit : lim * 1.35;
       const state = w > lim ? '超重' : (w > lim * 0.75 ? '负重' : '正常');
-      const weightText = isInMatch ? ` · 负重 ${w.toFixed(1)}/${lim.toFixed(0)}kg（${state}）` : '';
+      // 超过软上限后同时显示硬上限，让玩家知道“最多还能超到多少”
+      const limText = w > lim ? `${lim.toFixed(0)}/硬 ${hard.toFixed(0)}` : lim.toFixed(0);
+      const weightText = isInMatch ? ` · 负重 ${w.toFixed(1)}/${limText}kg（${state}）` : '';
       label = isInMatch ? `携带 ${carryVal} cp${weightText}` : `仓库 ${this.inv.getContainerValue('stash')} cp · 总值 ${totalVal} cp`;
     }
     
@@ -285,7 +295,7 @@ export class BagUI {
     const equipList = [
   ['main', '武器一'], ['side', '武器二'], ['melee', '近战'],
   ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
-  ['vestFiber', '护甲'], ['vestPlate', '插板'],
+  ['vestFiber', '护甲'], // 插板不再单独占装备槽，而是拖进护甲内
   ['backpack', '背包'], ['chestRig', '胸挂'],
 ];
     for (const [slot, label] of equipList) {
@@ -298,7 +308,7 @@ export class BagUI {
           <div style="font-size:14px;line-height:1">💎</div>
           <div style="font-size:8px;color:#ffe066;font-weight:700;white-space:nowrap">Lv${a.lv} BYinC</div>
           <div style="width:44px;height:3px;background:rgba(0,0,0,.65);border-radius:2px;overflow:hidden;margin-top:2px"><i style="display:block;height:100%;width:${pct}%;background:linear-gradient(90deg,#ffd700,#fff2a0)"></i></div>
-          <div style="font-size:8px;color:#ffb0b0;margin-top:1px">🔒 ${Math.round(a.dur)}/${a.max || 520}</div>
+          <div style="font-size:8px;color:#ffb0b0;margin-top:1px">🔒 ${Math.round(pct)}%</div>
         </div>`;
         continue;
       }
@@ -327,7 +337,7 @@ export class BagUI {
         const equipList = [
   ['main', '武器一'], ['side', '武器二'], ['melee', '近战'],
   ['helmetShell', '头盔'], ['helmetVisor', '面罩'], ['helmetEar', '耳机'],
-  ['vestFiber', '护甲'], ['vestPlate', '插板'],
+  ['vestFiber', '护甲'], // 插板不再单独占装备槽，而是拖进护甲内
   ['backpack', '背包'], ['chestRig', '胸挂'],
 ];
         for (const [slot, label] of equipList) {
@@ -398,9 +408,11 @@ export class BagUI {
       el.style.display = '';
       el.innerHTML =
         '<div class="bagui-preview" id="bagui-preview" style="width:100%;height:100%;position:absolute;inset:0;background:transparent;"><div style="color:#5c82a8;font-size:11px;letter-spacing:2px;position:absolute;top:8px;left:8px;z-index:10">角色状态</div></div>' +
-        '<div id="bagui-status-float" style="position:absolute;inset:0;pointer-events:none;z-index:5;"></div>';
+        '<div id="bagui-status-float" style="position:absolute;inset:0;pointer-events:none;z-index:5;"></div>' +
+        '<div id="bagui-effect-panel" style="position:absolute;left:10px;bottom:10px;width:min(300px,42%);max-height:62%;overflow-y:auto;z-index:12;background:rgba(8,14,22,.92);border:1px solid rgba(105,170,235,.4);border-radius:8px;padding:8px;color:#cfe4f8;font-size:11px"></div>';
       this._renderCharPreview();
       this._renderBagStatus();
+      this._renderBagEffectPanel();
       return;
     }
 
@@ -434,9 +446,21 @@ export class BagUI {
     const def = inv.getDef(item);
     const name = (item.damaged ? '[损坏] ' : '') + this.engine.i18n.t(def ? (def.name || def.n || '?') : '?');
     const rarity = item.rarity || 'L0';
+    const durPct = item.durMax > 0 ? Math.max(0, Math.min(100, Math.round(item.dur / item.durMax * 100))) : -1;
+    const durBar = durPct >= 0 ? `<div class="bagui-item-dur"><i style="width:${durPct}%;background:${durPct > 60 ? '#6fe07a' : durPct > 30 ? '#ffd93d' : '#ff5a5a'}"></i></div>` : '';
+    const durTxt = durPct >= 0 ? `<span class="bagui-item-durpct" style="color:${durPct > 60 ? '#9fe8b0' : durPct > 30 ? '#ffe066' : '#ff8b7b'}">${durPct}%</span>` : '';
+    let platePct = -1;
+    if (item.table === 'vestFiber' && item.subSlots && item.subSlots.plate) {
+      const pItem = inv.items.get(item.subSlots.plate);
+      if (pItem && pItem.durMax > 0) platePct = Math.max(0, Math.min(100, Math.round(pItem.dur / pItem.durMax * 100)));
+    }
+    const plateTxt = platePct >= 0 ? `<span class="bagui-item-durpct upper" style="color:${platePct > 60 ? '#9fd8ff' : platePct > 30 ? '#ffe066' : '#ff8b7b'}">🛡${platePct}%</span>` : '';
+    const plateUid = (item.subSlots && item.subSlots.plate) || null;
+    const plateTag = plateUid ? '<span class="bagui-item-sublv" title="已装插板">🛡</span>' : '';
     return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-src-type="equip" data-src-slot="${slot}" style="width:60px;height:60px;position:relative">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
+      ${plateTxt}${durTxt}${plateTag}${durBar}
     </div>`;
   }
 
@@ -458,12 +482,21 @@ export class BagUI {
     const qty = item.qty > 1 ? `<span class="bagui-item-qty">×${item.qty}</span>` : '';
     const dur = item.durMax > 0 ? Math.round(item.dur / item.durMax * 100) : -1;
     const durBar = dur >= 0 ? `<div class="bagui-item-dur"><i style="width:${dur}%;background:${dur > 60 ? '#6fe07a' : dur > 30 ? '#ffd93d' : '#ff5a5a'}"></i></div>` : '';
+    // 左下角耐久百分比：背包里不点详情也能一眼看到剩余耐久
+    const durTxt = dur >= 0 ? `<span class="bagui-item-durpct" style="color:${dur > 60 ? '#9fe8b0' : dur > 30 ? '#ffe066' : '#ff8b7b'}">${dur}%</span>` : '';
+    // 纤维护甲：下面一行纤维，上面一行内嵌插板
+    let platePct = -1;
+    if (item.table === 'vestFiber' && item.subSlots && item.subSlots.plate) {
+      const pItem = inv.items.get(item.subSlots.plate);
+      if (pItem && pItem.durMax > 0) platePct = Math.max(0, Math.min(100, Math.round(pItem.dur / pItem.durMax * 100)));
+    }
+    const plateTxt = platePct >= 0 ? `<span class="bagui-item-durpct upper" style="color:${platePct > 60 ? '#9fd8ff' : platePct > 30 ? '#ffe066' : '#ff8b7b'}">🛡${platePct}%</span>` : '';
     
     return `<div class="bagui-item has-item" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
       style="left:${pos.x * CELL}px;top:${pos.y * CELL}px;width:${pos.w * CELL}px;height:${pos.h * CELL}px${item.damaged ? ';border-color:rgba(255,90,90,.65)' : ''}">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
-      ${qty}${durBar}
+      ${qty}${plateTxt}${durTxt}${durBar}
     </div>`;
   }
 
@@ -511,21 +544,32 @@ export class BagUI {
           this._didDrag = false;
           return;
         }
-        this.selectedUid = uid;
-        const mx = e.clientX !== undefined ? e.clientX : 100;
-        const my = e.clientY !== undefined ? e.clientY : 100;
-        this._renderDetail(mx, my);
-      });
-
-      el.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        const item = this.viewInv.items.get(uid) || this.inv.items.get(uid);
-        if (item && item.searched === false) {
-          this._startSearchLoot(uid);
+        // ★ 双击/双触统一在这里判定：单击延迟 200ms 打开详情，双击直接快速拿取。
+        //   旧版单击立即开详情、双击又触发一次拿取，面板会闪一下且显示已移走的物品。
+        const now = performance.now();
+        if (this._lastTapUid === uid && (now - (this._lastTapAt || 0)) < 320) {
+          clearTimeout(this._clickTimer);
+          this._lastTapUid = null;
+          this._lastTapAt = 0;
+          this._quickEquip(uid);
+          this._deselectDetail();
           return;
         }
-        this._quickEquip(uid);
+        this._lastTapUid = uid;
+        this._lastTapAt = now;
+        clearTimeout(this._clickTimer);
+        const mx = e.clientX !== undefined ? e.clientX : 100;
+        const my = e.clientY !== undefined ? e.clientY : 100;
+        this._clickTimer = setTimeout(() => {
+          if (!this._didDrag) {
+            this.selectedUid = uid;
+            this._renderDetail(mx, my);
+          }
+        }, 200);
       });
+
+      // 双击已由上面的 click 双击判定接管；不再单独监听 dblclick，
+      // 否则桌面端会“双击 = 拿取两次”或与延迟打开详情互相打架。
     });
   }
 
@@ -546,7 +590,20 @@ export class BagUI {
   }
 
   _quickEquip(uid) {
+  // 插板双击 = 直接装进当前护甲（没有护甲则提示）
+  {
+    const anyInv = (this.viewInv && this.viewInv.items.has(uid)) ? this.viewInv : this.inv;
+    const anyItem = anyInv.items.get(uid);
+    if (anyItem && anyItem.table === 'vestPlate') {
+      const fiberUid = this.inv.equipped.vestFiber;
+      if (fiberUid) { this._installPlateDrop(uid, fiberUid, anyInv); return; }
+      this._toast('先穿上一件护甲纤维，再把插板装进去');
+      return;
+    }
+  }
   if (this._lootTarget) {
+    const world0 = this.engine.app && this.engine.app.world;
+    if (world0 && world0._playSFX) world0._playSFX('loot', { volume: 0.3 });
     if (this._lootTarget.isCorpse) {
       if (this.viewInv.items.has(uid)) {
         const item = this.viewInv.items.get(uid);
@@ -556,11 +613,14 @@ export class BagUI {
           if (equipSlot && this._equipAcrossInventories(this.viewInv, uid, equipSlot, this.inv)) return;
         }
         let moved = false;
+        let lastReason = null;
         for (const t of ['chest', 'bag', 'pocket', 'safe']) {
-          if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
+          const r = this.viewInv.transferItem(this.inv, uid, t);
+          if (r.ok) { moved = true; break; }
+          lastReason = r.reason;
         }
         if (moved) this.refresh();
-        else alert('背包已满，无法拿取');
+        else alert(lastReason === 'overweight' ? '负重已达硬上限，无法再携带更多物品' : '背包已满，无法拿取');
       }
       return;
     }
@@ -568,11 +628,14 @@ export class BagUI {
     const parent = this.inv.parentOf.get(uid);
     if (parent === 'c:loot') {
       let moved = false;
+      let lastReason = null;
       for (const t of ['chest', 'bag', 'pocket', 'safe']) {
-        if (this.inv.addToContainer(t, uid).ok) { moved = true; break; }
+        const r = this.inv.addToContainer(t, uid);
+        if (r.ok) { moved = true; break; }
+        lastReason = r.reason;
       }
       if (moved) this.refresh();
-      else alert('背包已满，无法拿取');
+      else alert(lastReason === 'overweight' ? '负重已达硬上限，无法再携带更多物品' : '背包已满，无法拿取');
     } else if (parent && parent.startsWith('c:')) {
       if (this.inv.addToContainer('loot', uid).ok) this.refresh();
     }
@@ -644,8 +707,10 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     }
     if (item.damaged) {
       html += `<div style="color:#ff6a6a;font-weight:700">状态：电磁损坏（电子组件已失效，价值大幅降低）</div>`;
-    } else if (item.electronics) {
-      html += `<div style="color:#8fb0c8">电子属性：${item.empShielded ? '抗磁屏蔽' : '非抗磁（EMP 可损坏）'}</div>`;
+    }
+    if (item.electronics) {
+      html += `<div style="color:#8fb0c8">电子属性：${item.empShielded ? '电磁加固（降低 EMP 损坏概率，并非免疫）' : '无电磁加固（EMP 可直接损坏）'}</div>`;
+      if (item.empSurge) html += `<div style="color:#ffd93d">经历过强电磁冲刷（线路老化）</div>`;
     }
 
     const unitVal = inv.getItemValue(uid);
@@ -657,7 +722,28 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     }
     
     if (item.durMax > 0) {
-      html += `<div>耐久：${Math.round(item.dur)}/${item.durMax}（${Math.round(item.dur / item.durMax * 100)}%）</div>`;
+      // ★ 详情里只给百分比：具体耐久数值属于“拆开才知道”的仿真信息，
+      //   背包格左下角同样只显示百分比。
+      const pct = Math.max(0, Math.min(100, Math.round(item.dur / item.durMax * 100)));
+      html += `<div>耐久：<b style="color:${pct > 60 ? '#9fe8b0' : pct > 30 ? '#ffe066' : '#ff8b7b'}">${pct}%</b></div>`;
+    }
+
+    // ★ 护甲纤维：显示内嵌插板；自己身上可取出，搜刮时可单独拿走
+    if (item.table === 'vestFiber' && inMatchNow) {
+      const pUid = item.subSlots && item.subSlots.plate;
+      if (pUid) {
+        const pItem = inv.items.get(pUid);
+        const pDef = pItem ? inv.getDef(pItem) : null;
+        const pPct = pItem && pItem.durMax > 0 ? Math.round(pItem.dur / pItem.durMax * 100) : 0;
+        html += `<div style="margin-top:6px;padding:5px 6px;background:rgba(20,32,46,.7);border-left:3px solid #7fd0ff;border-radius:4px">
+          <div style="color:#9fd8ff">内嵌插板：${pItem ? this._esc(this.engine.i18n.t(pDef ? pDef.name : '?')) : '—'} · ${pPct}%</div>
+          ${inv === this.inv
+            ? `<button class="bagui-btn bagui-mini" data-remove-plate="${uid}" style="margin-top:4px">取出插板</button>`
+            : `<button class="bagui-btn bagui-mini" data-take-plate="${uid}" style="margin-top:4px">取下插板带走</button>`}
+        </div>`;
+      } else if (inv === this.inv) {
+        html += `<div style="font-size:10px;color:#6f8fae;margin-top:6px">未装插板（把插板拖到这件护甲上即可装入）</div>`;
+      }
     }
     // ★ 重量：无论物品类型都显示，避免“详细属性里没有重量”
     const unitW = item.weight !== undefined ? item.weight : (def.weight || 0);
@@ -669,7 +755,9 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       if (def.caliber) parts.push('口径 ' + def.caliber);
       if (def.massG !== undefined) parts.push('弹头 ' + def.massG + 'g');
       if (def.v0 !== undefined) parts.push('初速 ' + def.v0 + 'm/s');
-      if (def.pen !== undefined) parts.push('穿透 ' + def.pen);
+      // ★ 冲压是唯一位面：content 内部仍分 pen/impulse 两项，但 UI 只显示合计数
+      const impact = (def.pen || 0) + (def.impulse || 0);
+      if (impact > 0) parts.push('冲压 ' + impact);
       if (parts.length) html += `<div>${this._esc(parts.join(' · '))}</div>`;
     }
     if (item.table === 'nade') {
@@ -700,10 +788,7 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       const modeText = def.fireModes.map(m => labels[m] || m).join(' / ');
       html += `<div>开火模式：${this._esc(modeText)}</div>`;
     }
-    // ★ 冲压（弹药额外穿透加成）与脚本层效果预览
-    if (typeof def.impulse === 'number' && def.impulse > 0) {
-      html += `<div>冲压：+${def.impulse} 穿透</div>`;
-    }
+    // ★ 冲压只在弹药数值行显示合计值，不再单独列出“穿透/冲压额外”两项
     if (def.effects && def.effects.length) {
       const effNames = { incendiary: '燃烧', glassfiber: '玻纤滞留' };
       const effText = def.effects.map(e => (e && e.name ? e.name : (effNames[e] || e))).join(' · ');
@@ -721,8 +806,9 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       const nextName = nextAmmo ? this.engine.i18n.t(nextAmmo.name) : '空';
       const world = this.engine.app ? this.engine.app.world : null;
       const inMatchNow2 = !!(world && world.running);
-      const canDirect = !inMatchNow2 || (world && world.training) || inv !== this.inv;
-      const isReloading = world && world.actionProcess ? world.actionProcess.isRunning('reload') : false;
+      // 战局内（含靶场）不允许在详情里瞬间装卸弹链，只能设首选后按 R 走换弹动作
+      const canDirect = !inMatchNow2;
+      const isReloading = world && world.actionProcess ? world.actionProcess.isRunning() : false;
       const prefDef = item.loadedPreference ? inv.content.get('ammo', item.loadedPreference) : null;
 
       html += `<div class="bagui-ammo-row" style="align-items:flex-start;flex-direction:column;gap:3px">` +
@@ -738,16 +824,21 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
           const an = ad ? this.engine.i18n.t(ad.name) : g.ammoId;
           html += `<div class="bagui-ammo-chain-row">
             <span class="bagui-ammo-chain-name">▮ ${this._esc(an)} <b>×${g.count}</b></span>
-            <span style="display:flex;gap:3px">
-              <button class="bagui-btn bagui-mini" data-action="unload-one" data-uid="${uid}" data-ammo="${this._esc(g.ammoId)}">取 1</button>
-              <button class="bagui-btn bagui-mini" data-action="unload-type" data-uid="${uid}" data-ammo="${this._esc(g.ammoId)}">全取</button>
-            </span>
-          </div>`;
+            <span style="display:flex;gap:3px">`;
+          if (canDirect) {
+            html += `<button class="bagui-btn bagui-mini" data-action="unload-one" data-uid="${uid}" data-ammo="${this._esc(g.ammoId)}">取 1</button>
+              <button class="bagui-btn bagui-mini" data-action="unload-type" data-uid="${uid}" data-ammo="${this._esc(g.ammoId)}">全取</button>`;
+          }
+          html += `</span></div>`;
         }
         html += `</div>`;
-        html += `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="bagui-btn bagui-mini" data-action="unload-all" data-uid="${uid}">全部扣下</button>`;
+        html += `<div style="display:flex;gap:4px;flex-wrap:wrap">`;
+        if (canDirect) html += `<button class="bagui-btn bagui-mini" data-action="unload-all" data-uid="${uid}">全部扣下</button>`;
         if (isReloading && inv === this.inv) html += `<span style="color:#ffd93d;font-size:10px;align-self:center">换弹中…</span>`;
         html += `</div>`;
+        if (!canDirect && inv === this.inv && total > 0 && Object.values(inv.equipped || {}).includes(uid)) {
+          html += `<button class="bagui-btn bagui-mini" data-action="unload-action" data-uid="${uid}" style="margin-top:4px">卸下弹链（0.75s）</button>`;
+        }
       }
       html += `</div>`;
 
@@ -794,6 +885,18 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         html += `</div>`;
       }
       html += '</div>';
+      // 汇总修正：让玩家一眼看到配件到底改了什么，而不是只有名字
+      const mods = inv.getAttachmentStats ? inv.getAttachmentStats(item) : null;
+      if (mods && mods.count > 0) {
+        const pct = (v) => Math.round((v - 1) * 100);
+        const lines = [];
+        if (mods.spreadMul !== 1) lines.push('散布 ' + (pct(mods.spreadMul) > 0 ? '+' : '') + pct(mods.spreadMul) + '%');
+        if (mods.recoilMul !== 1) lines.push('后坐 ' + (pct(mods.recoilMul) > 0 ? '+' : '') + pct(mods.recoilMul) + '%');
+        if (mods.magMul !== 1) lines.push('弹匣 +' + Math.round((mods.magMul - 1) * 100) + '%');
+        if (mods.reloadMul !== 1) lines.push('换弹 ' + (pct(mods.reloadMul) > 0 ? '+' : '') + pct(mods.reloadMul) + '%');
+        html += `<div style="font-size:10px;color:#9fe0b0;margin-top:4px">配件汇总：${this._esc(lines.join(' · ') || '无')}</div>`;
+      }
+      html += `<div style="font-size:9px;color:#6f8fae;margin-top:2px">拖动配件到槽位安装；点击已安装配件可拆下。</div>`;
     }
 
     if (item.effects && item.effects.length > 0) {
@@ -831,6 +934,27 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       }
     }
 
+    // ★ 医疗物品：真正可使用（止血 / 止痛 / 夹板 / 输血 / 手术 / 兴奋剂）
+    if (item.table === 'medical' && def.use && inv === this.inv) {
+      const u = def.use;
+      const label = {
+        bandage: '包扎止血', painkiller: '服用止痛药', splint: '上夹板固定',
+        blood: '静脉输注血浆', surgery: '进行野外手术', stim: '注射兴奋剂',
+      }[u.kind] || '使用';
+      if (inMatchNow) {
+        const running = world.actionProcess && world.actionProcess.isRunning();
+        html += `<button class="bagui-btn" data-use-medical="${uid}" ${running ? 'disabled style="opacity:.45;margin-top:8px"' : 'style="margin-top:8px;background:rgba(40,130,90,.7);border-color:rgba(120,240,170,.8);color:#d8ffe8"'}>${label} · ${(u.time || 1).toFixed(1)}s</button>`;
+        if (running) html += `<div style="font-size:10px;color:#ffd93d;margin-top:3px">当前有动作正在进行</div>`;
+      } else {
+        html += `<div style="font-size:10px;color:#6f8fae;margin-top:8px">进入战局后才能使用。</div>`;
+      }
+    }
+
+    // ★ 搜刮界面：详情里给一个单点「拿取」，触屏用户不必依赖双击
+    if (inv !== this.inv && this._lootTarget && inMatchNow) {
+      html += `<button class="bagui-btn" data-quick-take="${uid}" style="margin-top:8px;background:rgba(50,130,90,.7);border-color:rgba(120,240,170,.8);color:#d8ffe8">拿取</button>`;
+    }
+
     const isInStash = inv.parentOf.get(uid) === 'c:stash';
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
     if (isInStash && !isInMatch && inv === this.inv) {
@@ -838,8 +962,8 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
     }
 
-    if (!isInMatch && inv === this.inv) {
-      html += `<button class="bagui-btn" id="bagui-discard-btn" style="background:rgba(100,100,100,.5);border-color:rgba(200,200,200,.5)">丢弃物品</button>`;
+    if (isInMatch && inv === this.inv && !isInStash) {
+      html += `<button class="bagui-btn" id="bagui-discard-btn" style="background:rgba(100,100,100,.5);border-color:rgba(200,200,200,.5)">丢弃到地面</button>`;
     }
 
     el.innerHTML = html;
@@ -869,6 +993,13 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     });
     el.querySelectorAll('[data-action="unload-all"]').forEach(btn => {
       btn.onclick = (e) => { e.stopPropagation(); this._unloadAmmoFrom(btn.dataset.uid, null, Infinity); };
+    });
+    el.querySelectorAll('[data-action="unload-action"]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const world = this.engine.app && this.engine.app.world;
+        if (world && world._startUnload) world._startUnload(btn.dataset.uid);
+      };
     });
     el.querySelectorAll('[data-action="prefer"]').forEach(btn => {
       btn.onclick = (e) => { e.stopPropagation(); this._preferAmmo(btn.dataset.uid, btn.dataset.ammo); };
@@ -917,6 +1048,92 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       };
     });
 
+    el.querySelectorAll('.bagui-btn[data-use-medical]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const medUid = btn.dataset.useMedical;
+        if (!world || !world._useMedical) return;
+        if (world._useMedical(medUid)) this.refresh();
+      };
+    });
+
+    el.querySelectorAll('[data-quick-take]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        this._quickEquip(btn.dataset.quickTake);
+        this._deselectDetail();
+      };
+    });
+
+    el.querySelectorAll('[data-remove-plate]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (inv !== this.inv) return;
+        const hostUid = btn.dataset.removePlate;
+        const pUid = inv.detachSubSlot(hostUid, 'plate');
+        if (!pUid) return;
+        const placed = inv.addToContainer('bag', pUid).ok
+          || inv.addToContainer('chest', pUid).ok
+          || inv.addToContainer('pocket', pUid).ok
+          || inv.addToContainer('safe', pUid).ok;
+        if (!placed) {
+          inv.attachToSubSlot(hostUid, 'plate', pUid);
+          this._toast('背包没有空间，无法取出插板（可直接把新插板拖上来替换）');
+        } else {
+          const worldNow = this.engine.app && this.engine.app.world;
+          if (worldNow && worldNow._syncArmorFromInventory) worldNow._syncArmorFromInventory();
+        }
+        this.refresh();
+      };
+    });
+
+    el.querySelectorAll('[data-take-plate]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!this.viewInv) return;
+        const hostUid = btn.dataset.takePlate;
+        const pUid = this.viewInv.detachSubSlot(hostUid, 'plate');
+        if (!pUid) return;
+        let moved = false;
+        for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+          const r = this.viewInv.transferItem(this.inv, pUid, t);
+          if (r.ok) { moved = true; break; }
+        }
+        if (!moved) {
+          this.viewInv.attachToSubSlot(hostUid, 'plate', pUid);
+          this._toast('背包没有空间拿走插板');
+        }
+        this.refresh();
+      };
+    });
+
+    // 点击已安装的配件 = 拆下并放回随身容器
+    el.querySelectorAll('.bagui-attach-slot').forEach(slotEl => {
+      slotEl.onclick = (e) => {
+        e.stopPropagation();
+        if (inv !== this.inv) return;
+        const wUid = slotEl.dataset.weaponUid;
+        const slotName = slotEl.dataset.attachSlot;
+        const wItem = inv.items.get(wUid);
+        if (!wItem || !wItem.attachments || !wItem.attachments[slotName]) return;
+        const aUid = inv.detachFrom(wUid, slotName);
+        if (!aUid) return;
+        const placed = inv.addToContainer('bag', aUid).ok
+          || inv.addToContainer('chest', aUid).ok
+          || inv.addToContainer('pocket', aUid).ok
+          || inv.addToContainer('safe', aUid).ok;
+        if (!placed) {
+          // 放不下就装回去，绝不把配件丢到虚空
+          inv.attachTo(wUid, slotName, aUid);
+          this._toast('背包没有空间，无法拆下配件');
+        } else {
+          const worldNow = this.engine.app && this.engine.app.world;
+          if (worldNow && worldNow._syncWeaponsFromInventory) worldNow._syncWeaponsFromInventory();
+        }
+        this.refresh();
+      };
+    });
+
     const sellBtn = document.getElementById('bagui-sell-btn');
     if (sellBtn) {
       sellBtn.onclick = (e) => {
@@ -927,6 +1144,7 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
           this.inv.destroyItem(uid);
           this.engine.save.data.credits = (this.engine.save.data.credits || 0) + sellVal;
           this.engine.save.save();
+          if (this.engine.app && this.engine.app._updateCredits) this.engine.app._updateCredits();
           this._deselectDetail();
           this.refresh();
         }
@@ -937,10 +1155,13 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     if (discardBtn) {
       discardBtn.onclick = (e) => {
         e.stopPropagation();
-        if (confirm(`确认丢弃 ${displayName}？`)) {
-          this.inv.destroyItem(uid);
-          this._deselectDetail();
-          this.refresh();
+        if (!confirm(`确认丢弃 ${displayName} 到地面？`)) return;
+        const world = this.engine.app && this.engine.app.world;
+        if (world && world.running && world._dropItemToGround) {
+          if (world._dropItemToGround(uid)) {
+            this._deselectDetail();
+            this.refresh();
+          }
         }
       };
     }
@@ -951,6 +1172,12 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
   const item = inv.items.get(weaponUid);
   const ammo = inv.items.get(ammoUid);
   if (!item || item.table !== 'weapons' || !ammo || ammo.table !== 'ammo') return;
+  const world = this.engine.app ? this.engine.app.world : null;
+  // 换弹动作进行中不能再叠加一次装填，避免一个动作完成两项变化
+  if (world && world.actionProcess && world.actionProcess.isRunning('reload')) {
+    alert('换弹动作尚未完成');
+    return;
+  }
   const norm = inv.normalizeLoaded(item);
   if (!norm) return;
   const world = this.engine.app ? this.engine.app.world : null;
@@ -997,6 +1224,11 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
   const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
   const item = inv.items.get(weaponUid);
   if (!item || item.table !== 'weapons') return;
+  const world = this.engine.app ? this.engine.app.world : null;
+  if (world && world.actionProcess && world.actionProcess.isRunning('reload')) {
+    alert('换弹动作尚未完成');
+    return;
+  }
   const res = inv.unloadAmmo(weaponUid, ammoId || null, count === Infinity ? Infinity : Math.max(1, count || 1));
   if (!res.ok) {
     const msg = { empty: '弹匣已空', no_space: '背包/胸挂/口袋都放不下' }[res.reason] || '扣弹失败';
@@ -1032,16 +1264,30 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
   }
 
   _splitStack(uid, count) {
-    const origParent = this.inv.parentOf.get(uid);
+    // ★ 物品可能在玩家背包，也可能在正在搜刮的尸体/容器里；必须按 uid 找到真正的 Inventory，
+    //   否则会“在玩家背包里找不到 → 只报错不生效”，或者更糟：改错了数量。
+    const inv = this.inv.items.has(uid) ? this.inv : (this.viewInv && this.viewInv.items.has(uid) ? this.viewInv : null);
+    if (!inv) { this._toast('拆分失败：找不到物品'); return; }
+    const origParent = inv.parentOf.get(uid);
     let preferred = null;
     if (origParent && origParent.startsWith('c:')) preferred = origParent.slice(2);
-    const res = this.inv.splitStack(uid, count, preferred);
+    const res = inv.splitStack(uid, count, preferred);
     if (!res.ok) {
-      console.warn('[BagUI] 拆分失败', uid, count, res.reason);
+      const why = {
+        no_item: '物品不存在', qty_too_small: '数量不足', bad_count: '拆分数量不合法',
+        no_space: '容器放不下拆出的物品', cycle: '不能放进自身',
+      }[res.reason] || res.reason;
+      this._toast('拆分失败：' + why);
       return;
     }
-    this.selectedUid = uid;
+    this.selectedUid = res.newUid || uid;
     this.refresh();
+  }
+
+  _toast(msg) {
+    const world = this.engine.app && this.engine.app.world;
+    if (world && world._log) world._log(msg, 'y');
+    else console.warn('[BagUI]', msg);
   }
 
   /* ===== 拖拽 ===== */
@@ -1153,6 +1399,29 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       : (this.viewInv && this.viewInv.items.has(uid) ? this.viewInv : null);
     const srcItem = srcInv ? srcInv.items.get(uid) : null;
 
+    // ★ 拖动配件到武器配件槽（必须在 srcInv/srcItem 之后，避免 TDZ）
+    const attachSlotEl = tgt.closest('.bagui-attach-slot');
+    if (attachSlotEl && srcItem) {
+      this._handleAttachDrop(uid, attachSlotEl.dataset.weaponUid, attachSlotEl.dataset.attachSlot, srcInv);
+      return;
+    }
+
+    // ★ 插板：只能装进护甲纤维。拖到护甲槽 / 背包里的护甲上都算“快速装入”
+    if (srcItem && srcItem.table === 'vestPlate') {
+      let fiberUid = null;
+      if (equipSlot === 'vestFiber') {
+        const isRightSide = !!(this._lootTarget && this._lootTarget.isCorpse && tgt.closest('#bagui-right'));
+        if (!isRightSide) fiberUid = this.inv.equipped.vestFiber;
+      }
+      if (targetUid) {
+        const t = this.inv.items.get(targetUid) || (this.viewInv && this.viewInv.items.get(targetUid));
+        if (t && t.table === 'vestFiber') fiberUid = targetUid;
+      }
+      if (fiberUid) { this._installPlateDrop(uid, fiberUid, srcInv); return; }
+      this._toast('插板只能装进护甲纤维：把插板拖到「护甲」上');
+      return;
+    }
+
     // ★ 兼容装备槽：优先走装备逻辑（含玩家↔尸体双向交换），
     //   但不拦截"弹药拖到已装备武器上"这种快速装填。
     if (equipSlot && srcItem && this._checkSlotType(equipSlot, srcItem.table)) {
@@ -1181,12 +1450,9 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
   if (!this._lootTarget.isCorpse) {
     const parent = this.inv.parentOf.get(uid);
     const inLoot = parent === 'c:loot';
-    const inPlayer = parent && (
-      parent === 'c:bag' || parent === 'c:chest' || parent === 'c:pocket' ||
-      parent === 'c:safe' || parent === 'c:stash' || parent.startsWith('eq:')
-    );
 
-    if (inPlayer && isOverRight) {
+    // 玩家容器 → 右侧搜刮网格（普通容器与玩家共用同一个 Inventory）
+    if (!inLoot && isOverRight) {
       if (wrap && wrap.dataset.container === 'loot') {
         const rect = wrap.getBoundingClientRect();
         let gx = Math.round((px - offsetX - rect.left) / CELL);
@@ -1203,54 +1469,53 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       return;
     }
 
-    if (inLoot && isOverLeft) {
-      if (wrap) {
-        const containerName = wrap.dataset.container;
-        const grid = this.inv.containers[containerName];
-        if (grid) {
-          const rect = wrap.getBoundingClientRect();
-          let gx = Math.round((px - offsetX - rect.left) / CELL);
-          let gy = Math.round((py - offsetY - rect.top) / CELL);
-          const item = this.inv.items.get(uid);
-          if (item) {
-            let ok = this._placeAt(containerName, grid, uid, gx, gy, item.rotated, this.inv).ok;
-            if (!ok) ok = this._placeAt(containerName, grid, uid, gx, gy, !item.rotated, this.inv).ok;
-            if (!ok) ok = this.inv.addToContainer(containerName, uid).ok;
-            if (ok) { this.refresh(); return; }
-          }
+    // 右侧搜刮网格 → 左侧任意玩家容器
+    if (inLoot && isOverLeft && wrap) {
+      const containerName = wrap.dataset.container;
+      const grid = this.inv.containers[containerName];
+      if (grid) {
+        const rect = wrap.getBoundingClientRect();
+        let gx = Math.round((px - offsetX - rect.left) / CELL);
+        let gy = Math.round((py - offsetY - rect.top) / CELL);
+        const item = this.inv.items.get(uid);
+        if (item) {
+          let ok = this._placeAt(containerName, grid, uid, gx, gy, item.rotated, this.inv).ok;
+          if (!ok) ok = this._placeAt(containerName, grid, uid, gx, gy, !item.rotated, this.inv).ok;
+          if (!ok) ok = this.inv.addToContainer(containerName, uid).ok;
+          if (ok) { this.refresh(); return; }
         }
       }
       if (srcEl) srcEl.style.opacity = 1;
       return;
     }
-
-    if (srcEl) srcEl.style.opacity = 1;
-    return;
-  }
-
-  const isFromPlayerHere = this.inv.items.has(uid);
-  if (isFromPlayerHere && isOverRight) {
-    let moved = false;
-    // ★ 胸挂优先、背包次之，最后口袋/安全箱，不再默认塞背包
-    for (const t of ['chest', 'bag', 'pocket', 'safe']) {
-      if (this.inv.transferItem(this.viewInv, uid, t).ok) { moved = true; break; }
-    }
-    if (moved) this.refresh();
-    else if (srcEl) srcEl.style.opacity = 1;
-  } else if (!isFromPlayerHere && isOverLeft) {
-    let moved = false;
-    for (const t of ['chest', 'bag', 'pocket', 'safe']) {
-      if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
-    }
-    if (moved) this.refresh();
-    else if (srcEl) srcEl.style.opacity = 1;
+    // 同侧（左边各容器之间 / 右边 loot 网格内部）继续走通用网格放置
   } else {
-    if (srcEl) srcEl.style.opacity = 1;
+    const isFromPlayerHere = this.inv.items.has(uid);
+    if (isFromPlayerHere && isOverRight) {
+      let moved = false;
+      for (const t of ['chest', 'bag', 'pocket', 'safe']) {
+        if (this.inv.transferItem(this.viewInv, uid, t).ok) { moved = true; break; }
+      }
+      if (moved) this.refresh();
+      else if (srcEl) srcEl.style.opacity = 1;
+      return;
+    }
+    if (!isFromPlayerHere && isOverLeft) {
+      let moved = false;
+      for (const t of ['chest', 'bag', 'pocket', 'safe']) {
+        if (this.viewInv.transferItem(this.inv, uid, t).ok) { moved = true; break; }
+      }
+      if (moved) this.refresh();
+      else if (srcEl) srcEl.style.opacity = 1;
+      return;
+    }
+    // 同侧：玩家内部挪位 / 尸体内部挪位，继续走通用网格放置
   }
-  return;
 }
 
-    const inv = this.inv;
+    // ★ 通用网格放置：按 uid 判断属于哪个 Inventory。
+    //   旧版固定用 this.inv，拖尸体内部物品时会取不到 item，直接抛错/丢物品。
+    const inv = (this.viewInv && this.viewInv.items.has(uid)) ? this.viewInv : this.inv;
     if (wrap) {
       const containerName = wrap.dataset.container;
       const rect = wrap.getBoundingClientRect();
@@ -1262,6 +1527,10 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       let gy = Math.round((ghostTop - rect.top) / CELL);
 
       const item = inv.items.get(uid);
+      if (!item) {
+        if (srcEl) srcEl.style.opacity = 1;
+        return;
+      }
       let targetGrid = null;
       if (containerName.startsWith('inner:')) {
         const host = inv.items.get(containerName.slice(6));
@@ -1557,7 +1826,9 @@ _swapEquipmentSlots(inv, srcSlot, dstSlot) {
         }
       }
       // 仓库 / 非手持武器：直接压弹
-      const space = (def.mag || 0) - target.loaded.qty;
+      const norm = inv.normalizeLoaded(target);
+      const cap = norm ? norm.cap : (def.mag || 0);
+      const space = cap - target.loaded.qty;
       if (space > 0) {
         const take = Math.min(item.qty, space);
         for (let i = 0; i < take; i++) target.loaded.queue.push(item.defId);
@@ -1669,6 +1940,105 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
 
   return true;
 }
+
+  // 配件拖拽：只允许“玩家自己的配件 → 玩家自己的武器”。
+  // 跨 Inventory（尸体上的配件）必须先转移再安装，避免 UID 悬空。
+  _handleAttachDrop(attachUid, weaponUid, slot, srcInv) {
+    if (!attachUid || !weaponUid || !slot) return;
+    if (!srcInv || srcInv !== this.inv) {
+      this._toast('只能安装自己携带的配件');
+      return;
+    }
+    const weapon = this.inv.items.get(weaponUid);
+    const attach = this.inv.items.get(attachUid);
+    if (!weapon || !attach) return;
+    const compat = this.inv.canAttach(weapon, attach, slot);
+    if (!compat.ok) {
+      const why = {
+        wrong_slot: '槽位不匹配', incompatible_weapon: '该武器无法安装此配件',
+        incompatible_caliber: '口径不匹配', not_weapon: '目标不是枪械',
+        type_mismatch: '这不是配件',
+      }[compat.reason] || '无法安装';
+      this._toast(why);
+      return;
+    }
+    const res = this.inv.attachTo(weaponUid, slot, attachUid);
+    if (!res.ok) { this._toast('安装失败'); return; }
+    // 被替换下来的旧配件回到玩家背包/胸挂，不能凭空消失
+    if (res.swapped) {
+      const back = this.inv.addToContainer('bag', res.swapped).ok
+        || this.inv.addToContainer('chest', res.swapped).ok
+        || this.inv.addToContainer('pocket', res.swapped).ok;
+      if (!back) this.inv.addToContainer('safe', res.swapped);
+    }
+    const world = this.engine.app && this.engine.app.world;
+    if (world && world._syncWeaponsFromInventory) world._syncWeaponsFromInventory();
+    this.refresh();
+  }
+
+  // 插板快速装入：拖到护甲上就装进 subSlots.plate；被换下的旧插板优先放回拖动源的格子，
+  // 这样“卸下再换新的”不会因为容器没空位而失败。
+  _installPlateDrop(plateUid, fiberUid, srcInv) {
+    if (!this.inv.items.has(fiberUid)) { this._toast('只能安装到自己携带的护甲上'); return; }
+    let pid = plateUid;
+    if (srcInv && srcInv !== this.inv) {
+      let newUid = null;
+      for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+        const r = srcInv.transferItem(this.inv, plateUid, t);
+        if (r.ok) { newUid = r.newUid; break; }
+      }
+      if (!newUid) { this._toast('背包没有空间放入插板'); return; }
+      pid = newUid;
+    }
+    const plate = this.inv.items.get(pid);
+    if (!plate || plate.table !== 'vestPlate') return;
+
+    // 记录插板移动前的容器坐标，用于安放被替换下来的旧插板
+    const parent = this.inv.parentOf.get(pid);
+    let oldContainer = null, oldPos = null;
+    if (parent && parent.startsWith('c:')) {
+      oldContainer = parent.slice(2);
+      const c = this.inv.containers[oldContainer];
+      const pos = c && c.items.get(pid);
+      if (pos) oldPos = { x: pos.x, y: pos.y, rotated: pos.rotated };
+    }
+
+    const r = this.inv.installPlate(fiberUid, pid);
+    if (!r.ok) {
+      const why = { need_fiber: '目标不是护甲', not_plate: '这不是插板', bad_slot: '护甲没有插板槽' }[r.reason] || '安装失败';
+      this._toast(why);
+      return;
+    }
+    if (r.swapped) {
+      let placed = false;
+      // 1) 放回新插板刚才腾出的格子（体积相同，必然放得下）
+      if (oldContainer && oldPos) {
+        const c = this.inv.containers[oldContainer];
+        if (c) placed = this._placeAt(oldContainer, c, r.swapped, oldPos.x, oldPos.y, oldPos.rotated, this.inv).ok;
+      }
+      // 2) 退到随身容器
+      if (!placed) {
+        for (const t of ['bag', 'chest', 'pocket', 'safe']) {
+          if (this.inv.addToContainer(t, r.swapped).ok) { placed = true; break; }
+        }
+      }
+      // 3) 仍然放不下：撤销本次替换，保持原状
+      if (!placed) {
+        const newPlate = this.inv.detachSubSlot(fiberUid, 'plate');
+        this.inv.installPlate(fiberUid, r.swapped);
+        if (newPlate && oldContainer && oldPos) {
+          const c = this.inv.containers[oldContainer];
+          if (c) this._placeAt(oldContainer, c, newPlate, oldPos.x, oldPos.y, oldPos.rotated, this.inv);
+        }
+        this._toast('没有空间安放被换下的插板，已撤销替换');
+        this.refresh();
+        return;
+      }
+    }
+    const world = this.engine.app && this.engine.app.world;
+    if (world && world._syncArmorFromInventory) world._syncArmorFromInventory();
+    this.refresh();
+  }
 
   _placeAt(containerName, grid, uid, gx, gy, rotated, inv) {
     inv = inv || (grid === this.inv.containers.loot ? this.inv : this.viewInv);
@@ -1789,6 +2159,110 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
     host.appendChild(nameEl);
   }
 
+  _renderBagEffectPanel() {
+    const host = document.getElementById('bagui-effect-panel');
+    if (!host) return;
+    const p = this.engine.app.world && this.engine.app.world.player;
+    if (!p || !p.status) { host.innerHTML = ''; return; }
+    const st = p.status;
+    const effectDesc = {
+      bleeding: '伤口持续失血；强度=全身伤口总等级。',
+      fracture: '骨骼/结构损伤，影响移速与操控。',
+      hypovolemia: '失血超过阈值，视野收缩、移速与操控下降。',
+      pain: '疼痛干扰据枪与移动。',
+      burning: '局部持续灼烧；会向相邻部位缓慢扩散，需灭火。',
+      fiber_acute: '急性玻纤滞留：剧痛、大量失血，可拔除。',
+      fiber_chronic: '慢性玻纤残留：永久轻度疼痛与失血。',
+      blind: '强光致盲，视野与操控严重受损。',
+      dazzle: '强光刺眼，无法开镜，散布与移速下降。',
+      stun: '震撼：方向感与据枪稳定性下降。',
+      srdispte: '凯特机动状态：移速/操控/开镜散布增益。',
+      hate: '玲娜爆发状态：移速/射速/换弹增益，免疫负面。',
+      inspire: '队长指挥增益（仅队友）。',
+      stress: '凯特应激：短时操控/移速/散布增益。',
+      flashback: '闪回：失血加快、视野惩罚、移速与据枪下降。',
+      mimic: 'BYinC 拟载护甲生效。',
+      covey: '覆柔：短时减负抗性/移速/压制。',
+      moving_speed_up: '移动速度提升。',
+      aim_buff: '射击精度提升。',
+      drone: '无人机链路在线。',
+      catleap: '猫跃状态。',
+      suppress: '压制：射击直接消耗备弹。',
+      backflash: '背闪后的短时增益。',
+      intuition: '直觉与回忆：标记攻击者周围目标。',
+      adapt: '适应：负重上限提升。',
+      suppressed: '被压制：移速与射击稳定性下降。',
+      weakness: '精力虚弱：开镜/散布/视野惩罚，移速/操控下降。',
+      hate_backlash: '血液反噬：移速/据枪/换弹下降。',
+      emp_disrupted: '电磁干扰：电子设备失效，操控/移速下降。',
+      emp_silence: '强电磁干扰：电磁加固设备被电磁场冲刷，暂未损坏但线路老化。',
+      painkiller: '止痛生效：疼痛相关惩罚（视野/据枪/移速）暂时不生效，但伤口仍在流血。',
+      stimulant: '兴奋剂：短时移速提升，疲劳被强行压下；药效过后会反弹。',
+      bandaged: '已包扎：外部出血被压住，但伤口和疼痛仍然存在。',
+      tinnitus: '耳鸣：爆炸/震撼后的听力损伤，外界声音明显变小，持续数秒。',
+      deafened: '听力受损：暂时几乎听不到远处声音。',
+    };
+    const partNames = { head: '头', thorax: '胸', abdomen: '腹', larm: '臂', legs: '腿' };
+    const effChips = [];
+    for (const [id, eff] of st.effects) {
+      const def = this.engine.content.get('effects', id);
+      if (!def) continue;
+      const lv = Math.max(1, Math.round(eff.strength || 1));
+      const remaining = (eff.persistent || eff.duration > 900) ? '持续' : Math.max(0, eff.duration).toFixed(1) + 's';
+      effChips.push({
+        id, name: this.engine.i18n.t(def.name), icon: def.icon || '•', level: lv,
+        remaining, positive: !!def.positive,
+        parts: id === 'burning' ? Object.entries(st.burningParts || {}).map(([pt, lv2]) => partNames[pt] + ' Lv' + lv2) : [],
+      });
+    }
+    if (this._expandedEffect && !effChips.some(c => c.id === this._expandedEffect)) this._expandedEffect = null;
+    let html = `<div style="font-size:10px;color:#7fd0ff;letter-spacing:2px;margin-bottom:6px">全身状态</div>`;
+    if (!effChips.length) {
+      html += '<div style="color:#6f8fae;font-size:10px">当前无异常状态</div>';
+    } else {
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      for (const c of effChips) {
+        const active = this._expandedEffect === c.id;
+        html += `<button data-bag-effect="${this._esc(c.id)}" style="pointer-events:auto;cursor:pointer;padding:3px 7px;border-radius:5px;font-size:10px;font-family:inherit;background:${c.positive ? 'rgba(40,140,90,.55)' : 'rgba(150,45,45,.6)'};border:1px solid ${active ? 'rgba(255,225,150,.95)' : 'rgba(255,255,255,.18)'};color:#fff">${c.icon} ${this._esc(c.name)} Lv${c.level}</button>`;
+      }
+      html += '</div>';
+    }
+    if (this._expandedEffect) {
+      const c = effChips.find(x => x.id === this._expandedEffect);
+      if (c) {
+        html += `<div style="margin-top:7px;padding:6px;background:rgba(20,32,46,.75);border-left:3px solid ${c.positive ? '#6fe07a' : '#ff6a6a'};border-radius:4px;line-height:1.55">
+          <div style="color:#ffe8b0;font-weight:700">${c.icon} ${this._esc(c.name)} · Lv${c.level}</div>
+          <div style="color:#9fc4e8">剩余：${c.remaining}${c.parts.length ? ' · 部位：' + this._esc(c.parts.join('、')) : ''}</div>
+          <div style="color:#b8cfe4">${this._esc(effectDesc[c.id] || '持续状态效果。')}</div>
+        </div>`;
+      }
+    }
+    // 部位状态：生命、骨折等级、伤口等级、着火等级
+    html += `<div style="font-size:10px;color:#7fd0ff;letter-spacing:2px;margin:9px 0 5px">部位</div>`;
+    for (const pt of ['head', 'thorax', 'abdomen', 'larm', 'legs']) {
+      const d = st.parts[pt];
+      if (!d) continue;
+      const ratio = Math.max(0, d.hp) / d.maxHp;
+      const pct = Math.round(ratio * 100);
+      const wounds = (d.wounds || []).map(w => 'Lv' + w.level).join('/') || '—';
+      const burnLv = st.burningParts && st.burningParts[pt] ? ' Lv' + st.burningParts[pt] : '';
+      html += `<div style="display:flex;justify-content:space-between;gap:6px;padding:2px 0;border-bottom:1px solid rgba(105,170,235,.12)">
+        <span>${partNames[pt]}</span>
+        <span style="color:${ratio <= 0.2 ? '#ff6a6a' : ratio < 0.6 ? '#ffd93d' : '#8fe8a0'}">${pct}%</span>
+        <span style="color:#8fb0c8">骨折${d.fracture ? 'Lv' + d.fracture : '—'} · 伤口${wounds}${burnLv ? ' · 燃烧' + burnLv : ''}</span>
+      </div>`;
+    }
+    host.innerHTML = html;
+    host.querySelectorAll('[data-bag-effect]').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.bagEffect;
+        this._expandedEffect = this._expandedEffect === id ? null : id;
+        this._renderBagEffectPanel();
+      };
+    });
+  }
+
   _renderBagStatus() {
     const el = document.getElementById('bagui-status-float');
     if (!el) return;
@@ -1837,6 +2311,8 @@ _swapGridItems(inv, uidA, cNameA, posA, uidB, cNameB, posB) {
       if (d.fracture > 0) chips.push('🦴');
       const wc = (d.wounds && d.wounds.length) || 0;
       if (wc > 0) chips.push('🩸' + wc);
+      const burnLv = p.status.burningParts && p.status.burningParts[pt];
+      if (burnLv) chips.push('🔥Lv' + burnLv);
 
       let pColor = '#5fd47a';
       if (d.hp <= 0) pColor = '#ff3030';

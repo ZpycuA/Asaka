@@ -28,10 +28,18 @@ const AMMO = {
   '9mm':    { name: 'content.ammo.9mm.name',    desc: 'content.ammo.9mm.desc',    w: 1, h: 1, weight: 0.008, caliber: '9mm', massG: 8.0,  v0: 360, tier: 0, pen: 0, impulse: 0, effects: [], value: 15, rarity: 'L0', stackLimit: 999 },
   '5.56':   { name: 'content.ammo.556.name',    desc: 'content.ammo.556.desc',    w: 1, h: 1, weight: 0.012, caliber: '5.56', massG: 4.0,  v0: 940, tier: 2, pen: 3, impulse: 1, effects: [], value: 60, rarity: 'L1', stackLimit: 999 },
 '7.62':   { name: 'content.ammo.762.name',    desc: 'content.ammo.762.desc',    w: 1, h: 1, weight: 0.016, caliber: '7.62', massG: 8.0,  v0: 800, tier: 2, pen: 5, impulse: 2, effects: [], value: 80, rarity: 'L2', stackLimit: 999 }, // ★ v0 从 730 提到 800
+  // 7.62×54R 全威力步枪弹：给 SR762 这类狙击枪用，和 AK 的 7.62×39 中威力弹不是一回事
+  '762x54': { name: 'content.ammo.762x54.name', desc: 'content.ammo.762x54.desc', w: 1, h: 1, weight: 0.022, caliber: '762x54', massG: 9.6, v0: 830, tier: 3, pen: 7, impulse: 3, effects: [], value: 140, rarity: 'L3', stackLimit: 999 },
+  '.357': { name: 'content.ammo.357.name', desc: 'content.ammo.357.desc', w: 1, h: 1, weight: 0.018, caliber: '.357', massG: 10.2, v0: 380, tier: 1, pen: 2, impulse: 1, effects: [], value: 45, rarity: 'L2', stackLimit: 999 },
 '.45acp': { name: 'content.ammo.45acp.name',  desc: 'content.ammo.45acp.desc',  w: 1, h: 1, weight: 0.015, caliber: '.45acp', massG: 14.9, v0: 290, tier: 0, pen: 1, impulse: 1, effects: [], value: 25, rarity: 'L0', stackLimit: 999 },
   '12ga':   { name: 'content.ammo.12ga.name',   desc: 'content.ammo.12ga.desc',   w: 1, h: 1, weight: 0.045, caliber: '12ga', massG: 3.5,  v0: 410, tier: 0, pen: 0, impulse: 0, effects: [], value: 40, rarity: 'L0', stackLimit: 999 },
   'dragon': { name: 'content.ammo.dragon.name', desc: 'content.ammo.dragon.desc', w: 1, h: 1, weight: 0.05, caliber: '12ga', massG: 3.5, v0: 410, tier: 2, pen: 0, impulse: 0, effects: ['incendiary'], burn: 1, burnLevel: 2, burnFieldRadius: 2.2, value: 180, rarity: 'L2', stackLimit: 999 },
   'glassfiber': { name: 'content.ammo.glassfiber.name', desc: 'content.ammo.glassfiber.desc', w: 1, h: 1, weight: 0.014, caliber: '5.56', massG: 4.0, v0: 940, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, fiberAcute: 2, fiberChronic: 1, fiberArmorDamage: 18, value: 420, rarity: 'L4', stackLimit: 999 },
+  '9mm_gf': { name: 'content.ammo.9mm_gf.name', desc: 'content.ammo.gf.desc', w: 1, h: 1, weight: 0.009, caliber: '9mm', massG: 8.0, v0: 360, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, fiberAcute: 1, fiberChronic: 1, fiberArmorDamage: 8, value: 210, rarity: 'L4', stackLimit: 999 },
+  '762_gf': { name: 'content.ammo.762_gf.name', desc: 'content.ammo.gf.desc', w: 1, h: 1, weight: 0.017, caliber: '7.62', massG: 8.0, v0: 800, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, fiberAcute: 2, fiberChronic: 1, fiberArmorDamage: 16, value: 460, rarity: 'L4', stackLimit: 999 },
+  '762x54_gf': { name: 'content.ammo.762x54_gf.name', desc: 'content.ammo.gf.desc', w: 1, h: 1, weight: 0.023, caliber: '762x54', massG: 9.6, v0: 830, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, fiberAcute: 2, fiberChronic: 1, fiberArmorDamage: 19, value: 620, rarity: 'L4', stackLimit: 999 },
+  '45acp_gf': { name: 'content.ammo.45acp_gf.name', desc: 'content.ammo.gf.desc', w: 1, h: 1, weight: 0.016, caliber: '.45acp', massG: 14.9, v0: 290, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, fiberAcute: 1, fiberChronic: 1, fiberArmorDamage: 10, value: 240, rarity: 'L4', stackLimit: 999 },
+  '12ga_gf': { name: 'content.ammo.12ga_gf.name', desc: 'content.ammo.gf.desc', w: 1, h: 1, weight: 0.05, caliber: '12ga', massG: 3.5, v0: 410, tier: 3, pen: 0, impulse: 0, effects: ['glassfiber'], glassfiber: true, fiberAcute: 2, fiberChronic: 1, fiberArmorDamage: 14, value: 380, rarity: 'L4', stackLimit: 999 },
   // 非制式穿甲弹：钨芯，穿透高、对护具耐久破坏大，但价值极高
   'ap556': { name: 'content.ammo.ap556.name', desc: 'content.ammo.ap556.desc', w: 1, h: 1, weight: 0.013, caliber: '5.56', massG: 3.6, v0: 1010, tier: 4, pen: 7, impulse: 2, effects: [], armorWearMul: 1.35, value: 360, rarity: 'L3', stackLimit: 999 },
   // 12 号独头弹：单颗重弹头，近距离对护具冲压极高
@@ -53,10 +61,15 @@ const AMMO = {
      ========================================================== */
   const WEAPONS = {
   p9:    { name: 'content.weapon.p9.name',    desc: 'content.weapon.p9.desc',    w: 2, h: 1, weight: 0.8, ammoType: '9mm',    rpm: 420, mag: 15, reload: 1.5, range: 80,  spread: 0.032, auto: false, fireModes: ['semi'], pellets: 1, color: 0x6a6a7a, value: 600,  rarity: 'L0', stackLimit: 1, recoil: 20, stability: 50, handling: 80, adsSpread: 0.01, drop: 0.01, falloff: 0.5 , electronics: false, empShielded: true },
-  smg45: { name: 'content.weapon.smg45.name', desc: 'content.weapon.smg45.desc', w: 3, h: 1, weight: 2.5, ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  fireModes: ['auto'], pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1, recoil: 30, stability: 40, handling: 75, adsSpread: 0.02, drop: 0.015, falloff: 0.6 , electronics: true, empShielded: false },
-  ar556: { name: 'content.weapon.ar556.name', desc: 'content.weapon.ar556.desc', w: 4, h: 2, weight: 3.6, ammoType: '5.56',   rpm: 850, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  fireModes: ['semi', 'auto'], pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1, recoil: 40, stability: 60, handling: 65, adsSpread: 0.005, drop: 0.02, falloff: 0.4 , electronics: true, empShielded: false },
+  p45:   { name: 'content.weapon.p45.name',   desc: 'content.weapon.p45.desc',   w: 2, h: 1, weight: 1.1, ammoType: '.45acp', rpm: 350, mag: 8,  reload: 1.7, range: 65,  spread: 0.035, auto: false, fireModes: ['semi'], pellets: 1, color: 0x5a4a3a, value: 950,  rarity: 'L1', stackLimit: 1, recoil: 30, stability: 48, handling: 72, adsSpread: 0.012, drop: 0.012, falloff: 0.55, electronics: false, empShielded: true },
+  rev357:{ name: 'content.weapon.rev357.name',desc: 'content.weapon.rev357.desc',w: 2, h: 1, weight: 1.0, ammoType: '.357',   rpm: 120, mag: 6,  reload: 2.6, range: 95,  spread: 0.02,  auto: false, fireModes: ['single'], pellets: 1, color: 0x4a3a3a, value: 1600, rarity: 'L2', stackLimit: 1, recoil: 55, stability: 62, handling: 55, adsSpread: 0.006, drop: 0.008, falloff: 0.35, electronics: false, empShielded: true },
+  smg9:  { name: 'content.weapon.smg9.name',  desc: 'content.weapon.smg9.desc',  w: 3, h: 1, weight: 2.6, ammoType: '9mm',    rpm: 900, mag: 30, reload: 2.0, range: 75,  spread: 0.044, auto: true,  fireModes: ['auto', 'semi'], pellets: 1, color: 0x3a3a4a, value: 1800, rarity: 'L2', stackLimit: 1, recoil: 24, stability: 52, handling: 88, adsSpread: 0.018, drop: 0.016, falloff: 0.65, electronics: false, empShielded: true },
+  lmg556:{ name: 'content.weapon.lmg556.name',desc: 'content.weapon.lmg556.desc',w: 5, h: 3, weight: 9.2, ammoType: '5.56',    rpm: 700, mag: 100,reload: 5.4, range: 180, spread: 0.042, auto: true,  fireModes: ['auto'], pellets: 1, color: 0x3a4a3a, value: 12500,rarity: 'L4', stackLimit: 1, recoil: 32, stability: 78, handling: 35, adsSpread: 0.02, drop: 0.03, falloff: 0.4, electronics: false, empShielded: true },
+  dmr762:{ name: 'content.weapon.dmr762.name',desc: 'content.weapon.dmr762.desc',w: 5, h: 2, weight: 6.8, ammoType: '762x54', rpm: 180, mag: 10, reload: 3.0, range: 300, spread: 0.009, auto: false, fireModes: ['semi'], pellets: 1, color: 0x3a3a2a, value: 9800, rarity: 'L4', stackLimit: 1, recoil: 62, stability: 86, handling: 42, adsSpread: 0.003, drop: 0.006, falloff: 0.15, electronics: false, empShielded: true },
+  smg45: { name: 'content.weapon.smg45.name', desc: 'content.weapon.smg45.desc', w: 3, h: 1, weight: 2.5, ammoType: '.45acp', rpm: 780, mag: 25, reload: 2.0, range: 60,  spread: 0.048, auto: true,  fireModes: ['auto'], pellets: 1, color: 0x4a4a5a, value: 1500, rarity: 'L1', stackLimit: 1, recoil: 30, stability: 40, handling: 75, adsSpread: 0.02, drop: 0.015, falloff: 0.6 , electronics: false, empShielded: true },
+  ar556: { name: 'content.weapon.ar556.name', desc: 'content.weapon.ar556.desc', w: 4, h: 2, weight: 3.6, ammoType: '5.56',   rpm: 850, mag: 30, reload: 2.3, range: 140, spread: 0.025, auto: true,  fireModes: ['semi', 'auto'], pellets: 1, color: 0x3a4a5a, value: 3000, rarity: 'L2', stackLimit: 1, recoil: 40, stability: 60, handling: 65, adsSpread: 0.005, drop: 0.02, falloff: 0.4 , electronics: false, empShielded: true },
 ak762: { name: 'content.weapon.ak762.name', desc: 'content.weapon.ak762.desc', w: 4, h: 2, weight: 4.0, ammoType: '7.62',   rpm: 620, mag: 30, reload: 2.6, range: 130, spread: 0.034, auto: true,  fireModes: ['auto', 'semi'], pellets: 1, color: 0x5a3a2a, value: 3200, rarity: 'L2', stackLimit: 1, recoil: 55, stability: 45, handling: 55, adsSpread: 0.01, drop: 0.025, falloff: 0.5 , electronics: false, empShielded: true },
-sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w: 5, h: 2, weight: 6.5, ammoType: '7.62',   rpm: 55,  mag: 5,  reload: 3.2, range: 350, spread: 0.002, auto: false, fireModes: ['single'], pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1, recoil: 80, stability: 95, handling: 30, adsSpread: 0.0, drop: 0.005, falloff: 0.1 , electronics: true, empShielded: false }, // ★ range 250->350
+sr762: { name: 'content.weapon.sr762.name', desc: 'content.weapon.sr762.desc', w: 5, h: 2, weight: 6.5, ammoType: '762x54', rpm: 55,  mag: 5,  reload: 3.2, range: 350, spread: 0.002, auto: false, fireModes: ['single'], pellets: 1, color: 0x2a3a4a, value: 8000, rarity: 'L3', stackLimit: 1, recoil: 80, stability: 95, handling: 30, adsSpread: 0.0, drop: 0.005, falloff: 0.1 , electronics: false, empShielded: true }, // ★ 改为 7.62×54R 全威力弹，range 350
   sg12:  { name: 'content.weapon.sg12.name',  desc: 'content.weapon.sg12.desc',  w: 4, h: 2, weight: 3.8, ammoType: '12ga',   rpm: 85,  mag: 6,  reload: 3.0, range: 35,  spread: 0.100, auto: false, fireModes: ['pump'], pellets: 9, color: 0x5a4a2a, value: 2500, rarity: 'L3', stackLimit: 1, recoil: 70, stability: 50, handling: 50, adsSpread: 0.05, drop: 0.01, falloff: 0.8 , electronics: false, empShielded: true },
 };
   c.registerAll('weapons', WEAPONS);
@@ -88,6 +101,7 @@ const HELMET_SHELL = {
   lv2: { name: 'content.helmetShell.lv2.name', desc: 'content.helmetShell.lv2.desc', w: 2, h: 2, weight: 1.1, armorLv: 2, maxDur: 100, value: 450,  rarity: 'L1', stackLimit: 1 },
   lv3: { name: 'content.helmetShell.lv3.name', desc: 'content.helmetShell.lv3.desc', w: 2, h: 2, weight: 1.35, armorLv: 3, maxDur: 100, value: 800,  rarity: 'L1', stackLimit: 1 },
   lv4: { name: 'content.helmetShell.lv4.name', desc: 'content.helmetShell.lv4.desc', w: 2, h: 2, weight: 1.65, armorLv: 4, maxDur: 100, value: 1500, rarity: 'L2', stackLimit: 1 },
+  lv5: { name: 'content.helmetShell.lv5.name', desc: 'content.helmetShell.lv5.desc', w: 2, h: 2, weight: 2.1, armorLv: 5, maxDur: 100, value: 2800, rarity: 'L4', stackLimit: 1 },
 };
 c.registerAll('helmetShell', HELMET_SHELL);
 
@@ -95,6 +109,7 @@ const HELMET_VISOR = {
   lv2: { name: 'content.helmetVisor.lv2.name', desc: 'content.helmetVisor.lv2.desc', w: 2, h: 1, weight: 0.42, armorLv: 2, maxDur: 100, value: 350,  rarity: 'L1', stackLimit: 1 },
   lv3: { name: 'content.helmetVisor.lv3.name', desc: 'content.helmetVisor.lv3.desc', w: 2, h: 1, weight: 0.55, armorLv: 3, maxDur: 100, value: 600,  rarity: 'L1', stackLimit: 1 },
   lv4: { name: 'content.helmetVisor.lv4.name', desc: 'content.helmetVisor.lv4.desc', w: 2, h: 1, weight: 0.72, armorLv: 4, maxDur: 100, value: 1200, rarity: 'L2', stackLimit: 1 },
+  lv5: { name: 'content.helmetVisor.lv5.name', desc: 'content.helmetVisor.lv5.desc', w: 2, h: 1, weight: 0.9, armorLv: 5, maxDur: 100, value: 2200, rarity: 'L4', stackLimit: 1 },
 };
 c.registerAll('helmetVisor', HELMET_VISOR);
 
@@ -104,8 +119,10 @@ const HELMET_EAR = {
 c.registerAll('helmetEar', HELMET_EAR);
 
 const VEST_FIBER = {
-  lv3: { name: 'content.vestFiber.lv3.name', desc: 'content.vestFiber.lv3.desc', w: 3, h: 3, weight: 2.4, armorLv: 3, maxDur: 100, value: 900,  rarity: 'L2', stackLimit: 1 },
-  lv4: { name: 'content.vestFiber.lv4.name', desc: 'content.vestFiber.lv4.desc', w: 3, h: 3, weight: 3.1, armorLv: 4, maxDur: 100, value: 1600, rarity: 'L3', stackLimit: 1 },
+  // ★ 插板只能装进护甲纤维的 plate 子槽，不能单独穿戴（现实中不存在只绑一块板）。
+  lv3: { name: 'content.vestFiber.lv3.name', desc: 'content.vestFiber.lv3.desc', w: 3, h: 3, weight: 2.4, armorLv: 3, maxDur: 100, value: 900,  rarity: 'L2', stackLimit: 1, subSlots: ['plate'] },
+  lv4: { name: 'content.vestFiber.lv4.name', desc: 'content.vestFiber.lv4.desc', w: 3, h: 3, weight: 3.1, armorLv: 4, maxDur: 100, value: 1600, rarity: 'L3', stackLimit: 1, subSlots: ['plate'] },
+  lv5: { name: 'content.vestFiber.lv5.name', desc: 'content.vestFiber.lv5.desc', w: 3, h: 3, weight: 4.0, armorLv: 5, maxDur: 100, value: 3200, rarity: 'L4', stackLimit: 1, subSlots: ['plate'] },
 };
 c.registerAll('vestFiber', VEST_FIBER);
 
@@ -120,14 +137,113 @@ const BACKPACK = {
   small:  { name: 'content.backpack.small.name',  desc: 'content.backpack.small.desc',  w: 2, h: 2, weight: 0.7, cap: 8,  innerW: 4, innerH: 2, value: 300,  rarity: 'L1', stackLimit: 1 },
   medium: { name: 'content.backpack.medium.name', desc: 'content.backpack.medium.desc', w: 3, h: 3, weight: 1.3, cap: 16, innerW: 4, innerH: 4, value: 800,  rarity: 'L2', stackLimit: 1 },
   large:  { name: 'content.backpack.large.name',  desc: 'content.backpack.large.desc',  w: 4, h: 4, weight: 2.2, cap: 24, innerW: 6, innerH: 4, value: 1800, rarity: 'L3', stackLimit: 1 },
+  heavy:  { name: 'content.backpack.heavy.name',  desc: 'content.backpack.heavy.desc',  w: 5, h: 4, weight: 3.6, cap: 40, innerW: 8, innerH: 5, value: 3600, rarity: 'L4', stackLimit: 1 },
 };
 c.registerAll('backpack', BACKPACK);
 
 const CHEST_RIG = {
   small: { name: 'content.chestRig.small.name', desc: 'content.chestRig.small.desc', w: 2, h: 2, weight: 0.45, cap: 4, innerW: 2, innerH: 2, value: 400, rarity: 'L1', stackLimit: 1 },
   large: { name: 'content.chestRig.large.name', desc: 'content.chestRig.large.desc', w: 3, h: 2, weight: 0.85, cap: 6, innerW: 3, innerH: 2, value: 900, rarity: 'L2', stackLimit: 1 },
+  heavy: { name: 'content.chestRig.heavy.name', desc: 'content.chestRig.heavy.desc', w: 4, h: 2, weight: 1.25, cap: 12, innerW: 4, innerH: 3, value: 1900, rarity: 'L3', stackLimit: 1 },
 };
 c.registerAll('chestRig', CHEST_RIG);
+
+/* ==========================================================
+   3.6.5 可搜刮容器类型（数据驱动，禁止把容器规则写死在 game.js）
+   ----------------------------------------------------------
+   name:   显示名
+   color:  建模颜色
+   size:   [w, h, d]（米）
+   count:  [min,max] 随机物品件数
+   weights: 各分类的抽取权重（合计不必为 1）
+   ========================================================== */
+const CONTAINER_TYPES = {
+  crate: {
+    name: '军用物资箱', color: 0x8a7a4a, size: [1.6, 1.3, 1.6], count: [2, 3],
+    weights: { ammo: 30, weapons: 8, armor: 10, valuables: 14, medical: 8, attach: 8, nade: 12 },
+  },
+  ammobox: {
+    name: '弹药箱', color: 0x5e6b3a, size: [1.3, 0.9, 1.2], count: [2, 3],
+    weights: { ammo: 62, nade: 20, attach: 6, weapons: 4, valuables: 8 },
+  },
+  medbox: {
+    name: '医疗箱', color: 0xd8d8d8, size: [1.0, 0.7, 0.8], count: [1, 2],
+    weights: { medical: 72, valuables: 10, ammo: 8, attach: 10 },
+  },
+  toolbox: {
+    name: '工具箱', color: 0x4a6a8a, size: [1.2, 0.8, 0.9], count: [1, 3],
+    weights: { attach: 46, valuables: 22, weapons: 4, ammo: 18, medical: 10 },
+  },
+  safe: {
+    name: '保险柜', color: 0x3a3a42, size: [1.3, 1.8, 1.1], count: [1, 2],
+    weights: { valuables: 58, weapons: 12, armor: 12, attach: 10, medical: 8 },
+  },
+  fridge: {
+    name: '冷藏柜', color: 0x9ac8d8, size: [1.1, 1.9, 0.9], count: [1, 2],
+    weights: { medical: 55, valuables: 25, ammo: 10, attach: 10 },
+  },
+};
+c.registerAll('containers', CONTAINER_TYPES);
+
+/* ==========================================================
+   3.6.6 制式券配装档位（数据驱动）
+   ----------------------------------------------------------
+   primary/sidearm: 随机武器池
+   dual:            双主武器概率（高档次可同时带两把长枪）
+   armorLv:         护甲等级区间 [min,max]
+   plateChance:     是否装插板
+   bag/rig:         背包/胸挂型号池
+   ammo/meds/nades: 携带数量基准
+   attach:          随机配件数量
+   special:         额外特殊装备 {table,id}
+   ========================================================== */
+const LOADOUT_TIERS = {
+  light: {
+    name: '轻装', desc: '最低限度的自卫配装：手枪/冲锋枪、轻甲、少量弹药与急救。适合快速进出或空手开局。',
+    order: 1,
+    primary: ['p9', 'p45', 'smg9', 'smg45', 'rev357'],
+    sidearm: ['p9', 'p45', 'rev357'],
+    dual: 0,
+    armorLv: [1, 2], plateChance: 0,
+    bag: ['small', 'medium'], rig: ['small'],
+    ammo: 60, sideAmmo: 30, meds: 2, nades: 1, attach: 0,
+    special: [],
+  },
+  standard: {
+    name: '标准', desc: '常规制式配装：突击步枪/冲锋枪、3~4 级护具、基础医疗与投掷物。适合大多数战局。',
+    order: 2,
+    primary: ['ar556', 'ak762', 'smg9', 'smg45', 'sg12'],
+    sidearm: ['p9', 'p45'],
+    dual: 0.15,
+    armorLv: [3, 4], plateChance: 0.8,
+    bag: ['medium', 'large'], rig: ['large'],
+    ammo: 120, sideAmmo: 45, meds: 3, nades: 2, attach: 1,
+    special: [],
+  },
+  heavy: {
+    name: '重装', desc: '高防护配装：4~5 级护具、轻机枪/精确射手步枪、较多弹药与医疗。移动速度会明显下降。',
+    order: 3,
+    primary: ['ar556', 'ak762', 'lmg556', 'dmr762'],
+    sidearm: ['p45', 'rev357'],
+    dual: 0.35,
+    armorLv: [4, 5], plateChance: 1,
+    bag: ['large', 'heavy'], rig: ['large', 'heavy'],
+    ammo: 180, sideAmmo: 60, meds: 4, nades: 3, attach: 2,
+    special: [{ table: 'medical', id: 'morphine' }],
+  },
+  special: {
+    name: '特种', desc: '试验性配装：5 级护具、双主武器/狙击枪、满配弹药与特殊装备。价值高，风险也高。',
+    order: 4,
+    primary: ['lmg556', 'dmr762', 'sr762', 'ar556'],
+    sidearm: ['rev357', 'p45'],
+    dual: 0.8,
+    armorLv: [5, 5], plateChance: 1,
+    bag: ['heavy'], rig: ['heavy'],
+    ammo: 240, sideAmmo: 90, meds: 5, nades: 4, attach: 3,
+    special: [{ table: 'valuables', id: 'field_radio' }, { table: 'medical', id: 'quickclot' }],
+  },
+};
+c.registerAll('loadoutTiers', LOADOUT_TIERS);
 
 
 /* ==========================================================
@@ -198,12 +314,12 @@ const NADES = {
     desc: 'content.nade.flash.desc',
     w: 1, h: 1, weight: 0.35,
     damage: 0,
-    radius: 15,
+    radius: 20,
     fuse: 1.8,
     trigger: 'timed',
     effect: 'flash',
-    flashDuration: 6.2,
-    flashPeak: 1.0,
+    flashDuration: 7.0,
+    flashPeak: 1.1,
     value: 250,
     rarity: 'L2',
     stackLimit: 3,
@@ -315,7 +431,7 @@ const VALUABLES = {
     w: 1, h: 1, weight: 0.16, value: 1350, rarity: 'L4', stackLimit: 1, icon: '💽', electronics: true, empShielded: false,
   },
   encrypted_ssd: {
-    name: '军用固态盘', desc: '带硬件自毁电路的军用固态盘。外壳有抗磁屏蔽层，但接口暴露在外。',
+    name: '军用固态盘', desc: '带硬件自毁电路的军用固态盘。外壳有电磁加固层，但接口暴露在外。',
     w: 1, h: 1, weight: 0.09, value: 2600, rarity: 'L5', stackLimit: 1, icon: '💾', electronics: true, empShielded: true,
   },
   gold_tooth: {
@@ -330,36 +446,159 @@ const VALUABLES = {
     name: '军用燃料罐', desc: '八升装金属燃料罐，密封圈老化但罐体完好。可用于交换或作为燃烧物。',
     w: 2, h: 2, weight: 7.8, value: 240, rarity: 'L1', stackLimit: 1, icon: '⛽',
   },
+  gold_bar: {
+    name: '小规格金条', desc: '50 克压印金条，边角有检验刻印。体积小、保值稳定，撤离时的硬通货。',
+    w: 1, h: 1, weight: 0.05, value: 3200, rarity: 'L4', stackLimit: 1, icon: '🪙',
+  },
+  diamond: {
+    name: '未镶嵌钻石', desc: '装在纸包里的单颗裸钻，切工一般但净度不错。来源不明，出手需要固定渠道。',
+    w: 1, h: 1, weight: 0.01, value: 4800, rarity: 'L5', stackLimit: 1, icon: '💎',
+  },
+  military_medal: {
+    name: '旧式军功章', desc: '绶带褪色的军功章，背面刻着已撤销的番号。收藏价值高于金属本身。',
+    w: 1, h: 1, weight: 0.04, value: 1100, rarity: 'L3', stackLimit: 1, icon: '🎖',
+  },
+  laptop: {
+    name: '加固笔记本', desc: '带防滚架的军用笔记本，硬盘已被拆走。外壳和接口仍能卖钱，但 EMP 会直接烧毁主板。',
+    w: 2, h: 1, weight: 1.9, value: 1600, rarity: 'L3', stackLimit: 1, icon: '💻',
+    electronics: true, empShielded: false,
+  },
+  field_radio: {
+    name: '野战电台', desc: '背负式短波电台，电池仓有电磁加固。主板仍会被强电磁场击穿，损坏后只能拆零件。',
+    w: 2, h: 2, weight: 3.2, value: 2600, rarity: 'L4', stackLimit: 1, icon: '📻',
+    electronics: true, empShielded: true,
+  },
+  silver_bar: {
+    name: '银锭', desc: '一公斤粗炼银锭，表面有氧化层。价值不高但容易出手，适合填充背包空隙。',
+    w: 1, h: 1, weight: 1.0, value: 700, rarity: 'L2', stackLimit: 1, icon: '🧱',
+  },
 };
 c.registerAll('valuables', VALUABLES);
 
+/*
+  医疗物品的 use 字段是“可使用”的唯一真相源：
+    kind:       bandage 止血 / painkiller 止痛 / splint 固定骨折 / blood 补血 / surgery 手术 / stim 兴奋剂
+    time:       使用耗时（秒）。现实里包扎、夹板、输血、手术都不可能是瞬间完成。
+    bleedSeal:  本次最多封堵的流血等级（按部位伤口总等级扣减，不抹掉伤口本身）
+    blood:      补充的血量（ml）
+    fracture:   可处理的骨折等级上限（1=闭合性骨折，2=粉碎性骨折）
+    pain:       使用后立即增加的疼痛（处理伤口本身会痛）
+    painkiller: 止痛持续时间（秒），期间疼痛相关惩罚不生效
+    duration:   增益/副作用持续时间
+  禁止：不要在 use 之外再写第二套“医疗效果”字段。
+*/
 const MEDICAL = {
   bandage: {
     name: '压缩绷带', desc: '真空包装的压缩绷带，用于处理外出血。包装完好，未过期。',
     w: 1, h: 1, weight: 0.08, value: 180, rarity: 'L1', stackLimit: 4, icon: '🩹',
+    use: { kind: 'bandage', time: 2.4, bleedSeal: 3, pain: 2 },
   },
   painkiller: {
     name: '止痛药', desc: '一小板非甾体止痛药。能压低疼痛感，但不能替代止血。',
     w: 1, h: 1, weight: 0.03, value: 140, rarity: 'L1', stackLimit: 4, icon: '💊',
+    use: { kind: 'painkiller', time: 1.2, painkiller: 90, pain: 0 },
   },
   splint: {
     name: '折叠夹板', desc: '铝条加尼龙带的可折叠夹板，用于临时固定骨折肢体。',
     w: 1, h: 1, weight: 0.22, value: 260, rarity: 'L2', stackLimit: 3, icon: '🦴',
+    use: { kind: 'splint', time: 3.5, fracture: 1, pain: 4 },
   },
   blood_pack: {
     name: '血浆袋', desc: '低温保存的 O 型血浆，包装上贴着已模糊的血站标签。需要尽快使用。',
     w: 1, h: 1, weight: 0.45, value: 420, rarity: 'L3', stackLimit: 2, icon: '🩸',
+    use: { kind: 'blood', time: 4.0, blood: 900 },
   },
   surgical_kit: {
     name: '野外手术包', desc: '含止血钳、缝合线与局部麻醉剂的小型手术包。只有受过训练的人能安全使用。',
     w: 2, h: 1, weight: 0.8, value: 680, rarity: 'L3', stackLimit: 1, icon: '🧰',
+    use: { kind: 'surgery', time: 7.0, bleedSeal: 9, fracture: 2, blood: 250, pain: 6, painkiller: 30 },
   },
   stimulant: {
     name: '军用兴奋剂', desc: '单支自动注射器，标签上写着“仅限战斗伤亡使用”。效果强，副作用同样明显。',
     w: 1, h: 1, weight: 0.05, value: 520, rarity: 'L3', stackLimit: 3, icon: '💉',
+    use: { kind: 'stim', time: 1.5, duration: 25, painkiller: 25, pain: 0 },
+  },
+  tourniquet: {
+    name: '战术止血带', desc: '旋压式止血带，用于肢体大出血的快速封堵。操作比绷带快，但完全阻断血流的时间不能太长。',
+    w: 1, h: 1, weight: 0.09, value: 260, rarity: 'L2', stackLimit: 3, icon: '🩹',
+    use: { kind: 'bandage', time: 1.5, bleedSeal: 5, pain: 4 },
+  },
+  quickclot: {
+    name: '止血粉（QuickClot）', desc: '含高岭土的战伤止血粉，直接倾倒在出血伤口上。封堵能力强，但清理时非常疼。',
+    w: 1, h: 1, weight: 0.06, value: 420, rarity: 'L3', stackLimit: 2, icon: '🧂',
+    use: { kind: 'bandage', time: 2.0, bleedSeal: 7, pain: 6 },
+  },
+  morphine: {
+    name: '吗啡自动注射笔', desc: '一次性吗啡注射笔。强效镇痛，能让人带伤继续行动；过量会抑制呼吸，这里不模拟成瘾。',
+    w: 1, h: 1, weight: 0.04, value: 680, rarity: 'L3', stackLimit: 2, icon: '💊',
+    use: { kind: 'painkiller', time: 1.0, painkiller: 240, pain: 0 },
+  },
+  adrenaline: {
+    name: '肾上腺素注射器', desc: '战斗应激用的肾上腺素，短时间提升移速并压住疼痛，药效过后会明显疲惫。',
+    w: 1, h: 1, weight: 0.05, value: 720, rarity: 'L3', stackLimit: 2, icon: '💉',
+    use: { kind: 'stim', time: 1.0, duration: 18, painkiller: 18, pain: 0 },
+  },
+  saline: {
+    name: '生理盐水袋', desc: '500ml 生理盐水，用于快速补充循环血量。没有凝血因子，不能替代止血。',
+    w: 1, h: 1, weight: 0.55, value: 220, rarity: 'L2', stackLimit: 2, icon: '💧',
+    use: { kind: 'blood', time: 3.2, blood: 500 },
   },
 };
 c.registerAll('medical', MEDICAL);
+
+/* ==========================================================
+   3.9.5 枪械配件
+   ----------------------------------------------------------
+   slot:       安装槽位（muzzle 枪口 / sight 瞄具 / mag 弹匣 / grip 握把）
+   fits:       兼容武器 defId 列表；缺省表示全部兼容
+   caliber:    弹匣类配件的兼容口径（唯一真相源：武器 def.ammoType）
+   spreadMul / recoilMul / adsSpreadMul / rangeMul / soundMul / magMul:
+               乘算修正。未写视为 1。
+   禁止：配件不要直接改写武器 def，运行时统一由 Inventory.getAttachmentStats 汇总。
+   ========================================================== */
+const ATTACH = {
+  supp_556: {
+    slot: 'muzzle', name: '5.56 抑制器', desc: '钢制消音器，能明显削弱枪口焰与枪声，并略微收束散布；重量会让枪口更沉。',
+    w: 1, h: 1, weight: 0.42, value: 1100, rarity: 'L3', stackLimit: 1, icon: '🔇',
+    fits: ['ar556'], stats: { spreadMul: 0.88, recoilMul: 0.86, soundMul: 0.42 },
+  },
+  comp_rifle: {
+    slot: 'muzzle', name: '制退器', desc: '多孔枪口制退器，牺牲一点枪声隐蔽性换取更好的连续射击控制。',
+    w: 1, h: 1, weight: 0.18, value: 620, rarity: 'L2', stackLimit: 1, icon: '🔩',
+    fits: ['ar556', 'ak762', 'sr762', 'sg12'], stats: { recoilMul: 0.74, spreadMul: 1.04, soundMul: 1.15 },
+  },
+  sight_2x: {
+    slot: 'sight', name: '2 倍战术镜', desc: '低倍率棱镜镜，中距离目标更清楚；开镜后视野略窄。',
+    w: 1, h: 1, weight: 0.24, value: 900, rarity: 'L2', stackLimit: 1, icon: '🔭',
+    fits: ['ar556', 'ak762', 'sr762', 'smg45', 'sg12'], stats: { adsSpreadMul: 0.7, spreadMul: 0.94 },
+  },
+  sight_4x: {
+    slot: 'sight', name: '4 倍狙击镜', desc: '高倍率狙击镜，远距离精度优秀，近距离视野极差。',
+    w: 2, h: 1, weight: 0.38, value: 1800, rarity: 'L3', stackLimit: 1, icon: '🎯',
+    fits: ['sr762', 'ar556'], stats: { adsSpreadMul: 0.45, spreadMul: 0.88 },
+  },
+  grip_angled: {
+    slot: 'grip', name: '斜角握把', desc: '前握把降低后坐力回复时间，对散布有小幅帮助。',
+    w: 1, h: 1, weight: 0.12, value: 480, rarity: 'L1', stackLimit: 1, icon: '✊',
+    fits: ['ar556', 'ak762', 'smg45', 'sr762'], stats: { recoilMul: 0.82, spreadMul: 0.95 },
+  },
+  laser_sight: {
+    slot: 'grip', name: '激光指示器', desc: '可见激光辅助指向，腰射散布明显收束；会暴露位置。',
+    w: 1, h: 1, weight: 0.09, value: 760, rarity: 'L2', stackLimit: 1, icon: '🔴',
+    fits: ['ar556', 'ak762', 'smg45', 'p9'], stats: { spreadMul: 0.78, adsSpreadMul: 1.05 },
+  },
+  mag_ext_556: {
+    slot: 'mag', name: '5.56 扩容弹匣', desc: '40 发扩容弹匣，换弹更慢、重量更大。',
+    w: 1, h: 2, weight: 0.35, value: 700, rarity: 'L2', stackLimit: 1, icon: '🧱',
+    caliber: '5.56', stats: { magMul: 1.33, reloadMul: 1.15 },
+  },
+  mag_ext_762: {
+    slot: 'mag', name: '7.62 扩容弹匣', desc: '40 发扩容弹匣，适配 7.62 口径步枪。',
+    w: 1, h: 2, weight: 0.4, value: 760, rarity: 'L2', stackLimit: 1, icon: '🧱',
+    caliber: '7.62', stats: { magMul: 1.33, reloadMul: 1.15 },
+  },
+};
+c.registerAll('attach', ATTACH);
 
 
   /* ==========================================================
@@ -595,6 +834,8 @@ c.registerAll('medical', MEDICAL);
       kind: 'drone',
       cd: 75, cost: 0, duration: 40,
       batteryDrain: 2.4, maxDurability: 70,
+      // 电磁加固：降低 EMP 损坏概率/当量，但不是免疫
+      empHardened: true, empResist: 0.45,
       deployHeight: 10,
       markRadius: 45, markInterval: 5, alertLevel: 3,
     },
@@ -721,7 +962,7 @@ c.registerAll('medical', MEDICAL);
   dazzle:        { name: '强光刺眼', icon: '😵‍💫', positive: false, awareness: 0 },
   stun:          { name: '震撼',     icon: '💫', positive: false, awareness: 0 },
   emp_disrupted: { name: '电磁干扰', icon: '📡', positive: false, awareness: 0 },
-  emp_silence:   { name: '电磁静默', icon: '🛰', positive: false, awareness: 0 },
+  emp_silence:   { name: '强电磁干扰', icon: '📡', positive: false, awareness: 0 },
   fiber_pulling: { name: '拔除玻纤中', icon: '🩹', positive: true, awareness: 0 },
   srdispte:      { name: 'Srdispte', icon: '🌪', positive: true,  awareness: 0 },
   hate:          { name: 'Hate',     icon: '🔥', positive: true,  awareness: 0 },
@@ -742,6 +983,11 @@ c.registerAll('medical', MEDICAL);
   weakness:      { name: '精力虚弱', icon: '🥀', positive: false, awareness: 0 },
   hate_backlash: { name: '血液反噬', icon: '🩸', positive: false, awareness: 0 },
   melee_ready:   { name: '白刃',     icon: '🔪', positive: true,  awareness: 0 },
+  painkiller:    { name: '止痛生效', icon: '💊', positive: true,  awareness: 0 },
+  stimulant:     { name: '兴奋剂',   icon: '💉', positive: true,  awareness: 0 },
+  bandaged:      { name: '已包扎',   icon: '🩹', positive: true,  awareness: 0 },
+  tinnitus:      { name: '耳鸣',     icon: '🔔', positive: false, awareness: 0 },
+  deafened:      { name: '听力受损', icon: '🔇', positive: false, awareness: 0 },
 };
 c.registerAll('effects', EFFECTS);
 

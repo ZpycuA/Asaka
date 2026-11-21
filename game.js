@@ -89,10 +89,19 @@ const ACTION_MAP = {
     label: '投掷',
     // ★ 不再常驻独立投掷键：先选投掷物（轮盘/背包），攻击键自动变为投掷
   },
+  armThrow: {
+    keys: ['j'],
+    label: '解除保险',
+  },
   throwWheel: {
     keys: ['t'],
     label: '投掷轮盘',
     mobile: { left: '20px', bottom: '246px', size: 45, color: 'rgba(255,170,60,.3)', border: 'rgba(255,200,90,.65)', mode: 'click' },
+  },
+  medWheel: {
+    keys: ['n'],
+    label: '医疗轮盘',
+    mobile: { left: '20px', bottom: '300px', size: 45, color: 'rgba(90,220,160,.3)', border: 'rgba(120,255,190,.65)', mode: 'click' },
   },
   droneControl: {
     keys: ['y'],
@@ -360,6 +369,12 @@ class EntityStatus {
     }
     
     this.effects = new Map();
+    // ★ 燃烧按部位记录：只有接触火/被点燃的部位先着火，之后才可能扩散
+    this.burningParts = {};
+    this._burnSpreadT = 0;
+    // ★ 包扎/手术封堵的流血等级：伤口本身不会消失，但外部出血被压住。
+    //   新伤口会让总等级上升，封堵量不变，于是又会重新流血。
+    this.bleedSeal = 0;
     this.healthQuality = 100;
   }
 
@@ -382,7 +397,10 @@ class EntityStatus {
     }
   }
 
-  removeEffect(id) { this.effects.delete(id); }
+  removeEffect(id) {
+    if (id === 'burning') this.burningParts = {};
+    this.effects.delete(id);
+  }
   hasEffect(id) { return this.effects.has(id); }
 
   // ★ 部位伤口对象：数量有限制、等级有限制
@@ -404,16 +422,47 @@ class EntityStatus {
     p.wound = Math.max(p.wound || 0, level); // 兼容旧字段：最大伤口等级
   }
 
-  // 全身伤口总等级（用于流血）
+  // 全身伤口总等级（用于流血）：同一部位多个伤口也要累加，
+  // 否则打出一个 4 级伤口后，后续伤口不会让出血更快。
   totalWoundLevel() {
     let s = 0;
-    for (const k in this.parts) s += (this.parts[k].wound || 0);
+    for (const k in this.parts) {
+      const p = this.parts[k];
+      if (p.wounds && p.wounds.length) {
+        for (const w of p.wounds) s += w.level;
+      } else {
+        s += (p.wound || 0);
+      }
+    }
     return s;
   }
 
-  // ★ 点燃：分档强度，随 tick 扩散升级（最高 3 档）
+  // 真正参与出血计算的等级 = 伤口总等级 - 已包扎封堵量
+  effectiveBleedLevel() {
+    return Math.max(0, this.totalWoundLevel() - (this.bleedSeal || 0));
+  }
+
+  // 包扎/手术：封堵指定等级的出血，不超过当前总伤口等级
+  sealBleeding(levels) {
+    const total = this.totalWoundLevel();
+    this.bleedSeal = Math.min(total, (this.bleedSeal || 0) + Math.max(0, levels || 0));
+    return this.bleedSeal;
+  }
+
+  // 止痛：疼痛相关惩罚是否被压制
+  painSuppressed() {
+    return this.effects.has('painkiller');
+  }
+
+  // ★ 点燃：只有接触火焰的部位先着火；等级越高，后续扩散越快
   ignite(part, strength) {
-    this.addEffect('burning', 12, Math.max(1, Math.min(MAX_BURN_LEVEL, strength | 0)));
+    if (!this.parts[part]) part = 'legs';
+    const lv = Math.max(1, Math.min(MAX_BURN_LEVEL, strength | 0));
+    this.burningParts[part] = Math.max(this.burningParts[part] || 0, lv);
+    this.addEffect('burning', 12, lv);
+    const total = Object.values(this.burningParts).reduce((a, b) => a + b, 0);
+    const eff = this.effects.get('burning');
+    if (eff) eff.strength = Math.max(1, total);
   }
 
   takeDamage(part, energy, pen) {
@@ -434,9 +483,10 @@ class EntityStatus {
     }
 
     // 瞬时空腔/血管破裂造成的即时失血：
-    // 与动能、伤口等级、部位血管密度相关，而不是旧版固定的 0.4ml/J。
+    // 与动能、伤口等级、部位血管密度相关。旧版 0.08 系数下，5.56 胸部只掉约 4% 血，
+    // 玩家几乎看不到“中枪瞬间大量失血”，这里提高即时失血并保留部位差异。
     const vascularity = { head: 1.4, thorax: 1.2, abdomen: 1.15, larm: 0.55, legs: 0.6 }[part] || 0.7;
-    const instantBleed = energy * 0.08 * vascularity + newWound * 12;
+    const instantBleed = energy * 0.18 * vascularity + newWound * 35;
     this.blood = Math.max(0, this.blood - instantBleed);
 
     if (newWound > 0) {
@@ -461,11 +511,12 @@ class EntityStatus {
 
   tick(dt) {
     if (this.isDead()) { this.blood = 0; this.updateOverallHealth(); return; }
-    // 1. 伤口持续流血（按全部伤口总等级驱动，伤口不消失流血不停）
+    // 1. 伤口持续流血（按“未封堵”的伤口总等级驱动；包扎只能压住，不能凭空愈合）
     const totalWound = this.totalWoundLevel();
-    if (totalWound > 0) this.addEffect('bleeding', 999, totalWound);
+    const bleedLevel = this.effectiveBleedLevel();
+    if (bleedLevel > 0) this.addEffect('bleeding', 999, bleedLevel);
     else this.removeEffect('bleeding');
-    let bleedRate = totalWound * 24; // 每秒每级伤口流 24ml；旧版 10ml 在 5L 血量下几乎看不出变化
+    let bleedRate = bleedLevel * 40; // 每秒每级伤口流 40ml；高等级伤口会明显快速失血
 
     // 玻纤滞留：急性二级（剧痛+大出血）/ 慢性一级（永久轻度）
     if (this.hasEffect('fiber_acute')) {
@@ -479,26 +530,59 @@ class EntityStatus {
     // 「Hate」反噬：不直接改 bleed，而是让伤口更痛、更难止血（这里表现为出血增加）
     if (this.hasEffect('hate_backlash')) bleedRate *= 1.12;
 
-    // 2. 燃烧：分档灼烧 + 火势扩散（升档）
+    // 2. 燃烧：只烧“真正着火的部位”，等级越高的部位越疼；4 秒后才向相邻部位扩散。
+    //    旧版每帧随机挑一个部位，可能两秒内连续烧到头，造成不合理的瞬间骨折/死亡。
     const burn = this.effects.get('burning');
     if (burn) {
-      const dmg = burn.strength * 42; // 每秒灼烧焦耳
-      const keys = Object.keys(this.parts);
-      const tgt = keys[Math.floor(Math.random() * keys.length)];
-      const pp = this.parts[tgt];
-      if (pp) {
-        pp.hp = Math.max(-pp.maxHp * 2, pp.hp - dmg * dt);
-        if (pp.hp <= 0 && pp.fracture === 0) { pp.fracture = 1; this.addEffect('fracture', 999, 1); }
+      let totalLv = 0;
+      for (const [pt, lv] of Object.entries(this.burningParts)) {
+        const pp = this.parts[pt];
+        if (!pp) continue;
+        totalLv += lv;
+        const dmg = lv * 8 * dt; // 每级 8J/s，局部灼烧
+        pp.hp = Math.max(-pp.maxHp * 2, pp.hp - dmg);
+        this.blood = Math.max(0, this.blood - lv * 1.6 * dt);
+        if (pp.hp <= 0 && pp.fracture === 0) {
+          pp.fracture = 1;
+          this.addEffect('fracture', 999, 1);
+        }
       }
-      this.blood = Math.max(0, this.blood - burn.strength * 7 * dt);
-      if (burn.strength < MAX_BURN_LEVEL && Math.random() < 0.4 * dt) burn.strength += 1;
+      if (totalLv <= 0) {
+        this.burningParts = {};
+        this.effects.delete('burning');
+      } else {
+        burn.strength = Math.max(1, totalLv);
+        this._burnSpreadT = (this._burnSpreadT || 0) + dt;
+        if (this._burnSpreadT >= 4) {
+          this._burnSpreadT = 0;
+          // 火势从高等级部位向相邻部位缓慢扩散，每次只降一级
+          const adjacent = {
+            legs: ['abdomen'], abdomen: ['thorax', 'legs'],
+            thorax: ['abdomen', 'head'], head: [], larm: ['thorax'],
+          };
+          for (const [pt, lv] of Object.entries(this.burningParts)) {
+            if (lv < 2) continue;
+            for (const to of (adjacent[pt] || [])) {
+              if (this.burningParts[to]) continue;
+              this.burningParts[to] = Math.max(1, lv - 1);
+              burn.strength = Object.values(this.burningParts).reduce((a, b) => a + b, 0);
+              break;
+            }
+          }
+        }
+      }
+    } else if (Object.keys(this.burningParts).length) {
+      this.burningParts = {};
     }
 
     // 3. 其余效果倒计时（bleeding 由伤口驱动，不在这里扣减）
     for (const [id, eff] of this.effects) {
       if (id === 'bleeding') continue;
       eff.duration -= dt;
-      if (eff.duration <= 0) this.effects.delete(id);
+      if (eff.duration <= 0) {
+        if (id === 'burning') this.burningParts = {};
+        this.effects.delete(id);
+      }
     }
 
     this.blood = Math.max(0, this.blood - bleedRate * dt);
@@ -547,7 +631,8 @@ class EntityStatus {
     let mul = 1;
     if (this.effects.has('hypovolemia')) mul *= 0.75;
     if (this.parts.legs.fracture > 0) mul *= 0.5;
-    if (this.effects.has('pain')) mul *= 0.9;
+    if (this.effects.has('pain') && !this.painSuppressed()) mul *= 0.9;
+    if (this.effects.has('stimulant')) mul *= 1.12;
     if (this.effects.has('moving_speed_up')) mul *= 1.2;
     if (this.effects.has('fiber_acute')) mul *= 0.85;
     else if (this.effects.has('fiber_chronic')) mul *= 0.95;
@@ -561,13 +646,22 @@ class EntityStatus {
   getHandlingMul() {
     let mul = 1;
     if (this.effects.has('hypovolemia')) mul *= 0.8;
-    if (this.effects.has('pain')) mul *= 0.8;
+    if (this.effects.has('pain') && !this.painSuppressed()) mul *= 0.8;
     if (this.effects.has('fiber_acute')) mul *= 0.85;
     if (this.effects.has('blind')) mul *= 0.8;
     if (this.effects.has('dazzle')) mul *= 0.86;
     if (this.effects.has('stun')) mul *= 0.6;
     if (this.effects.has('emp_disrupted')) mul *= 0.82;
     return mul;
+  }
+
+  // 听力：耳鸣/震撼期间外界声音被明显削弱
+  getHearingMul() {
+    let mul = 1;
+    if (this.effects.has('tinnitus')) mul *= 0.42;
+    if (this.effects.has('deafened')) mul *= 0.2;
+    if (this.effects.has('stun')) mul *= 0.7;
+    return Math.max(0.1, mul);
   }
 
   // 视野惩罚：失明/强光/失血/闪回会收窄或压暗画面
@@ -579,7 +673,7 @@ class EntityStatus {
     if (this.effects.has('flashback')) p = Math.max(p, 0.3);
     if (this.effects.has('weakness')) p = Math.max(p, 0.32);
     if (this.effects.has('hate_backlash')) p = Math.max(p, 0.3);
-    if (this.effects.has('pain')) p = Math.max(p, 0.18);
+    if (this.effects.has('pain') && !this.painSuppressed()) p = Math.max(p, 0.18);
     return Math.min(1, p);
   }
 
@@ -647,6 +741,25 @@ const AISystem = {
     const keep = ai.keepDistance || 0;
     const stunned = enemy.stunnedUntil && world.time < enemy.stunnedUntil;
     const blinded = enemy.blindedUntil && world.time < enemy.blindedUntil;
+
+    // ★ 脚边有爆炸投掷物：优先逃开（除非已经在逃/撤离）
+    if (!stunned && enemy.state !== 'flee' && enemy.state !== 'remove') {
+      const threat = this._grenadeThreat(world, enemy);
+      if (threat) {
+        enemy.state = 'flee';
+        enemy.stateT = 0;
+        const dx = enemy.body.position.x - threat.x;
+        const dz = enemy.body.position.z - threat.z;
+        const len = Math.hypot(dx, dz) || 1;
+        enemy.targetPos = {
+          x: enemy.body.position.x + dx / len * 13,
+          z: enemy.body.position.z + dz / len * 13,
+        };
+        enemy._grenadeFleeUntil = world.time + 1.8;
+        enemy.awareness = Math.max(enemy.awareness || 0, 0.8);
+        if (world.player && world.player.alive) enemy.targetEntity = world.player;
+      }
+    }
 
     if (canSee && !stunned && !blinded) {
       // 贴脸：有近战武器就拔刀/枪托，否则后撤拉开距离
@@ -723,6 +836,30 @@ const AISystem = {
     if (enemy.suppressedUntil && world.time < enemy.suppressedUntil) {
       enemy.body.velocity.x *= 0.55;
       enemy.body.velocity.z *= 0.55;
+    }
+
+    // 敌方脚步：既进入声纹系统（AI 互相听），也按距离给玩家可听音效
+    {
+      const sp2 = enemy.body.velocity.x * enemy.body.velocity.x + enemy.body.velocity.z * enemy.body.velocity.z;
+      if (sp2 > 1.2 && enemy.body.grounded) {
+        enemy._stepTimer = (enemy._stepTimer || 0) - dt;
+        if (enemy._stepTimer <= 0) {
+          const sprinting = sp2 > 22;
+          const crouched = !!enemy.isCrouching;
+          enemy._stepTimer = crouched ? 0.9 : (sprinting ? 0.32 : 0.58);
+          const intensity = crouched ? 0.05 : (sprinting ? 0.75 : 0.38);
+          const range = crouched ? 3 : (sprinting ? 20 : 9);
+          world.emitSound('benign', intensity, range, enemy.body.position.x, enemy.body.position.z,
+            'enemy', enemy.spec ? enemy.spec.faction : 'nipsel');
+          const pd = world.player ? Math.hypot(world.player.body.position.x - enemy.body.position.x,
+            world.player.body.position.z - enemy.body.position.z) : 999;
+          if (pd < 42) {
+            world._playSFXAt('step_' + (crouched ? 'crouch' : (sprinting ? 'run' : 'walk')),
+              enemy.body.position.x, enemy.body.position.z,
+              { volume: crouched ? 0.15 : (sprinting ? 0.5 : 0.3), maxDist: 42 });
+          }
+        }
+      }
     }
 
     // 所有移动状态最后统一做障碍规避，避免卡在墙角/门框
@@ -862,19 +999,25 @@ const AISystem = {
     enemy.stateT += dt;
     if (enemy.fireCd > 0) enemy.fireCd -= dt;
     if (enemy.fireCd > 0) return;
-    // 命中率由感知/镇定决定，不要求完全精准
-    const hitChance = Math.max(0.18, Math.min(0.75, 0.25 + (ai.perception || 0.5) * 0.45 + (ai.composure || 0.5) * 0.15));
+    // 命中率：感知/镇定决定上限，但距离、无人机高度和横向速度都会显著降低命中。
+    // 旧版 75% 命中 + 每 1 秒一枪，70 耐久无人机几秒就被打爆，体感像自动瞄准。
+    const dist3d = Math.hypot(dx, dy, dz);
+    const rangeFactor = Math.max(0.12, 1 - dist3d / 42);
+    const baseChance = 0.05 + (ai.perception || 0.5) * 0.14 + (ai.composure || 0.5) * 0.08;
+    const hitChance = Math.max(0.02, Math.min(0.3, baseChance * rangeFactor));
     const ox = enemy.body.position.x;
     const oy = enemy.body.position.y + (enemy.body.halfH || 1.2) * 0.75;
     const oz = enemy.body.position.z;
-    const tx = d.mesh.position.x + (Math.random() - 0.5) * 1.4;
-    const ty = d.mesh.position.y + (Math.random() - 0.5) * 1.0;
-    const tz = d.mesh.position.z + (Math.random() - 0.5) * 1.4;
+    // 打偏的曳光弹也要看起来像在“打飞机”，偏移随距离放大
+    const missSpread = 0.5 + dist3d * 0.05;
+    const tx = d.mesh.position.x + (Math.random() - 0.5) * missSpread * 2;
+    const ty = d.mesh.position.y + (Math.random() - 0.5) * missSpread;
+    const tz = d.mesh.position.z + (Math.random() - 0.5) * missSpread * 2;
     world._spawnTracer(ox, oy, oz, tx, ty, tz, 0xffb070);
     if (Math.random() < hitChance) {
-      d.durability = Math.max(0, d.durability - (6 + Math.random() * 8));
+      d.durability = Math.max(0, d.durability - (4 + Math.random() * 5));
       world._spawnSpark(tx, ty, tz);
-      world._droneInterference(0.6 + Math.random() * 0.4);
+      world._droneInterference(0.4 + Math.random() * 0.3);
       if (d.durability <= 0) {
         world._log('侦察无人机被击落', 'r');
         world._destroyDrone(d);
@@ -883,7 +1026,7 @@ const AISystem = {
         return;
       }
     }
-    enemy.fireCd = 0.75 + Math.random() * 0.8;
+    enemy.fireCd = 0.95 + Math.random() * 1.1;
     // 打一会儿无人机后重新评估，避免所有 AI 一直抬头
     if (enemy.stateT > 4.5) { enemy.state = 'patrol'; enemy.droneTarget = null; enemy.stateT = 0; }
   },
@@ -944,6 +1087,18 @@ const AISystem = {
     }
   },
 
+  // 附近是否有落地/飞行中的爆炸投掷物：AI 应该躲开，而不是站在原地等炸
+  _grenadeThreat(world, enemy) {
+    const list = world.projectiles || [];
+    let best = null, bestD = 9.5;
+    for (const pr of list) {
+      if (!pr || pr.effect === 'marker') continue;
+      const d = Math.hypot(pr.pos.x - enemy.body.position.x, pr.pos.z - enemy.body.position.z);
+      if (d < bestD) { bestD = d; best = pr; }
+    }
+    return best ? { pr: best, dist: bestD, x: best.pos.x, z: best.pos.z } : null;
+  },
+
   _findTarget(world, enemy, ai) {
     // ★ 被闪光/震撼致盲期间视野失效（沉默光锥）
     if (enemy.blindedUntil && world.time < enemy.blindedUntil) return null;
@@ -964,7 +1119,9 @@ const AISystem = {
       const dz = c.body.position.z - enemy.body.position.z;
       const dist = Math.hypot(dx, dz);
 
-      const maxDist = 18 + ai.perception * 28;
+      // 视野距离：基础感知 + 武器有效射程。狙击手不会明明拿着 350m 枪却只看到 40m。
+      const weaponRange = (enemy.weapon && enemy.weapon.def && enemy.weapon.def.range) || 0;
+      const maxDist = Math.min(140, Math.max(18 + ai.perception * 28, weaponRange * 0.8));
       if (dist > maxDist) continue;
 
       const angleToTarget = Math.atan2(dz, dx);
@@ -1228,19 +1385,43 @@ const AISystem = {
     enemy.angle = Math.atan2(dz, dx);
 
     const isOpportunist = ai.opportunism > 0.6;
-    if (isOpportunist && dist < 30 && dist > 10) {
-      enemy.isCrouching = true;
-      enemy.body.height = 1.6; enemy.body.halfH = 0.8;
-      enemy.body.velocity.x = Math.cos(enemy.angle + Math.PI/2) * enemy.spec.speed * 0.4;
-      enemy.body.velocity.z = Math.sin(enemy.angle + Math.PI/2) * enemy.spec.speed * 0.4;
-    } else if (ai.aggression > 0.7 && dist > 10) {
+    // ★ 交火距离：不再“无脑贴脸”。按武器有效射程停在下枪距离，
+    //   太远才推进、太近才后撤；进入射程后站定/侧移射击，而不是一路走到枪口下。
+    const wDef = (enemy.weapon && enemy.weapon.def) || {};
+    const wRange = wDef.range || 45;
+    const preferred = Math.max(6, Math.min(60, ai.keepDistance || wRange * 0.7));
+    const tooFar = dist > preferred * 1.12;
+    const tooClose = dist < preferred * 0.5;
+    const sprint = enemy.spec.speed || 4;
+    if (tooFar) {
+      const adv = sprint * (0.55 + (ai.aggression || 0.5) * 0.45);
       enemy.isCrouching = false;
       enemy.body.height = 2.4; enemy.body.halfH = 1.2;
-      enemy.body.velocity.x = Math.cos(enemy.angle) * enemy.spec.speed;
-      enemy.body.velocity.z = Math.sin(enemy.angle) * enemy.spec.speed;
+      enemy.body.velocity.x = Math.cos(enemy.angle) * adv;
+      enemy.body.velocity.z = Math.sin(enemy.angle) * adv;
+    } else if (tooClose && dist > 3.2) {
+      enemy.isCrouching = false;
+      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+      enemy.body.velocity.x = -Math.cos(enemy.angle) * sprint * 0.55;
+      enemy.body.velocity.z = -Math.sin(enemy.angle) * sprint * 0.55;
+    } else if (isOpportunist && dist > 8) {
+      // 机会主义者：在射程边界蹲下侧移，降低被命中率
+      enemy.isCrouching = true;
+      enemy.body.height = 1.6; enemy.body.halfH = 0.8;
+      enemy.body.velocity.x = Math.cos(enemy.angle + Math.PI / 2) * sprint * 0.32;
+      enemy.body.velocity.z = Math.sin(enemy.angle + Math.PI / 2) * sprint * 0.32;
     } else {
-      enemy.body.velocity.x = 0;
-      enemy.body.velocity.z = 0;
+      // 已经在舒服的射击距离：站住开火，最多小幅横移
+      enemy.isCrouching = false;
+      enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+      if ((ai.aggression || 0.5) > 0.65) {
+        const side = Math.sin(world.time * 1.3 + (enemy.spawnT || 0)) * sprint * 0.22;
+        enemy.body.velocity.x = Math.cos(enemy.angle + Math.PI / 2) * side;
+        enemy.body.velocity.z = Math.sin(enemy.angle + Math.PI / 2) * side;
+      } else {
+        enemy.body.velocity.x = 0;
+        enemy.body.velocity.z = 0;
+      }
     }
 
     if (enemy.reactionTimer > 0) {
@@ -1363,6 +1544,22 @@ const AISystem = {
   _flee(world, enemy, dt, target, ai){
     enemy.stateT += dt;
     enemy.isCrouching = false; enemy.body.height = 2.4; enemy.body.halfH = 1.2;
+    // 因手雷逃跑：威胁消失后立即回到战斗，不必傻跑满 7 秒
+    if (enemy._grenadeFleeUntil && world.time > enemy._grenadeFleeUntil) {
+      const still = AISystem._grenadeThreat(world, enemy);
+      if (!still) {
+        enemy._grenadeFleeUntil = 0;
+        enemy.state = 'combat';
+        enemy.stateT = 0;
+        if (!enemy.targetEntity && world.player && world.player.alive) enemy.targetEntity = world.player;
+        return;
+      }
+      enemy._grenadeFleeUntil = world.time + 1.2;
+      const dx = enemy.body.position.x - still.x;
+      const dz = enemy.body.position.z - still.z;
+      const len = Math.hypot(dx, dz) || 1;
+      enemy.targetPos = { x: enemy.body.position.x + dx / len * 13, z: enemy.body.position.z + dz / len * 13 };
+    }
     // 逃太久或伤势稳定后回到巡逻，避免被闪一次就永远逃跑
     if (enemy.stateT > 7 && (!target || !target.alive || enemy.status.healthQuality > 35)) {
       enemy.state = 'patrol';
@@ -1386,6 +1583,12 @@ const AISystem = {
         enemy.body.height = 1.6; enemy.body.halfH = 0.8;
       }
     } else {
+      if (!target || !target.body) {
+        enemy.state = 'patrol';
+        enemy.stateT = 0;
+        enemy.targetEntity = null;
+        return;
+      }
       const dx = target.body.position.x - enemy.body.position.x;
       const dz = target.body.position.z - enemy.body.position.z;
       enemy.angle = Math.atan2(dz, dx) + Math.PI; 
@@ -1393,7 +1596,7 @@ const AISystem = {
       moveZ = Math.sin(enemy.angle) * enemy.spec.speed;
     }
 
-    if (ai.opportunism > 0.5 || ai.aggression > 0.6) {
+    if (target && target.body && (ai.opportunism > 0.5 || ai.aggression > 0.6)) {
       const distToTarget = Math.hypot(target.body.position.x - enemy.body.position.x, target.body.position.z - enemy.body.position.z);
       if (distToTarget < 20 && enemy.weapon && enemy.weapon.def && !enemy.weapon.def.melee && enemy.weapon.loaded.qty > 0) {
         if (enemy.fireCd > 0) enemy.fireCd -= dt;
@@ -1648,6 +1851,7 @@ class HUDSystem {
   this._renderSkillBar(p);
   this._renderFiberBtn(p);
   this._renderExtinguishBtn(p);
+  this._renderThrowArmBtn(p);
   this._renderHazardOverlay(p);
   this._renderTacticalState(p);
   this._renderDamageIndicator();
@@ -1730,8 +1934,8 @@ if (thHint) {
     const name = nd ? this.engine.i18n.t(nd.name) : p.activeThrowable;
     const charge = Math.round((p._throwCharge || 0) * 100);
     const fuse = p._throwPinPulled ? ` · 引信 ${(p._throwFuse || 0).toFixed(1)}s` : '';
-    const trigger = nd && nd.trigger === 'impact' ? '压感·撞击即爆' : '保险·按住拔销';
-    thHint.textContent = `投掷 · ${name}（${trigger}${fuse} · 蓄力 ${charge}% · 松手投出）`;
+    const trigger = nd && nd.trigger === 'impact' ? '压感·撞击即爆' : '保险·先解除保险(J)';
+    thHint.textContent = `投掷 · ${name}（${trigger}${fuse} · 蓄力 ${charge}% · 松开攻击键投出）`;
     thHint.style.display = 'block';
   } else {
     thHint.style.display = 'none';
@@ -1749,6 +1953,19 @@ if (nwb) {
   }
   const hasNades = !!(this.world && this.world._getThrowableList && this.world._getThrowableList().length > 0);
   nwb.style.display = hasNades ? 'block' : 'none';
+}
+// ★ 医疗轮盘入口按钮
+const mwb = document.getElementById('med-wheel-btn');
+if (mwb) {
+  if (!this._medBtnBound) {
+    this._medBtnBound = true;
+    mwb.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.world && this.world._toggleMedWheel) this.world._toggleMedWheel();
+    });
+  }
+  const hasMeds = !!(this.world && this.world._getMedicalWheelList && this.world._getMedicalWheelList().length > 0);
+  mwb.style.display = hasMeds ? 'block' : 'none';
 }
 
 // ★ 无人机面板
@@ -2323,8 +2540,11 @@ _updateCouplingFX(p) {
       const def = this.engine.content.get('effects', id);
       if (!def) continue;
       const cls = def.positive ? 'pos' : 'neg';
-      const lvTag = eff.strength > 1 ? `<span style="font-size:10px;font-weight:700">×${Math.round(eff.strength)}</span>` : '';
-      html += `<div class="status-chip ${cls}" data-eid="${this._esc(id)}" title="${this._esc(def.name)}">${def.icon}${lvTag}</div>`;
+      const lvTag = eff.strength > 1 ? `<span style="font-size:10px;font-weight:700">Lv${Math.round(eff.strength)}</span>` : '';
+      const partTag = id === 'burning' && p.status.burningParts
+        ? ' · ' + Object.entries(p.status.burningParts).map(([pt, lv]) => ({ head: '头', thorax: '胸', abdomen: '腹', larm: '臂', legs: '腿' }[pt] || pt) + 'Lv' + lv).join('/')
+        : '';
+      html += `<div class="status-chip ${cls}" data-eid="${this._esc(id)}" title="${this._esc(def.name + (eff.strength > 1 ? ' Lv' + Math.round(eff.strength) : '') + partTag)}">${def.icon}${lvTag}</div>`;
     }
     el.innerHTML = html;
   }
@@ -2353,6 +2573,36 @@ _updateCouplingFX(p) {
     const has = !!(p && p.status && p.status.hasEffect('burning') && !p.status.isDowned());
     const busy = !!(this.world.actionProcess && (this.world.actionProcess.isRunning('extinguish') || this.world.actionProcess.isRunning('fiber')));
     btn.style.display = (has && !busy) ? 'block' : 'none';
+  }
+
+  _renderThrowArmBtn(p) {
+    const btn = document.getElementById('throwable-arm-btn');
+    if (!btn) return;
+    if (!this._armBtnBound) {
+      this._armBtnBound = true;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.world) this.world._armThrowable(this.world.player);
+      });
+    }
+    const def = p && p.activeThrowable ? this.engine.content.get('nade', p.activeThrowable) : null;
+    const isTimed = !!(def && def.trigger === 'timed');
+    const show = !!(p && p.alive && isTimed && !(p.status && p.status.isDowned()));
+    btn.style.display = show ? 'block' : 'none';
+    if (!show) return;
+    if (p._throwPinPulled) {
+      btn.textContent = `保险已解除 · ${Math.max(0, p._throwFuse || 0).toFixed(1)}s`;
+      btn.disabled = true;
+      btn.style.background = 'rgba(90,40,40,.75)';
+      btn.style.borderColor = 'rgba(255,120,120,.45)';
+      btn.style.color = '#ffb0a0';
+    } else {
+      btn.textContent = '解除保险';
+      btn.disabled = false;
+      btn.style.background = 'rgba(150,40,40,.82)';
+      btn.style.borderColor = 'rgba(255,120,120,.8)';
+      btn.style.color = '#ffe0e0';
+    }
   }
 
   _renderHazardOverlay(p) {
@@ -2967,28 +3217,36 @@ _buildRandomObstacles(half){
   }
 }
 
-_spawnContainerAt(cx, cz){
-  const mesh = this.engine.meshes.build('container', {});
+_spawnContainerAt(cx, cz, typeId){
+  const types = this.engine.content.all('containers') || [];
+  const type = this.engine.content.get('containers', typeId)
+    || types[Math.floor(Math.random() * types.length)]
+    || { id: 'crate', name: '物资容器', color: 0xffcc33, size: [1.6, 1.3, 1.6], count: [1, 2], weights: { ammo: 40, weapons: 10, armor: 10, valuables: 15, medical: 15, attach: 5, nade: 10 } };
+  const [w, h, d] = type.size || [1.6, 1.3, 1.6];
+  const mesh = this.engine.meshes.build('container', {
+    color: type.color, w, h, d, marker: type.marker || type.color,
+  });
   mesh.position.x = cx;
   mesh.position.z = cz;
   this.engine.renderer.scene.add(mesh);
 
   const cBody = this.physics.add(new Body({
     x: cx, z: cz,
-    y: 0.65,
-    height: 1.3,
+    y: h / 2,
+    height: h,
     isStatic: true,
     shape: 'circle',
-    radius: 0.9,
+    radius: Math.max(w, d) * 0.5,
     userData: { type: 'container' },
   }));
 
   this.containers.push({
     x: cx, z: cz, mesh, body: cBody,
     opened: false, loot: null, revealed: [], searched: false,
-    label: '物资容器',
+    type: type.id,
+    label: this.engine.i18n.t(type.name),
   });
-    this.pois.push({ x: cx, z: cz, type: 'container', color: '#ffcc33' });
+  this.pois.push({ x: cx, z: cz, type: 'container', color: '#' + (type.color || 0xffcc33).toString(16).padStart(6, '0') });
 }
 
 _spawnGroundLoot(x, z, lootArray, label) {
@@ -3027,8 +3285,11 @@ _dropItemToGround(uid) {
   const item = inv.items.get(uid);
   if (!item) return false;
   const parent = inv.parentOf.get(uid);
-  if (!parent || !parent.startsWith('c:')) return false;
-  const cName = parent.slice(2);
+  let cName = null;
+  let eqSlot = null;
+  if (parent && parent.startsWith('c:')) cName = parent.slice(2);
+  else if (parent && parent.startsWith('eq:')) eqSlot = parent.slice(3);
+  else return false;
   if (cName === 'stash' || cName === 'safe') {
     this._log('仓库/安全箱物品无法直接丢弃', 'y');
     return false;
@@ -3041,18 +3302,64 @@ _dropItemToGround(uid) {
   const dropX = p.body.position.x + Math.cos(angle) * dropDist;
   const dropZ = p.body.position.z + Math.sin(angle) * dropDist;
 
-  const spec = {
-    table: item.table,
-    defId: item.defId,
-    qty: item.qty,
-    dur: item.dur,
-    loaded: item.loaded ? { ammoType: item.loaded.ammoType, qty: item.loaded.qty } : null,
-  };
+  const makeSpec = (it) => ({
+    table: it.table,
+    defId: it.defId,
+    qty: it.qty,
+    dur: it.dur,
+    loaded: it.loaded ? { ammoType: it.loaded.ammoType, qty: it.loaded.qty } : null,
+    loadedQueue: it.loaded && it.loaded.queue ? [...it.loaded.queue] : undefined,
+    attachments: it.attachments || undefined,
+    extras: {
+      lockValue: true,
+      valueMul: it.valueMul,
+      damaged: !!it.damaged,
+      empSurge: it.empSurge || 0,
+      empHardenedHit: it.empHardenedHit === true,
+    },
+  });
+  const spec = makeSpec(item);
+  // ★ 枪械配件：地面掉落物不能复制 UID（源物品会随武器一起销毁），
+  //   改为把每个配件作为独立物品一起掉在地上，玩家可重新安装。
+  const attachSpecs = [];
+  if (item.table === 'weapons' && item.attachments) {
+    for (const slot in item.attachments) {
+      const aUid = item.attachments[slot];
+      if (!aUid) continue;
+      const aItem = inv.items.get(aUid);
+      if (aItem) attachSpecs.push({ table: 'attach', defId: aItem.defId, qty: 1 });
+    }
+    spec.attachments = undefined;
+  }
+  // ★ 护甲内嵌插板同理：作为独立物品掉落，避免随宿主一起被 destroyItem 吞掉
+  if (item.subSlots) {
+    for (const subSlot in item.subSlots) {
+      const sUid = item.subSlots[subSlot];
+      if (!sUid) continue;
+      const sItem = inv.items.get(sUid);
+      if (sItem) attachSpecs.push({ table: sItem.table, defId: sItem.defId, qty: 1 });
+    }
+    spec.subSlots = undefined;
+  }
+  // 背包/胸挂里的东西一起掉出来，不能让 destroyItem 把它们吞掉
+  const childSpecs = [];
+  if (item.innerGrid) {
+    for (const childUid of Array.from(item.innerGrid.items.keys())) {
+      const child = inv.items.get(childUid);
+      if (child) childSpecs.push(makeSpec(child));
+    }
+  }
 
-  inv.removeFromContainer(cName, uid);
+  if (eqSlot) inv.unequip(eqSlot);
+  else inv.removeFromContainer(cName, uid);
   inv.destroyItem(uid);
 
-  this._spawnGroundLoot(dropX, dropZ, [spec], '丢弃物');
+  this._spawnGroundLoot(dropX, dropZ, [spec, ...childSpecs, ...attachSpecs], '丢弃物');
+  this._syncWeaponsFromInventory();
+  this._syncArmorFromInventory();
+  // 背包/胸挂被丢下后，容器引用回到空网格
+  if (eqSlot === 'backpack') inv.containers.bag = new GridContainer(0, 0);
+  if (eqSlot === 'chestRig') inv.containers.chest = new GridContainer(0, 0);
   this._log('已丢弃 ' + this.engine.i18n.t((inv.content.get(item.table, item.defId) || {}).name || item.defId), 'y');
   return true;
 }
@@ -3239,11 +3546,16 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
 if (!item.loaded) item.loaded = { ammoType: def.ammoType, qty: 0, queue: [] };
   inv.normalizeLoaded(item);
 
+  // ★ 配件修正：运行时只读汇总，不回写 def。扩容弹匣会改变 magCap。
+  const mods = inv.getAttachmentStats ? inv.getAttachmentStats(item) : { magMul: 1, reloadMul: 1, spreadMul: 1, recoilMul: 1, adsSpreadMul: 1, rangeMul: 1, soundMul: 1, count: 0 };
+  const magCap = Math.max(1, Math.round((def.mag || 0) * (mods.magMul || 1)));
+
 return {
   item,
   def,
   ammoDef,
-  magCap: def.mag,
+  mods,
+  magCap,
   fireCd: 0,
   reloading: 0,
   fireModes: def.fireModes || (def.auto ? ['auto'] : ['semi']),
@@ -3293,8 +3605,6 @@ _syncWeaponsFromInventory(){
     const current = p.weapons[pSlot];
     const currentUid = current && current.item ? current.item.uid : null;
 
-    if (currentUid === uid) continue;
-
     if (!uid) {
       p.weapons[pSlot] = null;
       continue;
@@ -3303,11 +3613,21 @@ _syncWeaponsFromInventory(){
     const item = inv.items.get(uid);
     if (!item) { p.weapons[pSlot] = null; continue; }
 
+    // ★ 同一把枪也可能因为“装/拆配件”而需要重建运行时（弹匣容量、散布、后坐都变了）。
+    //   旧版只比较 uid，导致配件装上后数值不生效，直到重新装备这把枪。
+    const modSig = item.attachments
+      ? Object.keys(item.attachments).sort().map(k => item.attachments[k] || '').join('|')
+      : '';
+    if (currentUid === uid && current && current._modSig === modSig) continue;
+
+    let built;
     if (item.table === 'melee') {
-      p.weapons[pSlot] = this._buildMeleeFromInventory(inv, iSlot);
+      built = this._buildMeleeFromInventory(inv, iSlot);
     } else {
-      p.weapons[pSlot] = this._buildWeaponFromInventory(inv, iSlot);
+      built = this._buildWeaponFromInventory(inv, iSlot);
     }
+    if (built) built._modSig = modSig;
+    p.weapons[pSlot] = built;
   }
 
   if (p.activeSlot !== 'fist' && p.weapons[p.activeSlot] === null) {
@@ -3381,21 +3701,14 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   _buildArmorFromInventory(inv) {
   if (!inv) return null;
   const result = {};
-  const mapping = [
-    ['helmetShell', 'shell'],
-    ['helmetVisor', 'visor'],
-    ['vestFiber', 'fiber'],
-    ['vestPlate', 'plate'],
-  ];
-  for (const [equipSlot, armorSlot] of mapping) {
-    const uid = inv.equipped[equipSlot];
-    if (!uid) { result[armorSlot] = { lv: 0, dur: 0, max: 0 }; continue; }
+  const make = (uid) => {
+    if (!uid) return { lv: 0, dur: 0, max: 0 };
     const item = inv.items.get(uid);
-    if (!item) { result[armorSlot] = { lv: 0, dur: 0, max: 0 }; continue; }
+    if (!item) return { lv: 0, dur: 0, max: 0 };
     const def = this.engine.content.get(item.table, item.defId);
-    if (!def || !def.armorLv) { result[armorSlot] = { lv: 0, dur: 0, max: 0 }; continue; }
+    if (!def || !def.armorLv) return { lv: 0, dur: 0, max: 0 };
     const armorDef = this.engine.content.get('armor', 'lv' + def.armorLv);
-    result[armorSlot] = {
+    return {
       item,
       lv: def.armorLv,
       red: armorDef && typeof armorDef.red === 'number' ? armorDef.red : undefined,
@@ -3403,9 +3716,55 @@ _consumeAmmoInInventory(inv, ammoType, count) {
       get dur() { return this.item.dur; },
       set dur(v) { this.item.dur = v; },
     };
-  }
+  };
+  result.shell = make(inv.equipped.helmetShell);
+  result.visor = make(inv.equipped.helmetVisor);
+  result.fiber = make(inv.equipped.vestFiber);
+  // ★ 插板唯一真相源：优先护甲纤维的 plate 子槽；旧存档的 vestPlate 槽仅作兼容回退。
+  const fiberUid = inv.equipped.vestFiber;
+  const fiberItem = fiberUid ? inv.items.get(fiberUid) : null;
+  const nestedPlate = fiberItem && fiberItem.subSlots ? fiberItem.subSlots.plate : null;
+  result.plate = make(nestedPlate || inv.equipped.vestPlate);
   return result;
 }
+
+  // 旧存档迁移：插板原本占独立 vestPlate 槽，现在必须并进护甲纤维。
+  _migratePlateToFiber(inv) {
+    if (!inv) return;
+    const legacyUid = inv.equipped.vestPlate;
+    const fiberUid = inv.equipped.vestFiber;
+    if (!legacyUid || !fiberUid) return;
+    const fiber = inv.items.get(fiberUid);
+    const plate = inv.items.get(legacyUid);
+    if (!fiber || !plate) { inv.equipped.vestPlate = null; return; }
+    if (!fiber.subSlots) fiber.subSlots = { plate: null };
+    if (!fiber.subSlots.plate) {
+      fiber.subSlots.plate = legacyUid;
+      inv.parentOf.set(legacyUid, fiberUid);
+      inv.equipped.vestPlate = null;
+    } else {
+      // 纤维里已经有插板：旧槽里的插板不能继续挂在隐藏槽位上，退回背包
+      inv.equipped.vestPlate = null;
+      if (!inv.addToContainer('bag', legacyUid).ok
+          && !inv.addToContainer('chest', legacyUid).ok
+          && !inv.addToContainer('safe', legacyUid).ok) {
+        inv.addToContainer('stash', legacyUid);
+      }
+    }
+  }
+
+  // ★ 装备槽是护甲唯一真相源：换甲/脱甲后必须重建 player.armor。
+  //   旧版只在出生时构建一次，导致“脱掉的甲仍在承伤、背包里的甲掉耐久”。
+  _syncArmorFromInventory() {
+    const p = this.player;
+    if (!p) return;
+    if (p._mimicUntil && this.time < p._mimicUntil) return; // 拟载期间保持 BYinC
+    const inv = this.engine.app ? this.engine.app.inventory : null;
+    if (!inv) return;
+    this._migratePlateToFiber(inv);
+    const armor = this._buildArmorFromInventory(inv);
+    if (armor) p.armor = armor;
+  }
 
   _buildSkills(skillIds){
     const result = [];
@@ -3608,7 +3967,11 @@ _consumeAmmoInInventory(inv, ammoType, count) {
       const g = spec.gear.armor[s];
       if (g && g.lv > 0) {
         const aUid = lootInv.createItem(map[s], g.defId);
-        if (aUid) lootInv.equip(map[s], aUid);
+        if (aUid) {
+          const r = lootInv.equip(map[s], aUid);
+          // 插板没有护甲纤维可装时，放进背包，避免生成后成为无归属的幽灵物品
+          if (!r.ok) lootInv.addToContainer('bag', aUid);
+        }
       }
     }
   }
@@ -3664,6 +4027,9 @@ _configureTrainingDummy(enemy) {
     part.fracture = 0;
   }
   st.effects.clear();
+  st.burningParts = {};
+  st._burnSpreadT = 0;
+  st.bleedSeal = 0;
   st.updateOverallHealth();
   enemy._damageFromPlayer = 0;
   enemy._lastDamageDealt = 0;
@@ -3715,6 +4081,13 @@ _reviveTrainingDummy(enemy) {
   }
   enemy.isDownedState = false;
   enemy.deathTimer = undefined;
+  if (enemy.status) {
+    enemy.status.effects.clear();
+    enemy.status.burningParts = {};
+    enemy.status._burnSpreadT = 0;
+    enemy.status.bleedSeal = 0;
+    enemy.status.updateOverallHealth();
+  }
   enemy.body.height = 2.4;
   enemy.body.halfH = 1.2;
   enemy.body.radius = enemy.spec.radius || 1;
@@ -3802,7 +4175,14 @@ _refillTrainingLoadout() {
   _spawnContainers(){
   if (this.containers.length > 0) return;
   const half = this.mapSpec.size / 2 - 6;
-  const count = 8;
+  const count = this.mapSpec.containerCount || 10;
+  // 容器类型权重：物资箱最多，保险柜/冷藏柜稀有（数据来自 content.containers）
+  const typeWeights = { crate: 5, ammobox: 3, medbox: 2, toolbox: 2, safe: 1, fridge: 1 };
+  const pool = [];
+  for (const t of (this.engine.content.all('containers') || [])) {
+    const w = typeWeights[t.id] || 1;
+    for (let i = 0; i < w; i++) pool.push(t.id);
+  }
   for (let i = 0; i < count; i++) {
     let cx, cz, tries = 0;
     do {
@@ -3810,7 +4190,8 @@ _refillTrainingLoadout() {
       cz = (Math.random() * 2 - 1) * half;
       tries++;
     } while (Math.hypot(cx, cz) < 8 && tries < 40);
-    this._spawnContainerAt(cx, cz);
+    const typeId = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'crate';
+    this._spawnContainerAt(cx, cz, typeId);
   }
 }
 
@@ -3872,6 +4253,7 @@ this._updateNearbyList();
   this._updateFireFields(dt);
   this._updateThrowPreview();
   this._updateDrones(dt);
+  this._updateDroneFeed(dt);
   this._updateMobileButtons();
   this._tickAlerts(dt);
 
@@ -3927,8 +4309,7 @@ _updatePlayer(dt){
   this._updateSkillStates(dt);
   // ★ 投掷轮盘打开时冻结玩家输入：避免点击轮盘触发开火/切枪，
   //   同时用 _refreshEdges 吃掉这一帧的边沿，关闭后不会补放技能。
-  if (this._nadeWheelOpen) return;
-  if (this.training) {
+  if (this._nadeWheelOpen) return;  if (this.training) {
     // 靶场默认保持满耦合/满体力，便于反复测试技能与移动
     p.coupling = p.maxCoupling;
     p.stamina = p.maxStamina;
@@ -3944,8 +4325,21 @@ _updatePlayer(dt){
     this._weightT = this.time;
     const inv = this.engine.app && this.engine.app.inventory;
     p.carryWeight = inv ? inv.getCarryWeight() : 0;
+    // 装备槽变化（脱甲/换甲/背包内挪甲）同步到承伤模型
+    this._syncArmorFromInventory();
     const lim = p.carryLimit || 24;
     p.loadState = p.carryWeight > lim ? 'overweight' : (p.carryWeight > lim * 0.75 ? 'loaded' : 'normal');
+    // ★ 负重硬上限：允许短时超载到 1.35 倍，但不能无限背。
+    //   超过后 Inventory.addToContainer 会拒绝新物品进入随身容器（转移/拾取会提示“超重”）。
+    //   这样既有“超重还能挪两步”的真实感，又不会出现背着一吨物资跑图。
+    p.carryHardLimit = Math.round(lim * 1.35 * 10) / 10;
+    if (inv) inv.maxCarryWeight = p.carryHardLimit;
+    if (p.carryWeight > p.carryHardLimit && !p._overCapLogged) {
+      p._overCapLogged = true;
+      this._log('负重超过硬上限（' + p.carryWeight.toFixed(1) + '/' + p.carryHardLimit.toFixed(1) + 'kg），无法再拾取物品', 'r');
+    } else if (p.carryWeight <= lim) {
+      p._overCapLogged = false;
+    }
     let loadMul = 1;
     if (p.loadState === 'loaded') loadMul = Math.min(1, 0.9 + (p._adaptBonus || 0) * 0.2);
     else if (p.loadState === 'overweight') loadMul = 0.72 + (p._adaptBonus || 0) * 0.3;
@@ -4010,7 +4404,8 @@ const downedNow = !!(p.status && p.status.isDowned());
 const fatigueMul   = 1 + (1 - staminaRatio) * 1.5;   // 越累消耗越快：1~2.5
 const recoveryMul  = 1 + (1 - staminaRatio) * 2.0;   // 越累恢复越快：1~3
 
-const canSprint = !downedNow && isMoving && wantsToSprint && p.stamina > 2 && staminaRatio > 0.15;
+// 蹲着不能疾跑：想跑就站起来。旧版允许蹲姿冲刺，视觉和体力都不合理。
+const canSprint = !downedNow && isMoving && wantsToSprint && !p.isCrouching && p.stamina > 2 && staminaRatio > 0.15;
 
 let isSprinting = false;
 if (canSprint) {
@@ -4122,7 +4517,8 @@ p.holdingBreath = !!(p.ads && breathEnabled && e.input.isActive('holdBreath') &&
 if (p.holdingBreath) p.stamina = Math.max(0, p.stamina - dt * 9);
 
 // 记录相机基础高度（供 update 主循环读取）
-p.camHeight = downedNow ? 0.55 : (p.isCrouching ? 1.05 : 1.55);
+// 倒地后不要贴地到 0.3m：近裁剪面会切进地板。0.7m 接近“侧躺抬头”的真实视高。
+p.camHeight = downedNow ? 0.7 : (p.isCrouching ? 1.05 : 1.55);
 
 // ★ 5. 角色朝向始终跟随相机前方
    
@@ -4172,7 +4568,7 @@ if (!this._searching && !isDowned && !isStunned) {
     if (firing && !p._throwAiming) {
       p._throwAiming = true;
       p._throwCharge = Math.max(0.35, p._throwCharge || 0.35);
-      if (def && def.trigger === 'timed') this._pullThrowablePin(p);
+      // 保险不再由长按自动解除：必须先点“解除保险”按钮/按 J
     } else if (!firing && p._throwAiming) {
       p._throwAiming = false;
       this._doThrowNow(p);
@@ -4202,7 +4598,9 @@ if (!this._searching && !isDowned) {
   if (this._edge.switchWeapon) this._switchWeapon();
   if (this._edge.fireMode) this._cycleFireMode();
   if (this._edge.throw) this._quickThrow(p);
+  if (this._edge.armThrow) this._armThrowable(p);
   if (this._edge.throwWheel) this._toggleNadeWheel();
+  if (this._edge.medWheel) this._toggleMedWheel();
   if (this._edge.bag && this.engine.app && this.engine.app.bagUI) this.engine.app.bagUI.toggle();
   if (this._edge.skill1) this._useSkill(0);
   if (this._edge.skill2) this._useSkill(1);
@@ -4245,6 +4643,12 @@ if (speedSq > 1.0 && p.body.grounded) {
     }
     
     this.emitSound('benign', stepIntensity, stepRange, p.body.position.x, p.body.position.z, 'player', 'player');
+    // 玩家自己的脚步：蹲伏几乎无声、走路轻、疾跑重
+    const stepName = p.isCrouching ? 'crouch' : (isSprinting ? 'run' : 'walk');
+    this._playSFXAt('step_' + stepName, p.body.position.x, p.body.position.z, {
+      volume: p.isCrouching ? 0.16 : (isSprinting ? 0.55 : 0.32),
+      maxDist: 40,
+    });
   }
 }
 }
@@ -4304,7 +4708,7 @@ _updateSpeedFeedback(dt, isMoving) {
 _refreshEdges() {
   if (!this._actionPrev) this._actionPrev = {};
   if (!this._edge) this._edge = {};
-  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode', 'crouch', 'ads', 'throw', 'throwWheel', 'droneControl', 'lean_left', 'lean_right'];
+  const names = ['reload', 'switchWeapon', 'skill1', 'skill2', 'protectL1', 'protectL2', 'protectL3', 'search', 'weaponSlot1', 'weaponSlot2', 'weaponSlot3', 'weaponSlot0', 'fire', 'fireMode', 'crouch', 'ads', 'throw', 'armThrow', 'hazardAction', 'bag', 'throwWheel', 'medWheel', 'droneControl', 'lean_left', 'lean_right'];
   for (let i = 0; i < names.length; i++) {
     const a = names[i];
     const cur = !!this.engine.input.isActive(a);
@@ -4474,6 +4878,37 @@ _switchWeapon(){
     this._log('开火模式：' + this._fireModeLabel(w.fireMode), 'p');
   }
 
+  _startUnload(weaponUid){
+    const p = this.player;
+    if (!p || !p.alive) return;
+    let w = this.currentWeapon;
+    if (weaponUid) {
+      w = Object.values(p.weapons || {}).find(x => x && x.item && x.item.uid === weaponUid) || null;
+    }
+    if (!w) return;
+    if (w.isFist || (w.def && w.def.melee)) return;
+    if (w.mag <= 0) return;
+    if (this.actionProcess.isRunning()) { this._log('当前动作尚未完成', 'y'); return; }
+    // 卸弹链比完整换弹快：0.75s 基准，作为独立动作进程，期间不能装填
+    this.actionProcess.start({
+      id: 'unload',
+      label: '卸下弹链',
+      duration: 0.55,
+      cancelable: true,
+      onComplete: () => {
+        const inv = this.engine.app && this.engine.app.inventory;
+        if (!inv) return;
+        const res = inv.unloadAmmo(w.item.uid, null, Infinity);
+        if (!res.ok) {
+          this._log(res.reason === 'no_space' ? '背包/胸挂/口袋放不下卸下的子弹' : '卸下弹链失败', 'y');
+          return;
+        }
+        this._log('已卸下弹链（' + res.removed + ' 发）', 'p');
+      },
+      onCancel: () => this._log('卸下弹链被中断', 'y'),
+    });
+  }
+
   _startReload(){
 const p = this.player;
 const w = this.currentWeapon;
@@ -4494,7 +4929,7 @@ if (this.actionProcess.isRunning()) return;
 
   const realistic = this.engine.profile.get('combat.realisticReload', false);
   const reloadMul = realistic ? 1.5 : 0.8;
-  const duration = w.def.reload * reloadMul * (p.skillReloadMul || 1);
+  const duration = w.def.reload * reloadMul * (p.skillReloadMul || 1) * (w.mods ? (w.mods.reloadMul || 1) : 1);
 
   this.actionProcess.start({
     id: 'reload',
@@ -4507,6 +4942,7 @@ if (this.actionProcess.isRunning()) return;
     },
   });
   this._playSFX('reload');
+  this.emitSound('benign', 0.3, 9, p.body.position.x, p.body.position.z, 'player', 'player');
 }
 
       _finishReload(){
@@ -4683,27 +5119,41 @@ _meleeAttack(owner, weapon) {
     const G = 14.0;
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
+      if (!pr || !pr.mesh || !pr.pos) { this.projectiles.splice(i, 1); continue; }
       const ox = pr.pos.x, oy = pr.pos.y, oz = pr.pos.z;
       pr.vel.y -= G * dt;
       pr.pos.x += pr.vel.x * dt;
       pr.pos.y += pr.vel.y * dt;
       pr.pos.z += pr.vel.z * dt;
 
-      // ★ 压感式：撞到墙/地面/人立即生效，不等引信
+      // ★ 压感式：撞到墙/地面/人立即生效，但必须有“解除保险后的最小飞行距离”。
+      //   现实中的压感引信也不是离手 5cm 就炸；旧版把出手点前 0.5m 当作可碰撞点，
+      //   贴墙/低头/身体边缘都会让它刚脱手就在脚边炸开。
       if (pr.trigger === 'impact') {
+        if (pr.pos.y < 0.04) pr.pos.y = 0.04;
+        const sx = pr.startPos ? pr.startPos.x : ox, sy = pr.startPos ? pr.startPos.y : oy, sz = pr.startPos ? pr.startPos.z : oz;
+        const travelled = Math.hypot(pr.pos.x - sx, pr.pos.y - sy, pr.pos.z - sz);
+        if (!pr.armed) {
+          const age = this.time - (pr.bornAt || 0);
+          // 0.9m 或 0.35s 任一满足即视为解除保险，避免贴地投掷卡在未引爆状态
+          if (age >= 0.07 && (travelled >= 0.9 || age >= 0.35)) pr.armed = true;
+        }
         const dx = pr.pos.x - ox, dy = pr.pos.y - oy, dz = pr.pos.z - oz;
         const len = Math.hypot(dx, dy, dz);
         let exploded = false;
-        if (pyGround(pr.pos)) {
-          pr.pos.y = 0.12;
-          exploded = true;
-        } else if (len > 0.001) {
-          const hit = this.physics.raycast(ox, oy, oz, dx / len, dy / len, dz / len, len,
-            body => body !== (pr.owner && pr.owner.body) &&
-              body.userData && (body.userData.type === 'obstacle' || body.userData.type === 'enemy' || body.userData.type === 'player'));
-          if (hit) {
-            pr.pos.x = hit.point.x; pr.pos.y = hit.point.y; pr.pos.z = hit.point.z;
+        if (pr.armed) {
+          if (pyGround(pr.pos)) {
+            pr.pos.y = 0.12;
             exploded = true;
+          } else if (len > 0.001) {
+            const hit = this.physics.raycast(ox, oy, oz, dx / len, dy / len, dz / len, len,
+              body => body !== (pr.owner && pr.owner.body) &&
+                body.userData && (body.userData.type === 'obstacle' || body.userData.type === 'container' || body.userData.type === 'enemy' || body.userData.type === 'player'));
+            // 忽略“出发瞬间就在体内/贴脸”的 0 距离命中
+            if (hit && hit.t > 0.12) {
+              pr.pos.x = hit.point.x; pr.pos.y = hit.point.y; pr.pos.z = hit.point.z;
+              exploded = true;
+            }
           }
         }
         if (exploded) {
@@ -4714,18 +5164,54 @@ _meleeAttack(owner, weapon) {
           this.projectiles.splice(i, 1);
           continue;
         }
-      } else if (pyGround(pr.pos)) {
-        // 保险式：落地弹跳，引信继续走；不会因为落地提前炸
-        pr.pos.y = 0.12;
-        pr.vel.y = Math.abs(pr.vel.y) * 0.28;
-        pr.vel.x *= 0.62;
-        pr.vel.z *= 0.62;
+      } else {
+        // ★ 定时引信也要和墙体碰撞：旧版只判断地面，手雷会直接穿过墙/箱子。
+        //   用本帧位移做线段检测，薄墙也不会被“穿透”。
+        const dx = pr.pos.x - ox, dy = pr.pos.y - oy, dz = pr.pos.z - oz;
+        const len = Math.hypot(dx, dy, dz);
+        let bounced = false;
+        if (len > 0.001) {
+          const hit = this.physics.raycast(ox, oy, oz, dx / len, dy / len, dz / len, len,
+            body => body.userData && (body.userData.type === 'obstacle' || body.userData.type === 'container'));
+          if (hit && hit.t > 0.02) {
+            const b = hit.body;
+            let nx = 0, ny = 0, nz = 0;
+            if (b.shape === 'aabb') {
+              const relX = hit.point.x - b.position.x;
+              const relZ = hit.point.z - b.position.z;
+              const gapX = Math.abs(b.halfW || 1) - Math.abs(relX);
+              const gapZ = Math.abs(b.halfD || 1) - Math.abs(relZ);
+              const yTop = b.yMax !== null && b.yMax !== undefined ? b.yMax : (b.position.y + (b.height || 0) / 2);
+              if (Math.abs(hit.point.y - yTop) < 0.08 && pr.vel.y < 0) { ny = 1; }
+              else if (gapX < gapZ) nx = relX >= 0 ? 1 : -1;
+              else nz = relZ >= 0 ? 1 : -1;
+            } else {
+              const hd = Math.hypot(dx, dz) || 1;
+              nx = -dx / hd; nz = -dz / hd;
+            }
+            pr.pos.x = hit.point.x + nx * 0.07;
+            pr.pos.z = hit.point.z + nz * 0.07;
+            pr.pos.y = Math.max(0.13, hit.point.y + ny * 0.07);
+            this._reflectProjectile(pr, nx, ny, nz);
+            bounced = true;
+          }
+        }
+        if (!bounced && pyGround(pr.pos)) {
+          const impactV = Math.abs(pr.vel.y);
+          pr.pos.y = 0.14;
+          pr.vel.y = Math.abs(pr.vel.y) * 0.28;
+          pr.vel.x *= 0.62;
+          pr.vel.z *= 0.62;
+          if (impactV > 1.0) bounced = true;
+        }
+        if (bounced) this._projectileBounceFeedback(pr);
       }
 
       pr.mesh.position.copy(pr.pos);
       pr.mesh.rotation.x += dt * 8;
       pr.mesh.rotation.y += dt * 6;
-      pr.fuse -= dt;
+      // ★ 压感引信没有时间引信；旧版仍走 fuse 倒计时，导致出手 0.02s 就自爆
+      if (pr.trigger !== 'impact') pr.fuse -= dt;
       if (pr.trigger === 'impact') {
         pr.life = (pr.life || 8) - dt;
         if (pr.life <= 0) pr.fuse = 0;
@@ -4741,9 +5227,35 @@ _meleeAttack(owner, weapon) {
     function pyGround(pos) { return pos.y < 0.12; }
   }
 
+  _reflectProjectile(pr, nx, ny, nz){
+    // v' = v - 2(v·n)n，再按弹性系数衰减；没有法线时直接反向
+    const nlen = Math.hypot(nx, ny, nz);
+    if (nlen < 1e-4) { pr.vel.x *= -0.45; pr.vel.z *= -0.45; return; }
+    nx /= nlen; ny /= nlen; nz /= nlen;
+    const vn = pr.vel.x * nx + pr.vel.y * ny + pr.vel.z * nz;
+    const e = 0.45;
+    pr.vel.x = (pr.vel.x - 2 * vn * nx) * e;
+    pr.vel.y = (pr.vel.y - 2 * vn * ny) * e;
+    pr.vel.z = (pr.vel.z - 2 * vn * nz) * e;
+    if (pr.vel.y < 0) pr.vel.y = Math.abs(pr.vel.y) * 0.5 + 0.4;
+  }
+
+  _projectileBounceFeedback(pr){
+    // 弹体碰撞声 + 声纹：AI 应该能听见“脚边落了一颗雷”
+    const now = this.time;
+    if (pr._lastBounceSfx && now - pr._lastBounceSfx < 0.09) return;
+    pr._lastBounceSfx = now;
+    const x = pr.pos.x, z = pr.pos.z;
+    this._playSFXAt('nade_bounce', x, z, { volume: 0.55, maxDist: 40 });
+    this.emitSound('malignant', 0.45, 18, x, z,
+      pr.owner === this.player ? 'player' : 'enemy',
+      pr.owner && pr.owner.spec ? pr.owner.spec.faction : 'player');
+  }
+
   _explodeProjectile(pr) {
     const x = pr.pos.x, y = Math.max(0.2, pr.pos.y), z = pr.pos.z;
     this._spawnExplosionFX(x, y, z);
+    this._playSFXAt('explosion', x, z, { volume: 1.0, maxDist: 220 });
     this.emitSound('malignant', 1.0, 80, x, z, pr.owner === this.player ? 'player' : 'enemy',
       pr.owner && pr.owner.spec ? pr.owner.spec.faction : 'player');
 
@@ -4778,7 +5290,9 @@ _meleeAttack(owner, weapon) {
       const res = this._applyFlash(x, z, pr.radius, dur, peak, null, y + 0.4);
       this._spawnLightField(x, y + 0.4, z, pr.radius, peak, 0xffffff);
       const p = this.player;
-      if (p && p.alive) {
+      if (p && p.alive && p.status && (p.status.hasEffect('blind') || p.status.hasEffect('dazzle'))) {
+        // 只有 _applyFlash 判定为真实受影响（含墙体遮挡）时才补一层屏幕白光，
+        // 否则隔墙爆炸也会闪白屏幕，与“闪光被墙挡住”的逻辑矛盾。
         const d = Math.hypot(p.body.position.x - x, p.body.position.z - z);
         if (d < pr.radius) {
           const f = Math.max(0, 1 - d / pr.radius);
@@ -4792,23 +5306,32 @@ _meleeAttack(owner, weapon) {
     // ===== 震撼弹 =====
     if (effect === 'stun') {
       const dur = (def && def.stunDuration) || 3;
-      this._applyStun(x, z, pr.radius, dur);
+      this._applyStun(x, y, z, pr.radius, dur);
       this._spawnLightField(x, y + 0.3, z, pr.radius * 0.8, 0.45, 0xaab0ff);
       const p = this.player;
       if (p && p.alive) {
-        const d = Math.hypot(p.body.position.x - x, p.body.position.z - z);
+        const eyeY = p.body.position.y + (p.body.halfH || 1.2) * 0.85;
+        const d = Math.hypot(p.body.position.x - x, eyeY - y, p.body.position.z - z);
         if (d < pr.radius) {
-          const f = Math.max(0.2, 1 - d / pr.radius);
-          p._stunnedUntil = this.time + dur * f;
-          p.status.addEffect('stun', dur * f, f);
-          this.engine.cameraCtl.shake(0.7, 0.3);
+          // 墙体/掩体削弱震撼：先做遮挡判定
+          const len = Math.max(0.1, d);
+          const blocked = this.physics.raycast(x, y, z,
+            (p.body.position.x - x) / len, (eyeY - y) / len, (p.body.position.z - z) / len, len,
+            body => body.userData && body.userData.type === 'obstacle');
+          const f = Math.max(0, 1 - d / pr.radius) * (blocked ? 0.4 : 1);
+          if (f > 0.02) {
+            p._stunnedUntil = Math.max(p._stunnedUntil || 0, this.time + dur * f);
+            p.status.addEffect('stun', dur * f, Math.max(1, f));
+            this._applyTinnitus(Math.max(2.5, dur * f), Math.max(0.4, f));
+            this.engine.cameraCtl.shake(0.7, 0.3);
+          }
         }
       }
       this._flashScreen(0.3);
       return;
     }
 
-    // ===== EMP：电磁场随距离衰减；干扰所有非抗磁电子物品 =====
+    // ===== EMP：电磁场随距离衰减；加固设备降低损坏概率但仍会掉耐久 =====
     if (effect === 'emp') {
       const res = this._applyEmpField(x, y, z, pr.radius || 14, (def && def.empPeak) || 1.0, pr.owner);
       this._flashScreen(0.18);
@@ -4865,6 +5388,25 @@ _meleeAttack(owner, weapon) {
       this._pendingHitSrcZ = undefined;
     }
 
+    // ★ 侦察无人机也吃爆炸：冲击波/破片按三维距离衰减掉耐久。
+    //   旧版只遍历 player/enemies，无人机悬停在手雷上方也毫发无伤。
+    if (this.drones) {
+      for (const d of this.drones) {
+        if (!d.alive) continue;
+        const ddx = d.mesh.position.x - x;
+        const ddy = (d.mesh.position.y - y) * 0.7;
+        const ddz = d.mesh.position.z - z;
+        const dd = Math.hypot(ddx, ddy, ddz);
+        if (dd > pr.radius * 1.1) continue;
+        const f = Math.max(0, 1 - dd / (pr.radius * 1.1));
+        const loss = (26 + Math.random() * 34) * f * f * (d.empHardened ? 0.85 : 1);
+        d.durability = Math.max(0, d.durability - loss);
+        this._spawnSpark(d.mesh.position.x, d.mesh.position.y, d.mesh.position.z);
+        if (d.owner === this.player) this._droneInterference(0.35 + f * 0.4);
+        if (d.durability <= 0) this._destroyDrone(d);
+      }
+    }
+
     // 四面八方破片视觉
     for (let i = 0; i < 10; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -4897,16 +5439,33 @@ _meleeAttack(owner, weapon) {
   }
 
   // 震撼：AI 全体眩晕/抖动；玩家由调用处单独处理
-  _applyStun(x, z, radius, duration) {
+  _applyStun(x, y, z, radius, duration) {
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      const d = Math.hypot(e.body.position.x - x, e.body.position.z - z);
+      const ey = e.body.position.y + (e.body.halfH || 1.2) * 0.85;
+      const d = Math.hypot(e.body.position.x - x, ey - y, e.body.position.z - z);
       if (d > radius) continue;
-      const f = 1 - d / radius;
+      const len = Math.max(0.1, d);
+      const blocked = this.physics.raycast(x, y, z,
+        (e.body.position.x - x) / len, (ey - y) / len, (e.body.position.z - z) / len, len,
+        body => body.userData && body.userData.type === 'obstacle');
+      const f = Math.max(0, 1 - d / radius) * (blocked ? 0.4 : 1);
+      if (f <= 0.02) continue;
       e.stunnedUntil = Math.max(e.stunnedUntil || 0, this.time + duration * (0.5 + 0.5 * f));
       e.blindedUntil = Math.max(e.blindedUntil || 0, this.time + duration * 0.6 * f);
       if (e.status) e.status.addEffect('stun', duration * (0.5 + 0.5 * f), 1);
       e.awareness = 0;
+    }
+  }
+
+  _applyTinnitus(duration, intensity = 1) {
+    const p = this.player;
+    if (!p || !p.alive || !p.status) return;
+    p.status.addEffect('tinnitus', Math.max(1.5, duration || 3), Math.max(1, Math.round(intensity * 2)));
+    // 耳鸣声不要每次破片都叠一遍，1.2 秒内只播一次
+    if (!this._lastTinnitusAt || this.time - this._lastTinnitusAt > 1.2) {
+      this._lastTinnitusAt = this.time;
+      this._playSFX('tinnitus', { volume: Math.min(0.6, 0.25 + intensity * 0.35) });
     }
   }
 
@@ -4923,12 +5482,16 @@ _meleeAttack(owner, weapon) {
 
   _blindOverlay(duration, intensity) {
     const el = this._ensureBlindOverlay();
-    el.style.transition = 'opacity .12s';
-    el.style.opacity = String(Math.min(0.98, 0.4 + intensity * 0.6));
-    setTimeout(() => {
-      el.style.transition = 'opacity ' + Math.max(0.5, duration) + 's';
+    // 真实闪光弹不是“闪一下 0.12s 就恢复”：先接近全白，保持一小段，再随失明时间恢复。
+    const peak = Math.min(0.985, 0.55 + (intensity || 1) * 0.45);
+    el.style.transition = 'opacity .09s';
+    el.style.opacity = String(peak);
+    clearTimeout(this._blindTimer);
+    const holdMs = Math.min(700, Math.max(260, (duration || 2) * 180));
+    this._blindTimer = setTimeout(() => {
+      el.style.transition = 'opacity ' + Math.max(0.9, (duration || 2) * 0.85) + 's';
       el.style.opacity = '0';
-    }, 160);
+    }, holdMs);
   }
 
   /* ===================== 投掷物选择 / 投掷 ===================== */
@@ -5062,7 +5625,7 @@ _meleeAttack(owner, weapon) {
       this._onWheelKey = (ev) => {
         if (!this._nadeWheelOpen) return;
         const k = ev.key;
-        if (k === 'Escape' || k.toLowerCase() === 't') {
+        if (k === 'Escape' || k.toLowerCase() === 't' || k.toLowerCase() === 'n') {
           ev.preventDefault();
           ev.stopPropagation();
           this._closeNadeWheel();
@@ -5111,9 +5674,39 @@ _meleeAttack(owner, weapon) {
     if (this.replayMode) return;
     const p = this.player;
     if (!p || !p.alive) return;
+    this._wheelMode = 'nade';
     this._buildNadeWheel();
     if (this._nadeWheelOpen) { this._closeNadeWheel(); return; }
     this._openNadeWheel();
+  }
+
+  // 医疗便携轮盘：和投掷轮盘共用同一套径向 UI，只是数据源与确认动作不同
+  _toggleMedWheel() {
+    if (this.replayMode) return;
+    const p = this.player;
+    if (!p || !p.alive) return;
+    this._wheelMode = 'med';
+    this._buildNadeWheel();
+    if (this._nadeWheelOpen) { this._closeNadeWheel(); return; }
+    this._openNadeWheel();
+  }
+
+  _getMedicalWheelList() {
+    const inv = this.engine.app && this.engine.app.inventory;
+    if (!inv) return [];
+    const out = [];
+    for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
+      const c = inv.containers[cName];
+      if (!c) continue;
+      for (const uid of c.items.keys()) {
+        const it = inv.items.get(uid);
+        if (!it || it.table !== 'medical') continue;
+        const def = inv.getDef(it);
+        if (!def || !def.use) continue;
+        out.push({ uid, def, qty: it.qty || 1 });
+      }
+    }
+    return out;
   }
 
   _openNadeWheel() {
@@ -5137,7 +5730,8 @@ _meleeAttack(owner, weapon) {
     if (!el) return;
     const wrap = el.querySelector('.nw-slots');
     if (wrap) wrap.innerHTML = '';
-    const list = this._getThrowableList();
+    const isMed = this._wheelMode === 'med';
+    const list = isMed ? this._getMedicalWheelList() : this._getThrowableList();
     this._wheelItems = list;
     this._wheelCenterX = window.innerWidth / 2;
     this._wheelCenterY = window.innerHeight / 2;
@@ -5150,22 +5744,24 @@ _meleeAttack(owner, weapon) {
     const centerTitle = el.querySelector('.nw-center-title');
     const centerSub = el.querySelector('.nw-center-sub');
     if (n === 0) {
-      if (centerTitle) centerTitle.textContent = '没有投掷物';
+      if (centerTitle) centerTitle.textContent = isMed ? '没有医疗用品' : '没有投掷物';
       if (centerSub) centerSub.textContent = '点击任意处关闭';
       this._wheelActive = -1;
       return;
     }
-    if (centerTitle) centerTitle.textContent = '投掷物';
+    if (centerTitle) centerTitle.textContent = isMed ? '医疗用品' : '投掷物';
     if (centerSub) centerSub.textContent = '中间取消';
     for (let i = 0; i < n; i++) {
       const it = list[i];
       const ang = this._wheelAngles[i];
       const x = Math.cos(ang) * this._wheelRadius;
       const y = Math.sin(ang) * this._wheelRadius;
-      const icon = it.def.effect === 'flash' ? '⚡'
+      const icon = isMed
+        ? (it.def.icon || (it.def.use && it.def.use.kind === 'blood' ? '🩸' : '🩹'))
+        : (it.def.effect === 'flash' ? '⚡'
         : (it.def.effect === 'stun' ? '💫'
         : (it.def.effect === 'emp' ? '📡'
-        : (it.def.effect === 'fire' ? '🔥' : '💣')));
+        : (it.def.effect === 'fire' ? '🔥' : '💣'))));
       const slot = document.createElement('div');
       slot.className = 'nw-slot';
       slot.dataset.index = String(i);
@@ -5174,7 +5770,7 @@ _meleeAttack(owner, weapon) {
       slot.innerHTML =
         '<div class="nw-icon">' + icon + '</div>' +
         '<div class="nw-text"><div class="nw-name">' + this._esc(String(this.engine.i18n.t(it.def.name))) + '</div>' +
-        '<div class="nw-qty">×' + (it.qty || 1) + '</div></div>';
+        '<div class="nw-qty">×' + (it.qty || 1) + (isMed ? ' · 点击使用' : '') + '</div></div>';
       if (wrap) wrap.appendChild(slot);
     }
   }
@@ -5226,9 +5822,10 @@ _meleeAttack(owner, weapon) {
     const centerSub = el.querySelector('.nw-center-sub');
     if (active >= 0 && this._wheelItems && this._wheelItems[active]) {
       if (centerTitle) centerTitle.textContent = this.engine.i18n.t(this._wheelItems[active].def.name);
-      if (centerSub) centerSub.textContent = '松开 / 点击确认';
+      if (centerSub) centerSub.textContent = this._wheelMode === 'med' ? '松开 / 点击使用' : '松开 / 点击确认';
     } else {
-      if (centerTitle) centerTitle.textContent = (this._wheelItems && this._wheelItems.length) ? '投掷物' : '没有投掷物';
+      const isMed = this._wheelMode === 'med';
+      if (centerTitle) centerTitle.textContent = (this._wheelItems && this._wheelItems.length) ? (isMed ? '医疗用品' : '投掷物') : (isMed ? '没有医疗用品' : '没有投掷物');
       if (centerSub) centerSub.textContent = (this._wheelItems && this._wheelItems.length) ? '移到扇区选择' : '点击任意处关闭';
     }
   }
@@ -5236,7 +5833,13 @@ _meleeAttack(owner, weapon) {
   _wheelPick() {
     if (!this._nadeWheelOpen) return;
     if (this._wheelActive >= 0 && this._wheelItems && this._wheelItems[this._wheelActive]) {
-      this._selectThrowable(this._wheelItems[this._wheelActive].defId);
+      const picked = this._wheelItems[this._wheelActive];
+      if (this._wheelMode === 'med') {
+        this._closeNadeWheel();
+        this._useMedical(picked.uid);
+        return;
+      }
+      this._selectThrowable(picked.defId);
     } else {
       this._closeNadeWheel();
     }
@@ -5284,6 +5887,13 @@ _meleeAttack(owner, weapon) {
     p._throwFuse = def.fuse || 3;
     this._playSFX('switch', { volume: 0.55 });
     this._log('保险已解除：' + (def.fuse || 3).toFixed(1) + ' 秒引信开始倒计时', 'r');
+  }
+
+  // 独立“解除保险”按钮/按键：玩家可以先瞄准调整角度，再主动开始引信
+  _armThrowable(p) {
+    if (!p || !p.alive || !p.activeThrowable) return;
+    if (p.status && p.status.isDowned()) return;
+    this._pullThrowablePin(p);
   }
 
   _throwSpeed(p) {
@@ -5336,8 +5946,11 @@ _meleeAttack(owner, weapon) {
       if (list.length === 0) { this._log('没有可投掷物', 'y'); return; }
       this._selectThrowable(list[0].defId);
     }
-    // 快速投掷：保险式自动拔销并出手；压感式直接出手
-    if (p._throwPinPulled !== true) this._pullThrowablePin(p);
+    const def = this.engine.content.get('nade', p.activeThrowable);
+    if (def && def.trigger === 'timed' && !p._throwPinPulled) {
+      this._log('保险尚未解除：先点「解除保险」按钮或按 J', 'y');
+      return;
+    }
     p._throwCharge = Math.max(0.6, p._throwCharge || 0.6);
     this._doThrowNow(p);
   }
@@ -5347,7 +5960,10 @@ _meleeAttack(owner, weapon) {
     if (!p || !p.activeThrowable) return;
     const defId = p.activeThrowable;
     const def = this.engine.content.get('nade', defId);
-    if (def && def.trigger === 'timed' && !p._throwPinPulled) this._pullThrowablePin(p);
+    if (def && def.trigger === 'timed' && !p._throwPinPulled) {
+      this._log('保险尚未解除：先点「解除保险」按钮或按 J', 'y');
+      return;
+    }
     if (p._throwPinPulled && p._throwFuse <= 0) {
       this._detonateHeldThrowable(p);
       return;
@@ -5422,7 +6038,11 @@ _meleeAttack(owner, weapon) {
     cam.getWorldPosition(origin);
     const dir = new THREE.Vector3();
     cam.getWorldDirection(dir);
-    const start = origin.clone().add(dir.clone().multiplyScalar(0.5));
+    // 贴墙投掷时不要把弹体生成在墙体内部：从眼睛向前探 0.5m，被挡住就缩短出手点。
+    const blockHit = this.physics.raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, 0.55,
+      body => body.userData && body.userData.type === 'obstacle');
+    const spawnDist = blockHit ? Math.max(0.06, blockHit.t - 0.08) : 0.5;
+    const start = origin.clone().add(dir.clone().multiplyScalar(spawnDist));
 
     const geo = new THREE.SphereGeometry(0.12, 8, 6);
     const mat = new THREE.MeshStandardMaterial({ color: def.color || 0x3a3a3a, roughness: 0.6, metalness: 0.3 });
@@ -5444,6 +6064,10 @@ _meleeAttack(owner, weapon) {
       life: 8,
       name: this.engine.i18n.t(def.name),
       prev: start.clone(),
+      // 压感引信的最小解除保险距离/时间（防止刚脱手就炸）
+      startPos: start.clone(),
+      bornAt: this.time,
+      armed: (def.trigger || 'timed') !== 'impact',
     });
 
     this.combatLog.push({ type: 'nade_throw', t: this.time, name: this.engine.i18n.t(def.name), distance: 0 });
@@ -5576,17 +6200,19 @@ if (weapon.loaded) {
 if (isPlayer) this.stats.shots++;
 
 // ★ 1. 动态散布计算（基于开镜、蹲下、状态）
-let baseSpread = def.spread || 0.02;
+//    配件修正只在这里乘一次，武器 def 永远是原始数据。
+const wmods = weapon.mods || null;
+let baseSpread = (def.spread || 0.02) * (wmods ? (wmods.spreadMul || 1) : 1);
 let spread = baseSpread;
 if (isPlayer) {
-  if (owner.ads) spread *= 0.2 * (owner.skillAdsSpreadMul || 1); 
+  if (owner.ads) spread *= 0.2 * (owner.skillAdsSpreadMul || 1) * (wmods ? (wmods.adsSpreadMul || 1) : 1);
   if (owner.isCrouching) spread *= 0.6; 
   // 操控加成：直接收束散布，让「激励 / 压制 / 应激」有实际手感
   if (owner.skillHandlingMul && owner.skillHandlingMul > 1) spread /= owner.skillHandlingMul;
 
   if (owner.holdingBreath) spread *= 0.5; // 屏息压制晃动
   if (!owner._immuneNeg) {
-    if (owner.status && owner.status.hasEffect('pain')) spread *= 1.2;
+    if (owner.status && owner.status.hasEffect('pain') && !(owner.status.painSuppressed && owner.status.painSuppressed())) spread *= 1.2;
     if (owner.status && owner.status.hasEffect('blind')) spread *= 1.4;
     if (owner.status && owner.status.hasEffect('dazzle')) spread *= 1.22;
     if (owner.status && owner.status.hasEffect('stun')) spread *= 1.5;
@@ -5616,12 +6242,15 @@ if (isPlayer) {
   }
   spread *= 1 + Math.min(1.6, tdist / 45);
   spread *= (owner._burstSpread || 1);
+  // 移动中射击更不准：避免 AI 一边全速冲刺一边像架枪一样点射
+  const aiSpeed = Math.hypot(owner.body.velocity.x, owner.body.velocity.z);
+  if (aiSpeed > 2) spread *= Math.min(1.8, 1.15 + aiSpeed * 0.07);
   // 感知/镇定越低越抖
   spread *= (1.15 - (ai.composure || 0.5) * 0.25);
 }
     
 const baseEnergy = CombatSystem.kinetic(ammo.massG, ammo.v0);
-const range = (def.range || 50) * 10;
+const range = (def.range || 50) * 10 * (wmods ? (wmods.rangeMul || 1) : 1);
 const pellets = def.pellets || 1;
 
 if (isPlayer) {
@@ -5646,7 +6275,7 @@ if (isPlayer) {
   // ★ 3. 视角上抬（后坐力）
   if (this.engine.cameraCtl) {
     const stability = def.stability || 50;
-    const recoilAmt = (def.recoil || 20) * 0.00015 * (100 / stability); 
+    const recoilAmt = (def.recoil || 20) * (wmods ? (wmods.recoilMul || 1) : 1) * 0.00015 * (100 / stability); 
     this.engine.cameraCtl.pitch += recoilAmt;
   }
 
@@ -5719,18 +6348,26 @@ if (isPlayer) {
       this._raycastBullet(owner, owner.body.position.x, eyeY, owner.body.position.z, dirX, dirY, dirZ, baseEnergy, range, def, ammo, false);
     }
   }
-  // 发射子弹的动画和声音
-this._playSFX('shot_' + def.cls, { volume: 0.6 });
+  // 发射子弹的动画和声音：按武器类别合成不同枪声，并按距离衰减/声像
+  const shotCls = def.pellets > 1 ? 'shotgun'
+    : ((def.range || 0) >= 200 ? 'sniper'
+      : (['9mm', '.45acp'].includes(def.ammoType) ? 'pistol' : 'rifle'));
+  const srcX = owner.body ? owner.body.position.x : 0;
+  const srcZ = owner.body ? owner.body.position.z : 0;
+  this._playSFXAt('shot_' + shotCls, srcX, srcZ, {
+    volume: isPlayer ? 0.85 : 0.8,
+    maxDist: shotCls === 'sniper' ? 260 : (shotCls === 'pistol' ? 120 : 180),
+  });
 
 // ★ 增加恶性声纹（枪声）
 const soundSource = isPlayer ? 'player' : 'enemy';
 const soundFaction = isPlayer ? 'player' : (owner.spec ? owner.spec.faction : 'nipsel');
-this.emitSound('malignant', 1.0, def.range ? def.range * 1.5 : 150, owner.body.position.x, owner.body.position.z, soundSource, soundFaction);
+this.emitSound('malignant', 1.0, def.range ? def.range * 1.5 : 150, srcX, srcZ, soundSource, soundFaction);
 }
 
 _raycastBullet(owner, ox, oy, oz, dirX, dirY, dirZ, baseEnergy, range, weaponDef, ammoDef, isPlayer){
   // ★ 只要不是自己，物理上都可以挡住子弹
-  const hitFilter = (body) => body !== owner.body && (body.userData?.type === 'enemy' || body.userData?.type === 'player' || body.userData?.type === 'obstacle');
+  const hitFilter = (body) => body !== owner.body && (body.userData?.type === 'enemy' || body.userData?.type === 'player' || body.userData?.type === 'obstacle' || body.userData?.type === 'container');
 
   const hit = this.physics.raycast(ox, oy, oz, dirX, dirY, dirZ, range, hitFilter);
 
@@ -5909,8 +6546,8 @@ _applyArmorLayers(entity, energy, pen, hitPart, damageType) {
       status.ignite(part, ammoDef.burnLevel || 1);
     }
     if (ammoDef.glassfiber) {
-      status.addEffect('fiber_acute', 999, 2);
-      status.addEffect('fiber_chronic', 9999, 1);
+      status.addEffect('fiber_acute', 999, ammoDef.fiberAcute || 2);
+      status.addEffect('fiber_chronic', 9999, ammoDef.fiberChronic || 1);
       status.addEffect('pain', 8, 1);
     }
   }
@@ -6008,7 +6645,12 @@ _damageEnemy(enemy, energy, pen, hitPart = 'thorax', byPlayer = true, damageType
    
 _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null, damageType = 'ballistic'){
   if (!player.alive) return;
-  if (sourceEnt) this._lastDamageSource = sourceEnt;
+  if (sourceEnt) {
+    this._lastDamageSource = sourceEnt;
+    // ★ 死亡结算/回放读取的是 player._lastDamageSource；旧版只写了 world 上的字段，
+    //   所以任何死亡都会显示“未知”。这里同时记录到玩家实体上。
+    player._lastDamageSource = sourceEnt;
+  }
 
   if (part === true) part = 'head';
   else if (part === false || part === undefined) part = 'thorax';
@@ -6029,8 +6671,13 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
     this.lastHitTime = this.time;
   }
 
-  const armorRes = this._applyArmorLayers(player, remaining, pen, part, damageType);
-  remaining = armorRes.remaining;
+  // ★ 爆炸/破片/震撼：巨响与耳鸣，耳鸣期间外界声音明显变小
+  if (damageType === 'blast' || damageType === 'explosion') {
+    this._applyTinnitus(Math.min(14, 3 + energy / 180), Math.max(0.4, Math.min(1, energy / 600)));
+    // 极近距离爆炸：短时听力几乎丧失
+    if (energy >= 900) player.status.addEffect('deafened', 5, 1);
+  }
+  const armorRes = this._applyArmorLayers(player, remaining, pen, part, damageType);  remaining = armorRes.remaining;
   const armorSnapshot = armorRes.snapshot;
 
   player.status.takeDamage(part, remaining, pen);
@@ -6131,7 +6778,8 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
       ent._wasDowned = !!down;
       if (down) {
         this._log('严重受损，已丧失行动能力', 'r');
-        this.engine.cameraCtl.setDeathPose(Math.PI / 2 * 0.8, 0.8, 0);
+        // 相机只轻微下沉；旧版 0.8m 下沉 + 0.55m 眼高会把镜头压到地面以下
+        this.engine.cameraCtl.setDeathPose(Math.PI / 2 * 0.75, 0.12, 0);
         this._showEffectPopup('击倒·濒死', '💔', false);
       } else {
         ent._downedAt = 0;
@@ -6237,8 +6885,11 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
   damageContributed: dmg,
   byPlayer: !!byPlayer,
 });
-    this._spawnSpark(enemy.body.position.x, enemy.body.position.z);
+  this._spawnSpark(enemy.body.position.x, enemy.body.position.z);
   this._processModeHook('onEnemyKilled', enemy);
+
+  // 训练人偶不生成搜刮箱/尸体箱，避免挡住靶场视线；模型本身保留倒地
+  if (enemy.trainingDummy) return;
 
   // ★ 尸体生成：同步所有武器/护甲状态，并生成可搜刮实体
   if (!enemy.lootInv) enemy.lootInv = new Inventory(this.engine.content);
@@ -6269,12 +6920,21 @@ _damagePlayer(player, energy, pen, part = 'thorax', srcX, srcZ, sourceEnt = null
       }
     }
 
-    const armorMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber', plate: 'vestPlate' };
+    const armorMap = { shell: 'helmetShell', visor: 'helmetVisor', fiber: 'vestFiber' };
     for (const slot in armorMap) {
       const uid = lootInv.equipped[armorMap[slot]];
       if (uid && enemy.armor[slot]) {
         const aItem = lootInv.items.get(uid);
         if (aItem) aItem.dur = enemy.armor[slot].dur;
+      }
+    }
+    // 插板现在嵌在护甲纤维里；旧数据仍可能在 vestPlate 槽
+    if (enemy.armor.plate) {
+      const fiberItem = lootInv.equipped.vestFiber ? lootInv.items.get(lootInv.equipped.vestFiber) : null;
+      const plateUid = (fiberItem && fiberItem.subSlots && fiberItem.subSlots.plate) || lootInv.equipped.vestPlate;
+      if (plateUid) {
+        const pItem = lootInv.items.get(plateUid);
+        if (pItem) pItem.dur = enemy.armor.plate.dur;
       }
     }
 
@@ -6454,6 +7114,14 @@ _addKillFeed(enemy, dmg, dist) {
       }
     }
 
+    // 4) 顺手带走医疗物资（AI 目前不会主动使用，但会保留在尸体/背包里）
+    for (const it of candidates) {
+      if (it.table !== 'medical') continue;
+      prep(it.uid);
+      const r = srcInv.transferItem(enemy.lootInv, it.uid, 'bag');
+      if (r.ok) break;
+    }
+
     // 如果玩家正开着这个容器的搜刮界面，刷新一下
     const bu = this.engine.app && this.engine.app.bagUI;
     if (bu && bu.open && bu._lootTarget === target) bu.refresh();
@@ -6462,6 +7130,7 @@ _addKillFeed(enemy, dmg, dist) {
  _playerDown(sourceEnt){
 const p = this.player;
 if (!p || !p.alive) return;
+if (!sourceEnt) sourceEnt = p._lastDamageSource || this._lastDamageSource || null;
 // 死亡时把真实生理状态也推到“死亡”，否则 HUD 仍会显示濒死/危殆，
 // 并且状态条不会归零（这是旧版“假死”观感的根因之一）。
 if (p.status) {
@@ -6505,7 +7174,7 @@ if (!p._downedLogged) {
 p.alive = false;
 p.deadAt = this.time;
 // ★ 不再自动播放回放：直接进入正常死亡闭眼；录像存入死亡记录，供"查看死亡回放"按钮使用
-const kc = (sourceEnt && sourceEnt.body && sourceEnt !== p && sourceEnt.alive) ? sourceEnt : null;
+const kc = (sourceEnt && sourceEnt !== p && sourceEnt.spec) ? sourceEnt : null;
 this._deathReplayFrames = null;
 this._deathReplayKiller = null;
 this._killcamKiller = null;
@@ -6692,6 +7361,9 @@ _clearEyelids() {
       droneEl.classList.remove('on');
       droneEl.style.opacity = '0';
     }
+    this._droneFeedGlitch = 0;
+    const staticEl = document.getElementById('drone-static');
+    if (staticEl) staticEl.style.opacity = '0';
     document.getElementById('action-progress')?.classList.remove('on');
     document.getElementById('extract-progress')?.classList.remove('on');
     const dmgCanvas = document.getElementById('dmg-indicator');
@@ -7467,8 +8139,10 @@ _updateDeathCamera(dt) {
         for (let i = 0; i < 5; i++) {
           const m = new THREE.MeshBasicMaterial({ color: i % 2 ? 0xffcc55 : 0xff5a1a, transparent: true, opacity: .75, blending: THREE.AdditiveBlending, depthWrite: false });
           const mesh = new THREE.Mesh(new THREE.ConeGeometry(.10 + Math.random() * .08, .35 + Math.random() * .35, 6), m);
-          mesh.position.set((Math.random() - .5) * .7, .5 + Math.random() * 1.4, (Math.random() - .5) * .7);
+          mesh.position.set((Math.random() - .5) * .55, .5 + Math.random() * 1.4, (Math.random() - .5) * .55);
           mesh.userData.phase = Math.random() * Math.PI * 2;
+          mesh.userData.ox = (Math.random() - .5) * .45;
+          mesh.userData.oz = (Math.random() - .5) * .45;
           g.add(mesh); flames.push(mesh);
         }
         const shards = [];
@@ -7487,15 +8161,25 @@ _updateDeathCamera(dt) {
         this._hazardVfx.set(e, v);
       }
       if (!v) continue;
-      v.flames.forEach(f => { f.visible = burning; });
+      const burningParts = burning ? Object.keys(e.status.burningParts || {}) : [];
+      const partY = { head: 1.95, thorax: 1.5, abdomen: 1.15, larm: 1.5, legs: .55 };
+      v.flames.forEach((f, i) => {
+        const pt = burningParts[i];
+        f.visible = burning && !!pt;
+        if (!pt) return;
+        f.userData.baseY = partY[pt] || 1.1;
+        f.position.x = f.userData.ox || 0;
+        f.position.z = f.userData.oz || 0;
+      });
       v.shards.forEach(s => { s.visible = fiber; });
       v.light.visible = burning;
       v.light.intensity = burning ? 2.2 + Math.sin(this.time * 12) * .8 : 0;
       if (burning) {
         for (const f of v.flames) {
+          if (!f.visible) continue;
           const ph = this.time * 10 + (f.userData.phase || 0);
           f.scale.y = .8 + Math.sin(ph) * .25;
-          f.position.y = .55 + Math.sin(ph * .7) * .12 + (f.userData.baseY || 0);
+          f.position.y = (f.userData.baseY || 1.1) + Math.sin(ph * .7) * .10;
           f.material.opacity = .55 + Math.sin(ph * 1.3) * .2;
         }
       }
@@ -7747,7 +8431,7 @@ _openNearbyContainer(entry) {
   }
 
   const inv = this.engine.app.inventory;
-  const grid = this._ensureLootGrid(target, entry.kind === 'ground' ? 4 : 8, entry.kind === 'ground' ? 4 : 6);
+  const grid = this._ensureLootGrid(target, 8, 6);
 
   // ★ 切到当前容器网格：旧容器里未取走的物品会先解除 c:loot 归属，
   //   避免"上一个容器物品变成幽灵、这个容器显示不出来"的反复 bug。
@@ -7778,7 +8462,7 @@ _openNearbyContainer(entry) {
     let items = [];
     if (target.loot && target.loot.length > 0) items = target.loot;
     else if (target.revealed && target.revealed.length > 0) items = target.revealed;
-    else if (!target.searched) items = this._generateLootSpecs();
+    else if (!target.searched) items = this._generateLootSpecs(target.type);
 
     for (const spec of items) {
       const extras = { searched: false, qty: spec.qty || 1 };
@@ -7859,67 +8543,75 @@ _openNearbyContainer(entry) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-_generateLootSpecs(){
+_generateLootSpecs(typeId){
   const specs = [];
-  // 弹药：普通弹为主，特殊弹低概率
-  if (Math.random() < 0.72) {
-    const r = Math.random();
-    const at = r < 0.55 ? ['9mm', '5.56', '7.62', '.45acp', '12ga'][Math.floor(Math.random() * 5)]
-      : (r < 0.78 ? 'ap556' : (r < 0.9 ? '12ga_slug' : (r < 0.96 ? 'glassfiber' : 'dragon')));
-    const qty = (at === 'glassfiber' || at === 'dragon') ? 3 + Math.floor(Math.random() * 5) : 12 + Math.floor(Math.random() * 42);
-    specs.push({ table: 'ammo', defId: at, qty });
+  // ★ 容器类型决定概率表：数据全部来自 content.containers，game.js 不再写死“物资容器只有一种”
+  const type = typeId ? this.engine.content.get('containers', typeId) : null;
+  const weights = (type && type.weights) || { ammo: 30, weapons: 8, armor: 10, valuables: 14, medical: 8, attach: 8, nade: 12 };
+  const cr = (type && type.count) || [1, 3];
+  const count = cr[0] + Math.floor(Math.random() * Math.max(1, cr[1] - cr[0] + 1));
+  const pool = [];
+  for (const [cat, w] of Object.entries(weights)) {
+    for (let i = 0; i < Math.max(0, w | 0); i++) pool.push(cat);
   }
-  // 护具/武器
-  const r = Math.random();
-  if (r < 0.2) {
-    const armorTable = ['helmetShell', 'helmetVisor', 'vestFiber', 'vestPlate'][Math.floor(Math.random() * 4)];
+  const pick = (arr) => arr.length ? arr[Math.floor(Math.random() * arr.length)] : null;
+  const content = this.engine.content;
+
+  const makeAmmo = () => {
+    const r = Math.random();
+    const gfTypes = ['9mm_gf', 'glassfiber', '762_gf', '762x54_gf', '45acp_gf', '12ga_gf'];
+    const at = r < 0.55 ? pick(['9mm', '5.56', '7.62', '762x54', '.45acp', '12ga', '.357'])
+      : (r < 0.78 ? 'ap556' : (r < 0.9 ? '12ga_slug' : (r < 0.97 ? pick(gfTypes) : 'dragon')));
+    const qty = gfTypes.includes(at) || at === 'dragon' ? 3 + Math.floor(Math.random() * 5) : 12 + Math.floor(Math.random() * 42);
+    specs.push({ table: 'ammo', defId: at, qty });
+  };
+  const makeWeapon = () => {
+    const wId = pick(['p9', 'p45', 'smg45', 'smg9', 'ak762', 'ar556', 'rev357', 'dmr762', 'lmg556']);
+    const wDef = content.get('weapons', wId);
+    specs.push({ table: 'weapons', defId: wId, extras: { loadedQty: (wDef && wDef.mag) || 0 } });
+  };
+  const makeArmor = () => {
+    const armorTable = pick(['helmetShell', 'helmetVisor', 'vestFiber', 'vestPlate']);
     const defIds = {
-      helmetShell: ['lv3', 'lv4'],
-      helmetVisor: ['lv3', 'lv4'],
-      vestFiber:   ['lv3', 'lv4'],
+      helmetShell: ['lv3', 'lv4', 'lv5'],
+      helmetVisor: ['lv3', 'lv4', 'lv5'],
+      vestFiber:   ['lv3', 'lv4', 'lv5'],
       vestPlate:   ['lv4', 'lv5'],
     }[armorTable];
-    specs.push({ table: armorTable, defId: defIds[Math.floor(Math.random() * defIds.length)] });
-  } else if (r < 0.32) {
-    const weapons = ['p9', 'smg45', 'ak762', 'ar556'];
-    const wId = weapons[Math.floor(Math.random() * weapons.length)];
-    const wDef = this.engine.content.get('weapons', wId);
-    const magCap = (wDef && wDef.mag) || 0;
-    specs.push({ table: 'weapons', defId: wId, extras: { loadedQty: magCap } });
-  }
-  // 贵重品：容器里不再只有战斗物资
-  if (Math.random() < 0.62) {
-    const vals = this.engine.content.all('valuables') || [];
-    if (vals.length) {
-      const v = vals[Math.floor(Math.random() * vals.length)];
-      specs.push({ table: 'valuables', defId: v.id });
-    }
-  }
-  // 医疗物资
-  if (Math.random() < 0.34) {
-    const meds = this.engine.content.all('medical') || [];
-    if (meds.length) {
-      const m = meds[Math.floor(Math.random() * meds.length)];
-      specs.push({ table: 'medical', defId: m.id, qty: Math.min(m.stackLimit || 1, 1 + (Math.random() < 0.3 ? 1 : 0)) });
-    }
-  }
-  // 投掷物
-  if (Math.random() < 0.2) {
-    const nades = ['frag', 'flashbang', 'stun', 'emp', 'molotov', 'frag_impact'];
-    specs.push({ table: 'nade', defId: nades[Math.floor(Math.random() * nades.length)], qty: 1 });
+    specs.push({ table: armorTable, defId: pick(defIds) });
+  };
+  const makeValuable = () => { const v = pick(content.all('valuables') || []); if (v) specs.push({ table: 'valuables', defId: v.id }); };
+  const makeMedical = () => {
+    const m = pick(content.all('medical') || []);
+    if (m) specs.push({ table: 'medical', defId: m.id, qty: Math.min(m.stackLimit || 1, 1 + (Math.random() < 0.3 ? 1 : 0)) });
+  };
+  const makeAttach = () => { const a = pick(content.all('attach') || []); if (a) specs.push({ table: 'attach', defId: a.id }); };
+  const makeNade = () => { specs.push({ table: 'nade', defId: pick(['frag', 'flashbang', 'stun', 'emp', 'molotov', 'frag_impact']), qty: 1 }); };
+
+  for (let i = 0; i < count; i++) {
+    const cat = pool.length ? pool[Math.floor(Math.random() * pool.length)] : 'ammo';
+    if (cat === 'ammo') makeAmmo();
+    else if (cat === 'weapons') makeWeapon();
+    else if (cat === 'armor') makeArmor();
+    else if (cat === 'valuables') makeValuable();
+    else if (cat === 'medical') makeMedical();
+    else if (cat === 'attach') makeAttach();
+    else if (cat === 'nade') makeNade();
   }
   return specs;
 }
 
 _startSearch(c){
   if (!c) return;
+  this._playSFX('loot', { volume: 0.5 });
+  this.emitSound('benign', 0.25, 10, c.x, c.z, 'player', 'player');
   this._searching = true;
   this._searchTimer = 0;
   this._searchTarget = c;
   this._revealInterval = 0.5;
 
   if (!c.loot) {
-    c.loot = this._generateLootSpecs();
+    c.loot = this._generateLootSpecs(c.type);
     c.revealed = [];
     c.searched = false;
   }
@@ -8697,6 +9389,9 @@ _trySearchContainer(){
       battery: 100, maxBattery: 100,
       durability: def.maxDurability || 70, maxDurability: def.maxDurability || 70,
       markTimer: 0, def, alive: true, attackCd: 0, spawnT: this.time,
+      // 电磁加固（不是免疫）：EMP 只按 empResist 折算耐久损失
+      empHardened: def.empHardened !== false,
+      empResist: typeof def.empResist === 'number' ? def.empResist : 1,
       payload: { frag: 2, emp: 2 },
     };
     this.drones.push(d);
@@ -8755,6 +9450,7 @@ _trySearchContainer(){
         d.mesh.position.y += Math.sin(this.time * 1.8 + (d.spawnT || 0)) * 0.06 * dt;
       }
       d.mesh.rotation.y += dt * 1.5;
+      if (d.empGlitch) d.empGlitch = Math.max(0, d.empGlitch - dt * 0.35);
       d.battery -= (d.def.batteryDrain || 3.3) * dt;
       d.markTimer -= dt;
       if (d.markTimer <= 0) {
@@ -8789,6 +9485,9 @@ _trySearchContainer(){
       return;
     }
     p._controllingDrone = true;
+    // 接管时继承无人机自身的电磁干扰余波（例如 EMP 时玩家没在操控）
+    const d0 = this.drones && this.drones[0];
+    if (d0 && d0.empGlitch) this._droneFeedGlitch = Math.max(this._droneFeedGlitch || 0, d0.empGlitch);
     // 无人机视角下恢复玩家模型，让操控者能看到自己的角色站在释放点
     if (p.mesh) p.mesh.visible = true;
     const hud = document.getElementById('hud');
@@ -8815,6 +9514,7 @@ _trySearchContainer(){
     const p = this.player;
     if (!p || !p._controllingDrone) return false;
     p._controllingDrone = false;
+    this._clearDroneFeed();
     // 回到第一人称：隐藏自己的身体，避免遮挡视线/穿模
     if (p.mesh) p.mesh.visible = false;
     const hud = document.getElementById('hud');
@@ -8978,6 +9678,7 @@ _trySearchContainer(){
     const p = this.player;
     if (p && p._controllingDrone) {
       p._controllingDrone = false;
+      this._clearDroneFeed();
       if (p.mesh) p.mesh.visible = false;
       const hud = document.getElementById('hud');
       if (hud) hud.classList.remove('drone-mode');
@@ -8986,6 +9687,26 @@ _trySearchContainer(){
       this._log('无人机失联，返回本体视角', 'r');
     }
     this._spawnFlashFX(d.mesh.position.x, d.mesh.position.y, d.mesh.position.z, 0xff8844);
+    // ★ 无人机被击毁：机上剩余的投掷物全部在坠毁点散落，玩家可以回收。
+    //   旧版只是把 payload 跟着无人机一起删掉，等于“带弹殉爆但什么都不剩”。
+    const dx = d.mesh.position.x, dz = d.mesh.position.z;
+    const specs = [];
+    if (d.payload) {
+      for (const type of Object.keys(d.payload)) {
+        const n = Math.max(0, d.payload[type] | 0);
+        const defId = type === 'emp' ? 'emp' : (type === 'frag' ? 'frag' : type);
+        for (let i = 0; i < n; i++) specs.push({ table: 'nade', defId, qty: 1 });
+        d.payload[type] = 0;
+      }
+    }
+    if (d.beaconLeft) {
+      for (let i = 0; i < d.beaconLeft; i++) specs.push({ table: 'nade', defId: 'emp', qty: 1 });
+      d.beaconLeft = 0;
+    }
+    if (specs.length) {
+      this._spawnGroundLoot(dx, dz, specs, '无人机残骸 · 散落投掷物');
+      this._log('无人机坠毁：' + specs.length + ' 枚投掷物散落在残骸处', 'y');
+    }
     this._removeDrone(d);
     if (this.drones) {
       const i = this.drones.indexOf(d);
@@ -9146,15 +9867,79 @@ _trySearchContainer(){
   }
 
   _droneInterference(intensity = 1){
+    // 图传链路干扰属于“无人机视角”的效果，不能绑在玩家眼球上：
+    // 只有正在操控无人机时才显示；退出/坠毁/断电立即清空。
+    const p = this.player;
+    if (!p || !p._controllingDrone) return;
+    this._droneFeedGlitch = Math.max(this._droneFeedGlitch || 0, Math.min(1, intensity));
     const el = document.getElementById('drone-interference');
-    if (!el) return;
-    el.classList.add('on');
-    el.style.opacity = String(Math.min(0.9, 0.35 + intensity * 0.4));
+    if (el) {
+      el.classList.add('on');
+      el.style.opacity = String(Math.min(0.9, 0.35 + intensity * 0.45));
+    }
     this.engine.cameraCtl.shake(0.8 * intensity, 0.18);
-    clearTimeout(this._droneInterferenceTimer);
-    this._droneInterferenceTimer = setTimeout(() => {
-      if (el) { el.classList.remove('on'); el.style.opacity = '0'; }
-    }, 380);
+  }
+
+  _clearDroneFeed(){
+    this._droneFeedGlitch = 0;
+    const el = document.getElementById('drone-interference');
+    if (el) { el.classList.remove('on'); el.style.opacity = '0'; }
+    const cv = document.getElementById('drone-static');
+    if (cv) cv.style.opacity = '0';
+  }
+
+  // 图传雪花/马赛克：只在无人机视角下绘制，退出后不会残留在眼睛上
+  _updateDroneFeed(dt){
+    const p = this.player;
+    const controlling = !!(p && p._controllingDrone && this.drones && this.drones[0] && this.drones[0].alive);
+    const g = this._droneFeedGlitch || 0;
+    if (!controlling || g <= 0.01) {
+      if (this._droneFeedGlitch) this._droneFeedGlitch = 0;
+      const cv = document.getElementById('drone-static');
+      if (cv && cv.style.opacity !== '0') cv.style.opacity = '0';
+      const el = document.getElementById('drone-interference');
+      if (el && el.classList.contains('on')) { el.classList.remove('on'); el.style.opacity = '0'; }
+      return;
+    }
+    this._droneFeedGlitch = Math.max(0, g - dt * 0.55);
+    let cv = document.getElementById('drone-static');
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.id = 'drone-static';
+      cv.width = 160; cv.height = 90;
+      cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:416;pointer-events:none;opacity:0;image-rendering:pixelated;mix-blend-mode:screen';
+      document.body.appendChild(cv);
+    }
+    this._feedNoiseT = (this._feedNoiseT || 0) - dt;
+    if (this._feedNoiseT <= 0) {
+      this._feedNoiseT = 0.07;
+      const ctx = cv.getContext('2d');
+      if (ctx) {
+        const img = ctx.createImageData(cv.width, cv.height);
+        const data = img.data;
+        const heavy = Math.random() < 0.35 + g * 0.4;
+        for (let i = 0; i < data.length; i += 4) {
+          // 雪花噪点：随着干扰强度提高，亮噪点比例上升
+          const v = Math.random() < (0.18 + g * 0.5) ? 200 + Math.random() * 55 : (heavy ? 40 : 0);
+          data[i] = data[i + 1] = data[i + 2] = v;
+          data[i + 3] = 200 + Math.random() * 55;
+        }
+        ctx.putImageData(img, 0, 0);
+        // 马赛克花屏块
+        ctx.fillStyle = 'rgba(120,220,255,0.18)';
+        const blocks = Math.floor(g * 8);
+        for (let b = 0; b < blocks; b++) {
+          const bw = 8 + Math.random() * 34, bh = 4 + Math.random() * 18;
+          ctx.fillRect(Math.random() * cv.width, Math.random() * cv.height, bw, bh);
+        }
+      }
+    }
+    cv.style.opacity = String(Math.min(0.9, g));
+    const el = document.getElementById('drone-interference');
+    if (el) {
+      el.classList.add('on');
+      el.style.opacity = String(Math.min(0.85, 0.3 + g * 0.5));
+    }
   }
 
   _spawnFlashFX(x, y, z, color, silent){
@@ -9193,22 +9978,27 @@ _trySearchContainer(){
     let blindCount = 0, dazzleCount = 0;
     for (const item of entities) {
       const e = item.ent;
-      const d = Math.hypot(e.body.position.x - x, e.body.position.z - z);
+      const ey = e.body.position.y + (e.body.halfH || 1.2) * 0.85;
+      // ★ 用三维距离：扔到百米高空再“瞟一眼”不应该被闪/震到
+      const d = Math.hypot(e.body.position.x - x, ey - y, e.body.position.z - z);
       if (d > radius) continue;
       // 墙体/掩体会切断闪光能量：先做一次真实射线遮挡
-      const ey = e.body.position.y + (e.body.halfH || 1.2) * 0.85;
       const len = Math.hypot(e.body.position.x - x, ey - y, e.body.position.z - z) || 1;
       const blocked = this.physics.raycast(x, y, z,
         (e.body.position.x - x) / len, (ey - y) / len, (e.body.position.z - z) / len, len,
         body => body.userData && body.userData.type === 'obstacle');
       const los = blocked ? 0.18 : 1;
-      // 平方反比式衰减 + 半径线性衰减，避免“只要在半径内就满致盲”
+      // 平方反比式衰减 + 半径线性衰减；闪光弹在 5~8m 仍应明显致盲
       const falloff = Math.max(0, 1 - d / radius);
-      const intensity = Math.min(1.2, falloff * falloff * los * (strength || 1));
-      if (intensity < 0.10) continue;
-      const isBlind = intensity >= 0.55;
+      const intensity = Math.min(1.2, Math.pow(falloff, 1.05) * los * (strength || 1));
+      if (intensity < 0.05) continue;
+      const isBlind = intensity >= 0.22;
       const blindT = isBlind ? duration * (0.35 + 0.65 * Math.min(1, intensity)) : 0;
-      const dazzleT = Math.max(1.2, duration * 0.45 * intensity);
+      const dazzleT = Math.max(1.2, duration * 0.55 * intensity);
+      // 闪光弹同时有震撼效果：近距/高照度会短暂眩晕 + 耳鸣
+      const stunRange = radius * 0.55;
+      const stunF = Math.max(0, 1 - d / Math.max(1, stunRange));
+      const stunT = stunF > 0 && intensity > 0.35 ? (0.8 + duration * 0.22) * (0.5 + stunF * 0.5) : 0;
       if (item.isPlayer) {
         const p = e;
         if (p._immuneNeg) continue; // Hate：无视一切负面状态
@@ -9227,6 +10017,12 @@ _trySearchContainer(){
         if (p._forceAds) p._forceAds = false;
         p._dazzledUntil = this.time + (isBlind ? blindT : dazzleT);
         this.engine.cameraCtl.shake(0.25 * intensity, 0.12);
+        if (stunT > 0) {
+          p._stunnedUntil = Math.max(p._stunnedUntil || 0, this.time + stunT);
+          p.status.addEffect('stun', stunT, 1);
+          this.engine.cameraCtl.shake(0.55 * intensity, 0.28);
+        }
+        if (isBlind || stunT > 0) this._applyTinnitus(Math.max(2.2, blindT * 0.6), intensity);
         // 玩家自己也会被闪到，但这里只做视线内的亮度衰减，不额外扩大范围
       } else {
         if (isBlind) {
@@ -9247,6 +10043,10 @@ _trySearchContainer(){
           dazzleCount++;
         }
         e._burstSpread = Math.min(3.2, (e._burstSpread || 1) + (isBlind ? 1.2 : 0.55));
+        if (stunT > 0) {
+          e.stunnedUntil = Math.max(e.stunnedUntil || 0, this.time + stunT);
+          if (e.status) e.status.addEffect('stun', stunT, 1);
+        }
       }
     }
     return { blind: blindCount, dazzle: dazzleCount };
@@ -9285,6 +10085,8 @@ _trySearchContainer(){
 
   _applyEmpField(x, y, z, radius, peak, owner){
     let disrupted = 0, damaged = 0;
+    let playerDisrupted = false;
+    let playerSurge = false;
     const targets = [];
     if (this.player && this.player.alive) targets.push({ ent: this.player, isPlayer: true });
     for (const e of this.enemies) { if (e.alive) targets.push({ ent: e, isPlayer: false }); }
@@ -9297,15 +10099,21 @@ _trySearchContainer(){
       disrupted++;
       if (e.status) e.status.addEffect('emp_disrupted', 4 + 4 * f, 1);
       if (t.isPlayer) {
+        playerDisrupted = true;
         const inv = this.engine.app && this.engine.app.inventory;
         if (inv) {
           const r = inv.applyEmpDamage(1);
           damaged += r.damaged.length;
+          // 电磁加固装备没坏，但也被强电磁冲刷：显示“强电磁干扰”
+          if (r.damaged.length === 0 && r.spared.length > 0) {
+            playerSurge = true;
+            if (e.status) e.status.addEffect('emp_silence', 5, 1);
+          }
         }
         this._droneInterference(0.8);
         this.engine.cameraCtl.shake(0.7, 0.25);
       } else {
-        // 敌人：所有非抗磁电子物品损坏，电子击发的枪械直接失效
+        // 敌人：无加固电子物品损坏；加固设备也可能被击穿，电子击发的枪械失效
         if (e.lootInv) {
           const r = e.lootInv.applyEmpDamage(1);
           damaged += r.damaged.length;
@@ -9325,20 +10133,31 @@ _trySearchContainer(){
         }
       }
     }
-    // 所有人的电子设备都应受影响，包括正在飞行的无人机
+    // 所有人的电子设备都应受影响，包括正在飞行的无人机。
+    // 电磁加固只降低当量，不是免疫：加固机仍然会掉耐久并出现图传干扰。
     if (this.drones) {
       for (const d of this.drones) {
         if (!d.alive) continue;
-        const dd = Math.hypot(d.mesh.position.x - x, d.mesh.position.z - z);
+        const ddx = d.mesh.position.x - x, ddz = d.mesh.position.z - z;
+        const ddy = (d.mesh.position.y - y) * 0.6;
+        const dd = Math.hypot(ddx, ddz, ddy);
         if (dd > radius) continue;
         const f = Math.pow(Math.max(0, 1 - dd / radius), 1.5) * (peak || 1);
-        d.durability = Math.max(0, d.durability - 35 * f);
-        this._droneInterference(0.5 + f * 0.5);
+        const resist = d.empHardened ? Math.max(0.15, 1 - (d.empResist || 0.5)) : 1;
+        const loss = 35 * f * resist;
+        d.durability = Math.max(0, d.durability - loss);
+        d.empGlitch = Math.max(d.empGlitch || 0, Math.min(1, 0.5 + f * 0.6));
+        if (d.owner === this.player) this._droneInterference(0.5 + f * 0.5);
         if (d.durability <= 0) this._destroyDrone(d);
       }
     }
-    // 所有人（包括没有电子物品的人）都应能感觉到电磁场，警告级别 0
-    this.addAlert(0, '电磁干扰：所有非抗磁电子物品已损坏', 6);
+    // 只有真正生效才发警告：有设备实际损坏 → 损坏警告；
+    // 只有加固设备被冲刷但没坏 → 强电磁干扰警告。远处空爆不再全图提示。
+    if (damaged > 0) {
+      this.addAlert(0, '电磁干扰：' + damaged + ' 件电子物品已损坏', 6);
+    } else if (playerSurge) {
+      this.addAlert(0, '强电磁干扰：电磁加固设备承受冲刷，未损坏', 5);
+    }
     this._spawnEmpRings(x, y, z, radius);
     this._spawnLightField(x, y + 0.3, z, radius, 0.55, 0x66ffcc);
     return { disrupted, damaged };
@@ -9421,6 +10240,14 @@ _trySearchContainer(){
         for (const e of targets) {
           const d = Math.hypot(e.body.position.x - f.x, e.body.position.z - f.z);
           if (d > f.radius) continue;
+          // 地面火焰只烧到贴近地面的人；站在高台/掩体后不应隔空着火
+          if (e.body.position.y - (e.body.halfH || 1.2) > 2.2) continue;
+          if (d > 0.2) {
+            const blocked = this.physics.raycast(f.x, 0.9, f.z,
+              (e.body.position.x - f.x) / d, 0, (e.body.position.z - f.z) / d, d,
+              body => body.userData && body.userData.type === 'obstacle');
+            if (blocked) continue;
+          }
           if (e.status) e.status.ignite('legs', 2);
         }
       }
@@ -9478,6 +10305,119 @@ _trySearchContainer(){
       el.style.transition = 'opacity 1.2s';
       el.style.opacity = '0';
     }, 120);
+  }
+
+  // ===== 医疗物品：真正可用 =====
+  // 统一入口：校验 → 判断是否真的有效 → 启动动作进程 → 完成时才扣物品并生效。
+  // 取消动作不消耗物品；药品用完才销毁堆叠。
+  _useMedical(uid) {
+    const p = this.player;
+    const inv = this.engine.app && this.engine.app.inventory;
+    if (!p || !p.alive || !inv) return false;
+    const item = inv.items.get(uid);
+    if (!item || item.table !== 'medical') return false;
+    const def = inv.getDef(item);
+    const use = def && def.use;
+    if (!use) { this._log('该物品无法使用', 'y'); return false; }
+    if (p.status.isDowned()) { this._log('倒地状态无法自行使用医疗物品', 'y'); return false; }
+    if (this.actionProcess.isRunning()) { this._log('当前动作尚未完成', 'y'); return false; }
+
+    // 预检：没病别乱吃药，避免浪费
+    const st = p.status;
+    if (use.kind === 'bandage' && st.effectiveBleedLevel() <= 0) {
+      this._log('没有需要包扎的外部出血', 'y'); return false;
+    }
+    if (use.kind === 'splint' && !st.parts.larm.fracture && !st.parts.legs.fracture) {
+      this._log('没有可以固定的大腿/手臂骨折', 'y'); return false;
+    }
+    if (use.kind === 'blood' && st.blood >= st.maxBlood * 0.98) {
+      this._log('血容量充足，不需要输血', 'y'); return false;
+    }
+    if (use.kind === 'surgery' && st.effectiveBleedLevel() <= 0 && st.blood >= st.maxBlood * 0.95
+        && !st.parts.larm.fracture && !st.parts.legs.fracture) {
+      this._log('当前没有需要手术处理的伤情', 'y'); return false;
+    }
+    if (use.kind === 'painkiller' && st.painSuppressed()) {
+      this._log('止痛效果仍在持续', 'y'); return false;
+    }
+
+    const label = {
+      bandage: '包扎止血', painkiller: '服用止痛药', splint: '上夹板固定',
+      blood: '静脉输注血浆', surgery: '进行野外手术', stim: '注射兴奋剂',
+    }[use.kind] || '使用医疗物品';
+
+    this.actionProcess.start({
+      id: 'medical',
+      label,
+      duration: Math.max(0.8, use.time || 2),
+      cancelable: true,
+      onComplete: () => {
+        const cur = inv.items.get(uid);
+        if (!cur || cur.table !== 'medical') return;
+        this._applyMedicalUse(p, use, def);
+        cur.qty -= 1;
+        if (cur.qty <= 0) inv.destroyItem(uid);
+        this.stats.medicalUses = (this.stats.medicalUses || 0) + 1;
+        this.combatLog.push({
+          type: 'medical_use', t: this.time,
+          name: this.engine.i18n.t(def.name || def.id || '医疗物品'),
+          detail: label,
+        });
+        const bu = this.engine.app && this.engine.app.bagUI;
+        if (bu && bu.open) bu.refresh();
+      },
+      onCancel: () => this._log(label + '被打断', 'y'),
+    });
+    this._playSFX('switch', { volume: 0.4 });
+    return true;
+  }
+
+  _applyMedicalUse(p, use, def) {
+    const st = p.status;
+    const kind = use.kind;
+    if (kind === 'bandage') {
+      st.sealBleeding(use.bleedSeal || 1);
+      st.addEffect('pain', use.pain || 2, 1);
+      st.addEffect('bandaged', 20, 1);
+      this._log('包扎完成：外部出血已封堵 ' + st.effectiveBleedLevel() + ' 级', 'p');
+    } else if (kind === 'surgery') {
+      st.sealBleeding(use.bleedSeal || 99);
+      st.blood = Math.min(st.maxBlood, st.blood + (use.blood || 0));
+      for (const pt of ['larm', 'legs']) {
+        const part = st.parts[pt];
+        if (part && part.fracture && part.fracture <= (use.fracture || 1)) part.fracture = 0;
+      }
+      if (!st.parts.larm.fracture && !st.parts.legs.fracture) st.removeEffect('fracture');
+      st.addEffect('painkiller', use.painkiller || 20, 1);
+      st.addEffect('pain', use.pain || 5, 1);
+      st.updateOverallHealth();
+      this._log('手术完成：出血已控制，骨折已复位固定', 'p');
+    } else if (kind === 'splint') {
+      let fixed = false;
+      for (const pt of ['larm', 'legs']) {
+        const part = st.parts[pt];
+        if (part && part.fracture && part.fracture <= (use.fracture || 1)) { part.fracture = 0; fixed = true; break; }
+      }
+      if (!st.parts.larm.fracture && !st.parts.legs.fracture) st.removeEffect('fracture');
+      st.addEffect('pain', use.pain || 3, 1);
+      this._log(fixed ? '夹板固定完成：肢体骨折已临时固定' : '没有可固定的肢体骨折', fixed ? 'p' : 'y');
+    } else if (kind === 'blood') {
+      st.blood = Math.min(st.maxBlood, st.blood + (use.blood || 600));
+      if (st.blood >= st.maxBlood * 0.35) st.removeEffect('hypovolemia');
+      st.updateOverallHealth();
+      this._log('输血完成：血容量 ' + Math.round(st.blood) + ' ml', 'p');
+    } else if (kind === 'painkiller') {
+      st.addEffect('painkiller', use.painkiller || 60, 1);
+      this._log('止痛药起效：' + Math.round(use.painkiller || 60) + ' 秒内疼痛惩罚不生效', 'p');
+    } else if (kind === 'stim') {
+      st.addEffect('stimulant', use.duration || 25, 1);
+      st.addEffect('painkiller', use.painkiller || use.duration || 25, 1);
+      p.stamina = Math.min(p.maxStamina || 100, p.stamina + 40);
+      p._speedBuffUntil = this.time + (use.duration || 25);
+      this._log('兴奋剂注射完成：短时机能提升', 'p');
+    }
+    st.updateOverallHealth();
+    this._showEffectPopup('已使用医疗物品', '🩹', true);
   }
 
   // ===== 玻纤拔除（玩家）=====
@@ -9617,7 +10557,10 @@ _trySearchContainer(){
     const targetY = (p._lastHitSrcY !== undefined)
       ? p._lastHitSrcY
       : (p.body.position.y + 1.1);
-    const yawTo = Math.atan2(srcZ - fz, srcX - fx);
+    // ★ 相机 yaw 的约定是 forward = (sin(yaw), -cos(yaw))，
+    //   所以“看向某点”必须用 atan2(dx, -dz)；旧版写成 atan2(dz, dx) 会整整偏 90°，
+    //   表现就是凯特应激后朝空气开镜。这里同时用滑步落点重新求角。
+    const yawTo = Math.atan2(srcX - fx, -(srcZ - fz));
     const horiz = Math.max(0.4, Math.hypot(srcX - fx, srcZ - fz));
     const eyeY = p.body.position.y - (p.body.halfH || 1.2) + (p.camHeight || 1.55);
     const pitchTo = Math.atan2(targetY - eyeY, horiz);
@@ -9754,6 +10697,8 @@ _trySearchContainer(){
   _playSFX(name, opts){
     const audio = this.engine.audio;
     if (!audio || !audio.enabled || !audio.ctx) return;
+    // 首次交互后 AudioContext 仍可能处于 suspended（移动端尤甚），这里兜底恢复
+    if (audio.ctx.state === 'suspended' && audio.resume) audio.resume();
     if (audio._clips.has(name)) {
       audio.play(name, opts);
     } else {
@@ -9761,75 +10706,138 @@ _trySearchContainer(){
     }
   }
 
+  // 位置音效：按距离衰减 + 左右声道声像。远处的枪声/爆炸更闷、更轻。
+  // AI 与玩家“听到”的差异由这里的衰减和 _updateSoundSystem 的声纹分别处理。
+  _playSFXAt(name, x, z, opts = {}){
+    const p = this.player;
+    if (!p || !p.body) { this._playSFX(name, opts); return; }
+    const dx = x - p.body.position.x;
+    const dz = z - p.body.position.z;
+    const dist = Math.hypot(dx, dz);
+    const isShot = name.startsWith('shot_');
+    const maxDist = opts.maxDist || (isShot ? 180 : (name === 'explosion' ? 220 : 55));
+    const att = Math.max(0, 1 - dist / maxDist);
+    if (att <= 0.03) return;
+    // 相机 yaw 的右向量是 (cos(yaw), sin(yaw))
+    const yaw = (this.engine.cameraCtl && this.engine.cameraCtl.yaw) || 0;
+    const pan = Math.max(-1, Math.min(1, (dx * Math.cos(yaw) + dz * Math.sin(yaw)) / Math.max(3, dist)));
+    let vol = (opts.volume !== undefined ? opts.volume : 1) * Math.pow(att, 1.15);
+    // 耳鸣/震撼期间外界声音被削弱（自己的枪声仍由 _playSFX 非定位播放）
+    const hearing = (p.status && p.status.getHearingMul) ? p.status.getHearingMul() : 1;
+    vol *= hearing;
+    if (vol <= 0.01) return;
+    this._playSFX(name, { ...opts, volume: vol, pan, distant: dist });
+  }
+
   _synthSFX(name, opts){
-    const ac = this.engine.audio.ctx;
+    const audio = this.engine.audio;
+    const ac = audio && audio.ctx;
     if (!ac) return;
+    // 简易发声预算：大规模交火时避免一帧创建上百个音频节点导致卡顿
+    const nowMs = performance.now();
+    if (nowMs - (this._sfxWindowT || 0) > 100) { this._sfxWindowT = nowMs; this._sfxCount = 0; }
+    if ((this._sfxCount = (this._sfxCount || 0) + 1) > 18) return;
     const now = ac.currentTime;
-    const optsSafe = opts || {};
+    const o = opts || {};
+    const vol = Math.max(0.0001, o.volume !== undefined ? o.volume : 0.4);
     try {
-      if (name.startsWith('shot_')) {
-        const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.08), ac.sampleRate);
+      // 统一输出节点：支持声像，并走 sfx 总线（旧版直连 destination，绕过音量设置）
+      const out = ac.createGain();
+      out.gain.value = 1;
+      if (o.pan !== undefined && ac.createStereoPanner) {
+        const panNode = ac.createStereoPanner();
+        panNode.pan.value = Math.max(-1, Math.min(1, o.pan));
+        out.connect(panNode).connect(audio.sfxGain || ac.destination);
+      } else {
+        out.connect(audio.sfxGain || ac.destination);
+      }
+      const noise = (dur, gain, type, freq, when = 0) => {
+        const len = Math.max(1, Math.floor(ac.sampleRate * dur));
+        const buffer = ac.createBuffer(1, len, ac.sampleRate);
         const data = buffer.getChannelData(0);
-        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / data.length * 5);
+        for (let i = 0; i < len; i++) {
+          const env = Math.exp(-i / len * (type === 'step' ? 9 : 4));
+          data[i] = (Math.random() * 2 - 1) * env;
+        }
         const src = ac.createBufferSource();
         src.buffer = buffer;
-        const gain = ac.createGain();
-        gain.gain.setValueAtTime(optsSafe.volume || 0.4, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-        const filter = ac.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 2000;
-        src.connect(filter).connect(gain).connect(ac.destination);
-        src.start(now); src.stop(now + 0.08);
-      } else if (name === 'hit') {
+        const g = ac.createGain();
+        g.gain.value = gain;
+        const f = ac.createBiquadFilter();
+        f.type = type === 'step' ? 'bandpass' : 'lowpass';
+        f.frequency.value = freq;
+        f.Q.value = type === 'step' ? 0.9 : 0.7;
+        src.connect(f).connect(g).connect(out);
+        src.start(now + when); src.stop(now + when + dur + 0.02);
+      };
+      const tone = (wave, f0, f1, dur, gain, when = 0) => {
         const osc = ac.createOscillator();
-        osc.type = 'square'; osc.frequency.value = 800;
-        const gain = ac.createGain();
-        gain.gain.setValueAtTime(optsSafe.volume || 0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-        osc.connect(gain).connect(ac.destination);
-        osc.start(now); osc.stop(now + 0.05);
+        osc.type = wave;
+        osc.frequency.setValueAtTime(Math.max(20, f0), now + when);
+        if (f1 && f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), now + when + dur);
+        const g = ac.createGain();
+        g.gain.setValueAtTime(gain, now + when);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + when + dur);
+        osc.connect(g).connect(out);
+        osc.start(now + when); osc.stop(now + when + dur + 0.02);
+      };
+
+      if (name.startsWith('shot_')) {
+        const kind = name.slice(5);
+        const distant = o.distant || 0;
+        const lp = Math.max(700, 4200 - distant * 22);
+        if (kind === 'sniper') {
+          noise(0.4, vol * 1.6, 'shot', lp);
+          tone('sine', 90, 45, 0.35, vol * 0.9);
+          tone('square', 220, 60, 0.12, vol * 0.25);
+        } else if (kind === 'shotgun') {
+          noise(0.28, vol * 1.5, 'shot', lp * 0.85);
+          tone('sine', 110, 55, 0.22, vol * 0.7);
+        } else if (kind === 'pistol') {
+          noise(0.12, vol * 0.9, 'shot', lp * 1.2);
+          tone('square', 320, 120, 0.06, vol * 0.25);
+        } else {
+          noise(0.2, vol * 1.15, 'shot', lp);
+          tone('square', 260, 90, 0.08, vol * 0.3);
+        }
+      } else if (name.startsWith('step_')) {
+        const kind = name.slice(5);
+        if (kind === 'run') { noise(0.11, vol * 0.9, 'step', 520); tone('sine', 95, 55, 0.08, vol * 0.35); }
+        else if (kind === 'crouch') { noise(0.07, vol * 0.5, 'step', 340); }
+        else { noise(0.09, vol * 0.7, 'step', 420); tone('sine', 80, 50, 0.06, vol * 0.2); }
+      } else if (name === 'loot') {
+        noise(0.14, vol * 0.8, 'step', 2600);
+        noise(0.12, vol * 0.6, 'step', 1800, 0.11);
+        tone('triangle', 600, 300, 0.08, vol * 0.12, 0.02);
+      } else if (name === 'explosion') {
+        noise(0.7, vol * 1.8, 'shot', 900);
+        tone('sine', 70, 28, 0.6, vol * 1.2);
+        tone('sawtooth', 180, 40, 0.25, vol * 0.4);
+      } else if (name === 'tinnitus') {
+        tone('sine', 3900, 3700, 2.4, vol * 0.22);
+        tone('sine', 6100, 5800, 1.8, vol * 0.12, 0.05);
+        tone('sine', 760, 620, 0.5, vol * 0.2);
+      } else if (name === 'nade_bounce') {
+        tone('triangle', 1250, 520, 0.09, vol * 0.55);
+        noise(0.05, vol * 0.35, 'step', 3200);
+      } else if (name === 'hit') {
+        tone('square', 900, 500, 0.05, vol * 0.5);
+      } else if (name === 'armor_hit') {
+        tone('triangle', 1800, 900, 0.09, vol * 0.35);
+        noise(0.05, vol * 0.3, 'step', 3000);
+      } else if (name === 'dry') {
+        tone('square', 240, 180, 0.04, vol * 0.3);
       } else if (name === 'reload') {
-        for (let i = 0; i < 2; i++) {
-          const osc = ac.createOscillator();
-          osc.type = 'triangle';
-          osc.frequency.value = i === 0 ? 300 : 500;
-          const gain = ac.createGain();
-          gain.gain.setValueAtTime(0.15, now + i * 0.1);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.06);
-          osc.connect(gain).connect(ac.destination);
-          osc.start(now + i * 0.1); osc.stop(now + i * 0.1 + 0.07);
+        for (let i = 0; i < 3; i++) {
+          tone('triangle', i === 0 ? 300 : (i === 1 ? 520 : 420), 200, 0.06, vol * 0.35, i * 0.11);
+          noise(0.05, vol * 0.2, 'step', 2400, i * 0.11);
         }
       } else if (name === 'switch') {
-        const osc = ac.createOscillator();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.exponentialRampToValueAtTime(600, now + 0.08);
-        const gain = ac.createGain();
-        gain.gain.setValueAtTime(0.1, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-        osc.connect(gain).connect(ac.destination);
-        osc.start(now); osc.stop(now + 0.1);
+        tone('square', 420, 640, 0.07, vol * 0.25);
       } else if (name === 'hurt') {
-        const osc = ac.createOscillator();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(200, now);
-        osc.frequency.exponentialRampToValueAtTime(80, now + 0.15);
-        const gain = ac.createGain();
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-        osc.connect(gain).connect(ac.destination);
-        osc.start(now); osc.stop(now + 0.2);
+        tone('sawtooth', 220, 70, 0.22, vol * 0.5);
       } else if (name === 'skill') {
-        [400, 600, 900].forEach((f, i) => {
-          const osc = ac.createOscillator();
-          osc.type = 'sine'; osc.frequency.value = f;
-          const gain = ac.createGain();
-          gain.gain.setValueAtTime(0.15, now + i * 0.05);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.15);
-          osc.connect(gain).connect(ac.destination);
-          osc.start(now + i * 0.05); osc.stop(now + i * 0.05 + 0.15);
-        });
+        [420, 620, 900].forEach((f, i) => tone('sine', f, f, 0.16, vol * 0.3, i * 0.05));
       }
     } catch (e) { /* 忽略音效错误 */ }
   }
@@ -9969,9 +10977,9 @@ _updateSoundSystem(dt) {
 
   for (const e of this.enemies) {
     if (!e.alive) continue;
+    if (!this.soundEvents || this.soundEvents.length === 0) break;
     const ai = e.spec.ai || { perception: 0.5 };
     const eFaction = e.spec.faction;
-    const earRange = 14 + ai.perception * 24; 
 
     for (const s of this.soundEvents) {
       // 不听自己发出的声音
@@ -9979,6 +10987,8 @@ _updateSoundSystem(dt) {
       if (e.state === 'combat' || e.state === 'flee') continue;
 
       const dist = Math.hypot(e.body.position.x - s.x, e.body.position.z - s.z);
+      // 枪声（malignant）传得比脚步远得多：远距离交火也能惊动附近小队
+      const earRange = (14 + ai.perception * 24) * (s.type === 'malignant' ? 2.6 : 1);
       if (dist > earRange || dist > s.maxRange) continue;
 
       const isEnemySound = this.isHostile(eFaction, s.faction);
@@ -10279,6 +11289,7 @@ export class GameApp {
 const savedSens = e.profile.get('input.sensitivity', 1.0);
 if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   this._updateDifficultyDisplay();
+  this._updateCredits();
   e.profile.onChange(() => { this._updateDifficultyDisplay(); this._syncCustomSettingsUI(); });
   this._menuReady = true;
 }
@@ -10392,19 +11403,11 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
     this._quitToMenu();
   });
 
-  document.getElementById('btn-loadout-ticket')?.addEventListener('click', () => {
-    if (!this.inventory) return;
-    try {
-      this._ensureInitialInventory(true);
-      if (this.bagUI) this.bagUI.refresh();
-      const charSpec = this.engine.content.get('characters', this.menuState.char);
-      const charName = charSpec ? this.engine.i18n.t(charSpec.name) : '当前角色';
-      alert('制式券已发放：' + charName + ' 标准配装。按 B 打开背包查看。');
-    } catch (err) {
-      console.error('[GameApp] 制式券发放失败:', err);
-      alert('制式券发放失败：' + (err && err.message ? err.message : String(err)));
-    }
-  });
+  document.getElementById('btn-loadout-ticket')?.addEventListener('click', () => this._openLoadoutPage());
+  document.getElementById('btn-loadout-close')?.addEventListener('click', () => this._closeLoadoutPage());
+  document.getElementById('btn-loadout-reroll')?.addEventListener('click', () => this._rollLoadout(this._loadoutTier));
+  document.getElementById('btn-loadout-equip')?.addEventListener('click', () => this._applyLoadout());
+  document.getElementById('btn-loadout-empty')?.addEventListener('click', () => this._applyEmptyLoadout());
 
   document.getElementById('btn-stash')?.addEventListener('click', () => {
     if (this.bagUI) this.bagUI.toggle();
@@ -10672,7 +11675,7 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   }
   
   const content = this.engine.content;
-  const tables = ['weapons', 'ammo', 'melee', 'nade', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig', 'valuables', 'medical'];
+  const tables = ['weapons', 'ammo', 'melee', 'nade', 'attach', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig', 'valuables', 'medical'];
   let html = '';
   
   for (const t of tables) {
@@ -10695,6 +11698,7 @@ if (e.cameraCtl) e.cameraCtl.sensitivity = savedSens;
   el.querySelectorAll('.market-buy').forEach(btn => {
     btn.onclick = () => {
       const r = this.market.buy(btn.dataset.table, btn.dataset.id);
+      this._updateCredits();
       if (r.ok) alert('购买成功，已存入仓库。');
       else alert('购买失败：' + r.reason);
     };
@@ -10869,6 +11873,50 @@ _ensureStarterThrowables(){
   if (!has('flashbang')) give('flashbang', 1);
   if (!has('stun')) give('stun', 1);
   if (!has('emp')) give('emp', 1);
+
+  // 基础急救：保证新玩家能真正体验止血/止痛流程（老存档缺则补）
+  const hasMed = (defId) => {
+    for (const cn of ['chest', 'pocket', 'bag', 'safe']) {
+      const c = inv.containers[cn];
+      if (!c) continue;
+      for (const uid of c.items.keys()) {
+        const it = inv.items.get(uid);
+        if (it && it.table === 'medical' && it.defId === defId) return true;
+      }
+    }
+    return false;
+  };
+  const giveMed = (defId, qty) => {
+    const uid = inv.createItem('medical', defId, { qty });
+    if (!uid) return;
+    if (inv.addToContainer('chest', uid).ok) return;
+    if (inv.addToContainer('bag', uid).ok) return;
+    inv.addToContainer('stash', uid);
+  };
+  if (!hasMed('bandage')) giveMed('bandage', 2);
+  if (!hasMed('painkiller')) giveMed('painkiller', 1);
+
+  // 枪械改装：给新手各一个瞄具/握把，保证进战局就能在背包里试装（老存档缺则补）
+  const hasAttach = (defId) => {
+    for (const cn of ['chest', 'pocket', 'bag', 'safe']) {
+      const c = inv.containers[cn];
+      if (!c) continue;
+      for (const uid of c.items.keys()) {
+        const it = inv.items.get(uid);
+        if (it && it.table === 'attach' && it.defId === defId) return true;
+      }
+    }
+    return false;
+  };
+  const giveAttach = (defId) => {
+    const uid = inv.createItem('attach', defId);
+    if (!uid) return;
+    if (inv.addToContainer('chest', uid).ok) return;
+    if (inv.addToContainer('bag', uid).ok) return;
+    inv.addToContainer('stash', uid);
+  };
+  if (!hasAttach('sight_2x')) giveAttach('sight_2x');
+  if (!hasAttach('grip_angled')) giveAttach('grip_angled');
 }
 
 // ★ GameApp 侧的弹药统计：战局外的配装/制式券也要用它，
@@ -11011,25 +12059,265 @@ _ensureInitialInventory(forceReset){
 _stripInventoryForLoadout(){
   const inv = this.inventory;
   if (!inv) return;
-  for (const slot of ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
-    const uid = inv.equipped[slot];
-    if (uid) {
-      inv.unequip(slot);
-      inv.destroyItem(uid);
-    }
-  }
-  // 清空身上容器（safe 也清，因为制式券是重新配装）；stash 保留
-  for (const cName of ['chest', 'pocket', 'bag', 'safe']) {
+  // 先把胸挂/口袋/背包里的东西全部转进仓库，避免卸下背包时把内容一起销毁
+  for (const cName of ['pocket', 'bag', 'chest']) {
     const c = inv.containers[cName];
     if (!c) continue;
-    const uids = c.uids.slice();
-    for (const uid of uids) {
-      inv.removeFromContainer(cName, uid);
-      inv.destroyItem(uid);
+    for (const uid of Array.from(c.items.keys())) {
+      inv.addToContainer('stash', uid);
     }
   }
+  // 再卸下装备槽；能进仓库就保留，实在放不下才销毁
+  for (const slot of ['main', 'side', 'melee', 'helmetShell', 'helmetVisor', 'helmetEar', 'vestFiber', 'vestPlate', 'backpack', 'chestRig']) {
+    const uid = inv.equipped[slot];
+    if (!uid) continue;
+    inv.unequip(slot);
+    if (!inv.addToContainer('stash', uid).ok) inv.destroyItem(uid);
+  }
+  // 安全箱不动；如果还有残留的随身容器物品（仓库已满），尽量塞回仓库
+  for (const cName of ['chest', 'pocket', 'bag']) {
+    const c = inv.containers[cName];
+    if (!c) continue;
+    for (const uid of Array.from(c.items.keys())) inv.addToContainer('stash', uid);
+  }
 }
-   
+
+  /* ===================== 制式券 / 配装页 ===================== */
+  _updateCredits(){
+    const credits = (this.engine.save.data && this.engine.save.data.credits) || 0;
+    for (const id of ['menu-credits', 'loadout-credits']) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = credits.toLocaleString('en-US') + ' cp';
+    }
+  }
+
+  _pick(arr){ return arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null; }
+  _randInt(a, b){ return a + Math.floor(Math.random() * (b - a + 1)); }
+  _esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+  _openLoadoutPage(){
+    this._showScreen('menu');
+    document.getElementById('loadout-page')?.classList.add('on');
+    const tiers = this.engine.content.all('loadoutTiers') || [];
+    this._loadoutTier = this._loadoutTier || (tiers[0] && tiers[0].id) || 'standard';
+    this._rollLoadout(this._loadoutTier);
+    this._updateCredits();
+  }
+
+  _closeLoadoutPage(){
+    document.getElementById('loadout-page')?.classList.remove('on');
+    this._setupMenu();
+  }
+
+  _rollLoadout(tierId){
+    const content = this.engine.content;
+    const tier = content.get('loadoutTiers', tierId) || content.get('loadoutTiers', 'standard') || {
+      id: 'standard', name: '标准', desc: '', primary: ['ar556'], sidearm: ['p9'], dual: 0,
+      armorLv: [3, 4], plateChance: 1, bag: ['medium'], rig: ['large'], ammo: 120, sideAmmo: 45,
+      meds: 3, nades: 2, attach: 1, special: [],
+    };
+    this._loadoutTier = tier.id || tierId;
+    const primary = this._pick(tier.primary);
+    const primaryDef = content.get('weapons', primary);
+    let second = null;
+    if (Math.random() < (tier.dual || 0)) {
+      const pool = (tier.primary || []).filter(w => w !== primary);
+      second = this._pick(pool);
+    }
+    const sidearm = !second && Math.random() < 0.85 ? this._pick(tier.sidearm) : null;
+    const lvRange = tier.armorLv || [3, 4];
+    const lv = this._randInt(lvRange[0], lvRange[1]);
+    const shellLv = Math.max(2, Math.min(5, lv));
+    const fiberLv = Math.max(3, Math.min(5, lv));
+    const plateLv = Math.max(3, Math.min(5, lv));
+    const armor = {
+      shell: 'lv' + shellLv,
+      visor: 'lv' + Math.max(2, Math.min(5, lv)),
+      fiber: 'lv' + fiberLv,
+      plate: Math.random() < (tier.plateChance || 0) ? 'lv' + plateLv : null,
+    };
+    const bag = this._pick(tier.bag);
+    const rig = this._pick(tier.rig);
+    // 随机医疗/投掷物/配件/特殊装备
+    const medPool = (content.all('medical') || []).map(m => m.id);
+    const meds = [];
+    for (let i = 0; i < (tier.meds || 0); i++) { const id = this._pick(medPool); if (id) meds.push(id); }
+    const nadePool = ['frag', 'flashbang', 'stun', 'emp', 'molotov', 'frag_impact'];
+    const nades = [];
+    for (let i = 0; i < (tier.nades || 0); i++) { const id = this._pick(nadePool); if (id) nades.push(id); }
+    const attachPool = (content.all('attach') || [])
+      .filter(a => (!a.fits || a.fits.includes(primary)) && (!a.caliber || a.caliber === (primaryDef && primaryDef.ammoType)))
+      .map(a => a.id);
+    const attaches = [];
+    for (let i = 0; i < (tier.attach || 0); i++) { const id = this._pick(attachPool); if (id) attaches.push(id); }
+    const special = (tier.special || []).filter(() => Math.random() < 0.75);
+    this._loadoutRoll = {
+      tier, primary, primaryDef, second, sidearm, armor, bag, rig,
+      ammo: tier.ammo || 120, sideAmmo: tier.sideAmmo || 45,
+      meds, nades, attaches, special,
+      value: 0,
+    };
+    // 估算价值（只用于展示）
+    const val = (table, id) => { const d = content.get(table, id); return (d && d.value) || 0; };
+    let v = val('weapons', primary);
+    if (second) v += val('weapons', second);
+    if (sidearm) v += val('weapons', sidearm);
+    v += val('helmetShell', armor.shell) + val('helmetVisor', armor.visor) + val('vestFiber', armor.fiber);
+    if (armor.plate) v += val('vestPlate', armor.plate);
+    v += val('backpack', bag) + val('chestRig', rig);
+    for (const m of meds) v += val('medical', m);
+    for (const a of nades) v += val('nade', a);
+    for (const a of attaches) v += val('attach', a);
+    for (const s of special) v += val(s.table, s.id);
+    this._loadoutRoll.value = v;
+    this._renderLoadoutPage();
+  }
+
+  _renderLoadoutPage(){
+    const content = this.engine.content;
+    const i18n = this.engine.i18n;
+    const tierHost = document.getElementById('loadout-tiers');
+    const preview = document.getElementById('loadout-preview');
+    const summary = document.getElementById('loadout-summary');
+    if (!tierHost || !preview || !summary) return;
+    const tiers = content.all('loadoutTiers') || [];
+    tierHost.innerHTML = tiers.map(t => {
+      const active = t.id === this._loadoutTier;
+      return `<button data-loadout-tier="${t.id}" style="text-align:left;padding:12px;border-radius:10px;cursor:pointer;font-family:inherit;background:${active ? 'rgba(50,110,170,.45)' : 'rgba(14,22,34,.9)'};border:1.5px solid ${active ? 'rgba(120,200,255,.85)' : 'rgba(105,170,235,.25)'};color:#d8e2ee">
+        <div style="font-size:14px;font-weight:800;color:${active ? '#9fe8ff' : '#cfe4f8'};letter-spacing:2px">${this._esc(i18n.t(t.name))}</div>
+        <div style="font-size:10px;color:#8fb0c8;margin-top:4px;line-height:1.5">${this._esc(i18n.t(t.desc))}</div>
+      </button>`;
+    }).join('');
+    tierHost.querySelectorAll('[data-loadout-tier]').forEach(btn => {
+      btn.onclick = () => { this._loadoutTier = btn.dataset.loadoutTier; this._rollLoadout(this._loadoutTier); };
+    });
+
+    const L = this._loadoutRoll;
+    if (!L) return;
+    const name = (table, id) => { const d = content.get(table, id); return d ? i18n.t(d.name) : id; };
+    const weaponRow = (label, id) => {
+      const d = content.get('weapons', id);
+      if (!d) return '';
+      return `<div style="padding:5px 0;border-bottom:1px solid rgba(105,170,235,.12)">
+        <div><span style="color:#7fd0ff">${label}</span> <b>${this._esc(name('weapons', id))}</b></div>
+        <div style="font-size:10px;color:#8fb0c8">${d.ammoType} · ${d.mag} 发 · ${d.rpm} rpm · 射程 ${d.range}m · 后坐 ${d.recoil} · 价值 ${d.value} cp</div>
+      </div>`;
+    };
+    let html = `<div style="font-size:11px;color:#7fd0ff;letter-spacing:2px;margin-bottom:6px">配装预览</div>`;
+    html += weaponRow('主武器', L.primary);
+    if (L.second) html += weaponRow('副主武器（双枪）', L.second);
+    if (L.sidearm) html += weaponRow('手枪', L.sidearm);
+    html += `<div style="margin-top:8px;color:#8fb0c8">护具：${this._esc(name('helmetShell', L.armor.shell))} / ${this._esc(name('helmetVisor', L.armor.visor))} / ${this._esc(name('vestFiber', L.armor.fiber))}${L.armor.plate ? ' + ' + this._esc(name('vestPlate', L.armor.plate)) : '（无插板）'}</div>`;
+    html += `<div style="color:#8fb0c8">携行：${this._esc(name('backpack', L.bag))} + ${this._esc(name('chestRig', L.rig))}</div>`;
+    html += `<div style="color:#8fb0c8;margin-top:4px">医疗：${L.meds.length ? L.meds.map(id => this._esc(i18n.t((content.get('medical', id) || {}).name || id))).join('、') : '无'}</div>`;
+    html += `<div style="color:#8fb0c8">投掷物：${L.nades.length ? L.nades.map(id => this._esc(i18n.t((content.get('nade', id) || {}).name || id))).join('、') : '无'}</div>`;
+    if (L.attaches.length) html += `<div style="color:#8fb0c8">配件：${L.attaches.map(id => this._esc(i18n.t((content.get('attach', id) || {}).name || id))).join('、')}</div>`;
+    if (L.special.length) html += `<div style="color:#ffd93d">特殊装备：${L.special.map(s => this._esc(i18n.t((content.get(s.table, s.id) || {}).name || s.id))).join('、')}</div>`;
+    preview.innerHTML = html;
+
+    summary.innerHTML = `<div style="font-size:11px;color:#7fd0ff;letter-spacing:2px">配装估值</div>
+      <div style="font-size:22px;font-weight:900;color:#ffd93d;margin:4px 0">${L.value.toLocaleString('en-US')} cp</div>
+      <div style="color:#8fb0c8">武器弹药：主武器 ${L.ammo} 发${L.second ? ' ×2 把' : ''}${L.sidearm ? ' · 手枪 ' + L.sideAmmo + ' 发' : ''}</div>
+      <div style="color:#8fb0c8">配装来源：<b style="color:#a8d8ff">${this._esc(i18n.t(L.tier.name))}</b> 制式券</div>
+      <div style="font-size:10px;color:#5c82a8;margin-top:6px">刷新只改变预览；领取后才会写入仓库/随身装备。</div>`;
+  }
+
+  _giveToCarry(inv, table, defId, qty){
+    const uid = inv.createItem(table, defId, qty !== undefined ? { qty } : {});
+    if (!uid) return null;
+    for (const c of ['chest', 'bag', 'pocket', 'safe']) {
+      if (inv.addToContainer(c, uid).ok) return uid;
+    }
+    inv.addToContainer('stash', uid);
+    return uid;
+  }
+
+  _applyLoadout(){
+    const L = this._loadoutRoll;
+    if (!L || !this.inventory) return;
+    const inv = this.inventory;
+    const content = this.engine.content;
+    inv.maxCarryWeight = 0; // 菜单配装不受上一局负重硬上限影响
+    this._stripInventoryForLoadout();
+
+    const equipWeapon = (defId, slot) => {
+      const d = content.get('weapons', defId);
+      if (!d) return null;
+      const uid = inv.createItem('weapons', defId, { loadedQty: d.mag || 0 });
+      if (uid) inv.equip(slot, uid);
+      return uid;
+    };
+    const mainUid = equipWeapon(L.primary, 'main');
+    if (L.second) equipWeapon(L.second, 'side');
+    else if (L.sidearm) equipWeapon(L.sidearm, 'side');
+    // 近战
+    const kuid = inv.createItem('melee', 'knife');
+    if (kuid) inv.equip('melee', kuid);
+    // 护具（插板必须在纤维之后）
+    const eqArmor = (table, defId, slot) => {
+      if (!defId) return null;
+      const uid = inv.createItem(table, defId);
+      if (uid) inv.equip(slot, uid);
+      return uid;
+    };
+    eqArmor('helmetShell', L.armor.shell, 'helmetShell');
+    eqArmor('helmetVisor', L.armor.visor, 'helmetVisor');
+    eqArmor('vestFiber', L.armor.fiber, 'vestFiber');
+    if (L.armor.plate) eqArmor('vestPlate', L.armor.plate, 'vestPlate');
+    eqArmor('backpack', L.bag, 'backpack');
+    eqArmor('chestRig', L.rig, 'chestRig');
+
+    // 弹药：主武器/副主武器/手枪各自口径
+    const mainDef = content.get('weapons', L.primary);
+    if (mainDef) this._giveToCarry(inv, 'ammo', mainDef.ammoType, L.ammo);
+    if (L.second) {
+      const d = content.get('weapons', L.second);
+      if (d) this._giveToCarry(inv, 'ammo', d.ammoType, Math.round(L.ammo * 0.6));
+    }
+    if (L.sidearm) {
+      const d = content.get('weapons', L.sidearm);
+      if (d) this._giveToCarry(inv, 'ammo', d.ammoType, L.sideAmmo);
+    }
+    // 医疗/投掷物
+    for (const m of L.meds) this._giveToCarry(inv, 'medical', m, 1);
+    for (const n of L.nades) this._giveToCarry(inv, 'nade', n, 1);
+    // 配件：优先装到主武器
+    if (L.attaches.length && mainUid) {
+      const wItem = inv.items.get(mainUid);
+      for (const aId of L.attaches) {
+        const aDef = content.get('attach', aId);
+        if (!aDef || !wItem) continue;
+        const aUid = inv.createItem('attach', aId);
+        if (!aUid) continue;
+        const ar = inv.attachTo(mainUid, aDef.slot, aUid);
+        if (!ar.ok) {
+          // 槽位被占/不兼容：放回背包
+          for (const c of ['chest', 'bag', 'pocket']) if (inv.addToContainer(c, aUid).ok) break;
+        } else if (ar.swapped) {
+          // 同槽位被替换下来的旧配件回背包，不能变幽灵
+          for (const c of ['chest', 'bag', 'pocket']) if (inv.addToContainer(c, ar.swapped).ok) break;
+        }
+      }
+    }
+    for (const s of L.special) this._giveToCarry(inv, s.table, s.id, 1);
+
+    this.engine.save.save();
+    if (this.bagUI) this.bagUI.refresh();
+    this._updateCredits();
+    this._closeLoadoutPage();
+    alert('制式券已装备：' + this.engine.i18n.t(L.tier.name) + '配装。按 B 打开背包查看。');
+  }
+
+  _applyEmptyLoadout(){
+    if (!this.inventory) return;
+    if (!confirm('卸下当前随身装备与容器？所有物品会移入仓库，仓库物品保留。')) return;
+    this._stripInventoryForLoadout();
+    this.engine.save.save();
+    if (this.bagUI) this.bagUI.refresh();
+    this._closeLoadoutPage();
+    alert('已卸下随身装备（物品已移入仓库），可从仓库自行配装后进入战区。');
+  }
+
 
 async startMatch(kind){
   const e = this.engine;
@@ -11083,11 +12371,14 @@ async startMatch(kind){
     this.world = null;
   }
 
-  // ★ 配装初始化必须在进入战局前完成；任何异常都要收掉加载遮罩并回到菜单，
-  //   否则用户只会看到“进入战区…”一直卡住。
+  // ★ 普通战局不再自动发放制式券/初始装备：玩家可以在制式券页领取，或清空后
+  //   从仓库自行配装，甚至什么都不穿直接进。训练场仍自动补一套便于测试。
   try {
-    this._ensureInitialInventory();
-    this._ensureStarterThrowables();
+    if (!this.inventory) this.inventory = new Inventory(this.engine.content);
+    if (kind === 'training') {
+      this._ensureInitialInventory();
+      this._ensureStarterThrowables();
+    }
   } catch (err) {
     console.error('[GameApp] 配装初始化失败:', err);
     if (loadingEl) loadingEl.style.display = 'none';
@@ -11475,6 +12766,8 @@ save.save();
     try { this.world.destroy(); } catch (e) { console.warn(e); }
     this.world = null;
     if (this.inventory) {
+      // 战局结束解除负重硬上限，仓库/大厅里的整理不受战斗配装限制
+      this.inventory.maxCarryWeight = 0;
       this.engine.save.data.inventory = this.inventory.serialize();
       this.engine.save.save();
     }
@@ -11495,7 +12788,7 @@ this._showScreen('menu');
     if (document.pointerLockElement) document.exitPointerLock();
     if (this.world && this.world._closeNadeWheel) this.world._closeNadeWheel(false);
 
-    for (const id of ['pause-screen', 'result-screen', 'bagui-overlay', 'search-panel', 'training-modal', 'creative-modal']) {
+    for (const id of ['pause-screen', 'result-screen', 'bagui-overlay', 'search-panel', 'training-modal', 'creative-modal', 'loadout-page']) {
       document.getElementById(id)?.classList.remove('on');
     }
     document.getElementById('action-progress')?.classList.remove('on');
@@ -11505,6 +12798,10 @@ this._showScreen('menu');
     if (nearby) nearby.innerHTML = '';
     const weaponBar = document.getElementById('weapon-bar');
     if (weaponBar) weaponBar.innerHTML = '';
+    for (const id of ['nade-wheel-btn', 'med-wheel-btn', 'throwable-arm-btn']) {
+      const b = document.getElementById(id);
+      if (b) b.style.display = 'none';
+    }
     const killFeed = document.getElementById('kill-feed');
     if (killFeed) killFeed.innerHTML = '';
     const taskList = document.getElementById('task-list');
@@ -11545,6 +12842,8 @@ this._showScreen('menu');
     if (bo) bo.style.opacity = '0';
     const th = document.getElementById('throwable-hint');
     if (th) th.style.display = 'none';
+    const armBtn = document.getElementById('throwable-arm-btn');
+    if (armBtn) armBtn.style.display = 'none';
     const dp = document.getElementById('drone-panel');
     if (dp) dp.style.display = 'none';
     const fxSkill = document.getElementById('fx-skill');
@@ -11606,6 +12905,7 @@ this._showScreen('menu');
     // ★ 暂停按钮只在战局内显示，防止回大厅后残留
     const pauseBtn = document.getElementById('pause-btn');
     if (pauseBtn) pauseBtn.style.display = name === 'game' ? 'flex' : 'none';
+    if (name === 'menu') this._updateCredits();
   }
 
   setLanguage(code){

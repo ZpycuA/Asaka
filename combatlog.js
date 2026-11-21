@@ -36,8 +36,9 @@ export const FILTER_GROUPS = {
   all: () => true,
   dealt: e => e.type === 'damage_dealt' || e.type === 'kill' || e.type === 'shot_fired',
   taken: e => e.type === 'damage_taken' || e.type === 'downed' || e.type === 'revived' || e.type === 'coupling_hit' || e.type === 'death',
-  items: e => e.type === 'loot' || e.type === 'search' || e.type === 'extract',
-  skills: e => e.type === 'skill_use' || e.type === 'nade_throw',
+  items: e => e.type === 'loot' || e.type === 'search' || e.type === 'extract' || e.type === 'medical_use',
+  throwables: e => e.type === 'nade_throw',
+  skills: e => e.type === 'skill_use',
 };
 
 function esc(s) {
@@ -235,7 +236,7 @@ export class CombatLog {
       armorAbsorbed: 0, armorWear: 0, armorBreaks: 0,
       couplingAbsorbed: 0, couplingCost: 0,
       containersSearched: 0, lootValue: 0, lootCount: 0,
-      skillsUsed: 0, nadesThrown: 0,
+      skillsUsed: 0, nadesThrown: 0, medicalUses: 0,
       downedCount: 0, revivedCount: 0,
       duration: Math.max(0, this.endedAt - this.startedAt),
     };
@@ -277,6 +278,7 @@ export class CombatLog {
           s.lootCount++;
           break;
         case 'skill_use': s.skillsUsed++; break;
+        case 'medical_use': s.medicalUses++; break;
         case 'nade_throw': s.nadesThrown++; break;
         case 'downed': s.downedCount++; break;
         case 'revived': s.revivedCount++; break;
@@ -389,6 +391,12 @@ export class CombatLog {
       cls: 'loot',
       head: `💎 拾取 ${esc(e.name || '?')}`,
       body: `价值 ${fmtNum(e.value)} cp${e.qty > 1 ? ` ×${e.qty}` : ''}`,
+    }));
+
+    this.register('medical_use', e => ({
+      cls: 'loot',
+      head: `🩹 使用医疗 · ${esc(e.name || '?')}`,
+      body: e.detail || '',
     }));
 
     /* ---- 技能 / 投掷 ---- */
@@ -509,6 +517,7 @@ export function showCombatReport(opts) {
       <div class="cr-stat"><div class="k">护甲吸收</div><div class="v green">${fmtNum(summary.armorAbsorbed)}J</div></div>
       <div class="cr-stat"><div class="k">护甲损耗</div><div class="v red">${fmtNum(summary.armorWear, 1)}%</div></div>
       <div class="cr-stat"><div class="k">搜刮</div><div class="v">${summary.lootCount || 0}</div></div>
+      <div class="cr-stat"><div class="k">医疗使用</div><div class="v">${summary.medicalUses || 0}</div></div>
       <div class="cr-stat"><div class="k">携出价值</div><div class="v green">${fmtNum(summary.lootValue)}</div></div>
     </div>
   ` : '';
@@ -518,6 +527,7 @@ export function showCombatReport(opts) {
     { id: 'dealt', label: '造成' },
     { id: 'taken', label: '承受' },
     { id: 'items', label: '物品' },
+    { id: 'throwables', label: '投掷' },
     { id: 'skills', label: '技能' },
   ];
   const filterHtml = filters.map(f =>

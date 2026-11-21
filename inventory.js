@@ -50,6 +50,8 @@ const EQUIP_TABLE = {
 };
 
 const CONTAINER_NAMES = ['chest', 'pocket', 'bag', 'safe', 'stash', 'loot'];
+// 计入负重、并受硬上限约束的随身容器（仓库/搜刮临时容器不在此列）
+const CARRY_CONTAINER_NAMES = ['chest', 'pocket', 'bag', 'safe'];
 
 const CONTAINER_DEFAULTS = {
   chest:  { w: 0,  h: 0 },   // 由 chestRig 提供
@@ -126,6 +128,9 @@ export class Inventory {
       const d = CONTAINER_DEFAULTS[name];
       this.containers[name] = new GridContainer(d.w, d.h);
     }
+    // 明确负重上限（kg）。0 表示不限；战局里由 GameWorld 按角色/背包写入。
+    // 只有“随身容器”受限制，仓库交易不受影响。
+    this.maxCarryWeight = 0;
   }
 
   /* ====================== 创建 / 销毁 ====================== */
@@ -154,10 +159,13 @@ export class Inventory {
       // ★ 重量（kg；弹药为单发重量，堆叠时乘以数量）
       weight: extras.weight !== undefined ? extras.weight
         : (def.weight !== undefined ? def.weight : (DEFAULT_ITEM_WEIGHT[table] || 0.2)),
-      // ★ 电子属性：EMP 只损坏 electronics 且没有抗磁屏蔽的物品
+      // ★ 电子属性：EMP 只损坏 electronics 物品；empShielded 表示电磁加固（降低概率，非免疫）
       electronics: def.electronics === true,
       empShielded: def.empShielded === true,
       damaged: extras.damaged === true,
+      // 电磁冲刷/加固被击穿的痕迹：跨容器转移时必须保留，否则“损坏物品一秒修好”
+      empSurge: extras.empSurge || 0,
+      empHardenedHit: extras.empHardenedHit === true,
       category: def.category || (table === 'valuables' ? '贵重品' : (table === 'medical' ? '医疗' : '')),
       // ★ 网格字段
       w: def.w || 1,
@@ -276,7 +284,13 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
   normalizeLoaded(item) {
     if (!item || item.table !== 'weapons') return null;
     const def = this.content.get('weapons', item.defId);
-    const cap = def ? (def.mag || 0) : 0;
+    // ★ 弹匣容量 = 武器基础容量 × 弹匣配件修正。所有读写都必须走这里，
+    //   否则扩容弹匣装到 40 发后，下一次 normalizeLoaded 会按 30 发截断，子弹凭空消失。
+    let cap = def ? (def.mag || 0) : 0;
+    if (item.attachments && this.getAttachmentStats) {
+      const mods = this.getAttachmentStats(item);
+      if (mods && mods.magMul && mods.magMul !== 1) cap = Math.max(1, Math.round(cap * mods.magMul));
+    }
     // 清理历史遗留的 item.mag 平行字段，防止旧存档继续制造双语义
     if (item.mag !== undefined) delete item.mag;
     if (!item.loaded || typeof item.loaded !== 'object') {
@@ -463,6 +477,11 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
         total += this.getItemValue(childUid);
       }
     }
+    if (item.subSlots) {
+      for (const k in item.subSlots) {
+        if (item.subSlots[k]) total += this.getItemValue(item.subSlots[k]);
+      }
+    }
     return Math.round(total);
   }
 
@@ -503,6 +522,12 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     if (item.innerGrid) {
       for (const [uid] of item.innerGrid.items) w += this.getItemWeight(uid);
     }
+    // 子槽（例如护甲纤维里的插板）：物品本体挂在宿主上，重量必须计入
+    if (item.subSlots) {
+      for (const k in item.subSlots) {
+        if (item.subSlots[k]) w += this.getItemWeight(item.subSlots[k]);
+      }
+    }
     return w;
   }
 
@@ -516,17 +541,31 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
 
   // 携带重量：装备槽（背包/胸挂只算本体，内容物由 chest/bag 容器统计）+ chest/pocket/bag/safe
   /* ====================== 电磁脉冲损坏 ======================
-     规则：只有 def.electronics 的物品会被 EMP 影响；empShielded 表示
-     外壳/电路做了抗磁屏蔽，通常不会被损坏。损坏后 valueMul 大幅降低，
-     名称与详情由 UI 显示为“[损坏]”，武器不可再开火。
+     规则：只有 def.electronics 的物品会被 EMP 影响。
+       · 无电磁加固（empShielded=false）：按强度概率直接损坏。
+       · 电磁加固（empShielded=true）：不是无敌，仍有低概率被击穿/烧毁电路；
+         未损坏也会标记“受强电磁干扰”，提示玩家设备被冲刷过。
+     损坏后 valueMul 大幅降低，名称与详情由 UI 显示为“[损坏]”，武器不可再开火。
      ========================================================== */
   applyEmpDamage(strength = 1, includeStash = false) {
-    const out = { damaged: [], spared: [] };
+    const out = { damaged: [], spared: [], hardenedHit: [] };
     for (const item of this.items.values()) {
       if (!item || !item.electronics || item.damaged) continue;
       const parent = this.parentOf.get(item.uid);
       if (!includeStash && parent === 'c:stash') continue;
-      if (item.empShielded) { out.spared.push(item); continue; }
+      if (item.empShielded) {
+        // 电磁加固：按强度只有 ~2%~20% 概率被击穿
+        const hardenedChance = Math.max(0.02, Math.min(0.2, 0.07 * strength));
+        if (Math.random() > hardenedChance) {
+          item.empSurge = Math.max(item.empSurge || 0, strength);
+          // 加固不等于零损伤：有耐久的设备会被电磁场冲刷掉一点耐久
+          if (item.durMax > 0) item.dur = Math.max(0, item.dur - item.durMax * 0.04 * strength);
+          out.spared.push(item);
+          continue;
+        }
+        item.empHardenedHit = true;
+        out.hardenedHit.push(item);
+      }
       const chance = Math.max(0.05, Math.min(1, strength));
       if (Math.random() > chance) { out.spared.push(item); continue; }
       item.damaged = true;
@@ -639,6 +678,22 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     return { ok: false, reason: 'cycle' };
   }
 
+  // ★ 负重硬上限：只拦截“新带进随身容器”的物品，已在身上的物品挪位置不会重复计算。
+  //   超限时拒绝放入，调用方（转移/拾取/拆分）会回滚并提示。
+  if (this.maxCarryWeight > 0 && !opts.ignoreWeight && !name.startsWith('inner:') &&
+      CARRY_CONTAINER_NAMES.includes(name)) {
+    const curParent = this.parentOf.get(uid);
+    const alreadyCarried = !!curParent && (
+      curParent.startsWith('c:') || curParent.startsWith('inner:') || curParent.startsWith('eq:')
+    );
+    if (!alreadyCarried) {
+      const extra = this.getItemWeight(item);
+      if (this.getCarryWeight() + extra > this.maxCarryWeight + 1e-4) {
+        return { ok: false, reason: 'overweight' };
+      }
+    }
+  }
+
   // ---- 1. 先尝试合并堆叠 ----
   const stackLimit = item.stackLimit || 1;
   if (!opts.noMerge && stackLimit > 1 && item.dur === item.durMax) {
@@ -720,6 +775,16 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     const item = this.items.get(uid);
     if (!item) return { ok: false, reason: 'no_item' };
 
+    // ★ 插板不再单独穿戴：只能装进当前护甲纤维的子槽。
+    //   保留 vestPlate 槽位只是为了兼容旧存档/旧入口，实际数据落在 fiber.subSlots.plate。
+    if (slot === 'vestPlate') {
+      const fiberUid = this.equipped.vestFiber;
+      if (!fiberUid) return { ok: false, reason: 'need_fiber' };
+      const r = this.installPlate(fiberUid, uid);
+      if (!r.ok) return r;
+      return { ok: true, swapped: r.swapped, nested: true, fiberUid };
+    }
+
     const expectedTable = EQUIP_TABLE[slot];
 if (expectedTable) {
   if (expectedTable === '__aux__') {
@@ -792,6 +857,9 @@ this.equipped[slot] = uid;
   }
 
   /* ====================== 拆分堆叠 ====================== */
+  // 拆分后必须落在“原物品所在的那个容器”里；只有放不下时才退到其他随身容器。
+  // 旧版只认 c:xxx，把 inner:（背包内部网格）的物品拆到别处，甚至拆完
+  // 新堆叠 parentOf 悬空，UI 就出现“数量少了、拆出来的东西不见了”。
   splitStack(uid, count, preferredContainer) {
     const item = this.items.get(uid);
     if (!item) return { ok: false, reason: 'no_item' };
@@ -803,27 +871,30 @@ this.equipped[slot] = uid;
       lockValue: true,
       valueMul: item.valueMul,
       dur: item.dur,
+      damaged: item.damaged === true,
+      empSurge: item.empSurge || 0,
     });
     if (!newUid) return { ok: false, reason: 'create_failed' };
 
     const originalParent = this.parentOf.get(uid);
     const targets = [];
-    if (preferredContainer) targets.push(preferredContainer);
-    if (originalParent && originalParent.startsWith('c:')) {
-      const origContainer = originalParent.slice(2);
-      if (!targets.includes(origContainer)) targets.push(origContainer);
+    const pushTarget = (name) => { if (name && !targets.includes(name)) targets.push(name); };
+    // 1) 原容器（inner: 与 c: 都必须保留）
+    if (originalParent && (originalParent.startsWith('c:') || originalParent.startsWith('inner:'))) {
+      pushTarget(originalParent.startsWith('c:') ? originalParent.slice(2) : originalParent);
     }
-    for (const t of ['stash', 'bag', 'chest', 'pocket', 'safe']) {
-      if (!targets.includes(t)) targets.push(t);
-    }
+    // 2) UI 指定的优先容器
+    if (preferredContainer) pushTarget(preferredContainer);
+    // 3) 其他随身容器
+    for (const t of ['chest', 'pocket', 'bag', 'safe', 'stash']) pushTarget(t);
 
     for (const t of targets) {
-      const c = this.containers[t];
-      if (!c || !c.isActive) continue;
-      const r = this.addToContainer(t, newUid, { noMerge: true });
+      const c = t.startsWith('inner:') ? null : this.containers[t];
+      if (!t.startsWith('inner:') && (!c || !c.isActive)) continue;
+      const r = this.addToContainer(t, newUid, { noMerge: true, ignoreWeight: true });
       if (r.ok) {
         item.qty -= count;
-        return { ok: true, newUid };
+        return { ok: true, newUid, container: t };
       }
     }
 
@@ -834,6 +905,9 @@ this.equipped[slot] = uid;
  transferItem(targetInv, uid, targetContainer) {
   const item = this.items.get(uid);
   if (!item) return { ok: false, reason: 'no_item' };
+  // 源弹链先留档：createItem 内部会用基础弹匣容量做一次 normalize，
+  // 扩容弹匣多出来的子弹要在这之后补回去，否则跨容器搬枪会掉子弹。
+  const srcQueue = item.loaded && Array.isArray(item.loaded.queue) ? [...item.loaded.queue] : null;
 
   // ★ 跨 Inventory 装备前先做槽位类型校验，避免"先迁移子物品再失败"造成内容丢失
   if (typeof targetContainer === 'string' && targetContainer.startsWith('eq:')) {
@@ -856,13 +930,70 @@ this.equipped[slot] = uid;
     dur: item.dur,
     loadedQty: item.loaded ? item.loaded.qty : 0,
     loadedQueue: item.loaded && item.loaded.queue ? [...item.loaded.queue] : null,
-    attachments: item.attachments ? {...item.attachments} : null
+    // ★ 损坏/电磁冲刷状态必须随物品一起迁移，不能因为换了个背包就“修好”
+    damaged: item.damaged === true,
+    empSurge: item.empSurge || 0,
+    empHardenedHit: item.empHardenedHit === true,
+    // ★ 配件 UID 属于源 Inventory，不能直接复制到目标 Inventory；
+    //   下面会逐个重建配件，否则会留下指向不存在物品的幽灵槽位。
+    attachments: null
   });
 
   if (!newUid) return { ok: false };
 
   const newItem = targetInv.items.get(newUid);
-  if (newItem) targetInv.normalizeLoaded(newItem);
+  // EMP 导致电子击发组件失效：弹链还在，但 disabled 必须保留
+  if (newItem && item.loaded && item.loaded.disabled && newItem.loaded) newItem.loaded.disabled = true;
+
+  // ★ 转移配件：在目标 Inventory 重建配件物品，并挂到新武器的槽位上。
+  //   必须在 normalizeLoaded 之前完成，否则扩容弹匣里的 40 发会先被按 30 发截断。
+  if (item.attachments && newItem && newItem.attachments) {
+    for (const slot in item.attachments) {
+      const aUid = item.attachments[slot];
+      if (!aUid) continue;
+      const aItem = this.items.get(aUid);
+      if (!aItem) { item.attachments[slot] = null; continue; }
+      const na = targetInv.createItem('attach', aItem.defId, {
+        qty: aItem.qty, dur: aItem.dur, lockValue: true, valueMul: aItem.valueMul,
+        damaged: aItem.damaged === true, empSurge: aItem.empSurge || 0,
+      });
+      if (na) {
+        newItem.attachments[slot] = na;
+        targetInv.parentOf.set(na, newUid);
+      }
+      // 原配件先保留在原武器上；等整个转移成功后，源武器 destroyItem 会一并回收。
+      // 这样转移失败（负重超限/目标容器满）时不会出现“配件先没了”。
+    }
+  }
+  if (newItem) {
+    const norm = targetInv.normalizeLoaded(newItem);
+    if (norm && srcQueue && srcQueue.length > norm.loaded.queue.length) {
+      const cap = norm.cap || norm.loaded.queue.length;
+      newItem.loaded.queue = srcQueue.slice(0, cap);
+      newItem.loaded.qty = newItem.loaded.queue.length;
+      newItem.loaded.ammoType = newItem.loaded.queue[0] || newItem.loaded.ammoType;
+    }
+  }
+
+  // ★ 子槽物品（护甲里的插板）：跟着宿主一起跨 Inventory 转移，
+  //   否则从尸体扒护甲时里面的插板会变成幽灵物品或直接消失。
+  if (item.subSlots && newItem) {
+    newItem.subSlots = {};
+    for (const subSlot in item.subSlots) {
+      const suid = item.subSlots[subSlot];
+      if (!suid) { newItem.subSlots[subSlot] = null; continue; }
+      const sItem = this.items.get(suid);
+      if (!sItem) { newItem.subSlots[subSlot] = null; continue; }
+      const nsuid = targetInv.createItem(sItem.table, sItem.defId, {
+        qty: sItem.qty, dur: sItem.dur, lockValue: true, valueMul: sItem.valueMul,
+        damaged: sItem.damaged === true, empSurge: sItem.empSurge || 0,
+      });
+      if (nsuid) {
+        newItem.subSlots[subSlot] = nsuid;
+        targetInv.parentOf.set(nsuid, newUid);
+      }
+    }
+  }
 
   // ★ 递归转移 innerGrid：先转移子物品，再把容器本身放入目标容器
   if (item.innerGrid && newItem && newItem.innerGrid) {
@@ -888,7 +1019,7 @@ this.equipped[slot] = uid;
     }
 
     this.destroyItem(uid);
-    return { ok: true, newUid, swapped: prevUid };
+    return { ok: true, newUid, swapped: r.swapped || prevUid };
   }
 
   const r = targetInv.addToContainer(targetContainer, newUid);
@@ -901,14 +1032,54 @@ this.equipped[slot] = uid;
   return { ok: true, newUid };
 }
 
-  /* ====================== 配件操作（不变） ====================== */
+  /* ====================== 配件操作 ====================== */
+  // 兼容性校验：槽位 / 武器型号 / 弹匣口径都从 content 表派生，禁止 UI 另写一套。
+  canAttach(weaponItem, attachItem, slot) {
+    if (!weaponItem || !attachItem) return { ok: false, reason: 'no_item' };
+    if (!weaponItem.attachments || weaponItem.table !== 'weapons') return { ok: false, reason: 'not_weapon' };
+    if (attachItem.table !== 'attach') return { ok: false, reason: 'type_mismatch' };
+    const aDef = this.getDef(attachItem);
+    const wDef = this.getDef(weaponItem);
+    if (!aDef || !wDef) return { ok: false, reason: 'no_def' };
+    if (!(slot in weaponItem.attachments)) return { ok: false, reason: 'bad_slot' };
+    if (aDef.slot && aDef.slot !== slot) return { ok: false, reason: 'wrong_slot' };
+    if (Array.isArray(aDef.fits) && aDef.fits.length && !aDef.fits.includes(weaponItem.defId)) {
+      return { ok: false, reason: 'incompatible_weapon' };
+    }
+    if (aDef.caliber && aDef.caliber !== wDef.ammoType) return { ok: false, reason: 'incompatible_caliber' };
+    return { ok: true };
+  }
+
+  // 汇总一件武器全部配件的乘算修正；调用方只读，不要缓存成武器 def 的平行字段。
+  getAttachmentStats(weaponItem) {
+    const out = { spreadMul: 1, recoilMul: 1, adsSpreadMul: 1, rangeMul: 1, soundMul: 1, magMul: 1, reloadMul: 1, count: 0, list: [] };
+    if (!weaponItem || !weaponItem.attachments) return out;
+    for (const slot in weaponItem.attachments) {
+      const uid = weaponItem.attachments[slot];
+      if (!uid) continue;
+      const a = this.items.get(uid);
+      if (!a) continue;
+      const def = this.getDef(a);
+      if (!def || !def.stats) continue;
+      out.count++;
+      out.list.push({ slot, item: a, def });
+      for (const k of ['spreadMul', 'recoilMul', 'adsSpreadMul', 'rangeMul', 'soundMul', 'magMul', 'reloadMul']) {
+        if (typeof def.stats[k] === 'number') out[k] *= def.stats[k];
+      }
+    }
+    return out;
+  }
+
   attachTo(weaponUid, slot, attachUid) {
     const weapon = this.items.get(weaponUid);
     const attach = this.items.get(attachUid);
     if (!weapon || !attach) return { ok: false, reason: 'no_item' };
-    if (!weapon.attachments) return { ok: false, reason: 'not_weapon' };
     if (attach.table !== 'attach') return { ok: false, reason: 'type_mismatch' };
+    if (!weapon.attachments) return { ok: false, reason: 'not_weapon' };
     if (!(slot in weapon.attachments)) return { ok: false, reason: 'bad_slot' };
+
+    const compat = this.canAttach(weapon, attach, slot);
+    if (!compat.ok) return compat;
 
     if (this.wouldCreateCycle(attachUid, weaponUid)) {
       return { ok: false, reason: 'cycle' };
@@ -935,7 +1106,9 @@ this.equipped[slot] = uid;
     const host = this.items.get(hostUid);
     const attach = this.items.get(attachUid);
     if (!host || !attach) return { ok: false, reason: 'no_item' };
-    if (attach.table !== 'attach') return { ok: false, reason: 'type_mismatch' };
+    // 子槽既接受通用配件（attach），也接受护甲专用的插板（vestPlate）。
+    const isPlateSlot = (subSlot === 'plate' && attach.table === 'vestPlate');
+    if (attach.table !== 'attach' && !isPlateSlot) return { ok: false, reason: 'type_mismatch' };
 
     if (!host.subSlots) {
       const hostDef = this.getDef(host);
@@ -957,6 +1130,28 @@ this.equipped[slot] = uid;
     host.subSlots[subSlot] = attachUid;
     this.parentOf.set(attachUid, hostUid);
     return { ok: true, swapped: oldUid };
+  }
+
+  // 插板安装：只能装进护甲纤维；返回被替换下来的旧插板，由调用方放回原空间。
+  installPlate(fiberUid, plateUid) {
+    const fiber = this.items.get(fiberUid);
+    const plate = this.items.get(plateUid);
+    if (!fiber || !plate) return { ok: false, reason: 'no_item' };
+    if (fiber.table !== 'vestFiber') return { ok: false, reason: 'need_fiber' };
+    if (plate.table !== 'vestPlate') return { ok: false, reason: 'not_plate' };
+    return this.attachToSubSlot(fiberUid, 'plate', plateUid);
+  }
+
+  detachSubSlot(hostUid, subSlot) {
+    const host = this.items.get(hostUid);
+    if (!host || !host.subSlots) return null;
+    const uid = host.subSlots[subSlot];
+    if (!uid) return null;
+    host.subSlots[subSlot] = null;
+    this.parentOf.set(uid, null);
+    const item = this.items.get(uid);
+    if (item) item.rotated = false;
+    return uid;
   }
 
   /* ====================== 自环检测 ====================== */
