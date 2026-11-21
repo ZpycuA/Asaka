@@ -195,6 +195,7 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
       const innerH = def.innerH || 0;
       item.innerGrid = new GridContainer(innerW, innerH);
     }
+    if (table === 'weapons') this.normalizeLoaded(item);
 
     this.items.set(uid, item);
     this.parentOf.set(uid, null);
@@ -239,6 +240,178 @@ if (extras.loadedQueue && Array.isArray(extras.loadedQueue)) {
     const item = typeof itemOrUid === 'string' ? this.items.get(itemOrUid) : itemOrUid;
     if (!item) return null;
     return this.content.get(item.table, item.defId);
+  }
+
+  /* ====================== 武器弹链（loaded.queue） ======================
+     弹链是唯一真相源：
+       item.loaded.queue = [ammoDefId, ammoDefId, ...] 按“下一发→最后一发”排序
+       item.loaded.qty   = queue.length（只做缓存，不应独立写入）
+       item.loaded.ammoType = 兼容口径/默认弹种，队列为空时用于兜底
+     禁止再添加 item.mag 之类的平行弹匣字段。
+     ==================================================================== */
+  normalizeLoaded(item) {
+    if (!item || item.table !== 'weapons') return null;
+    const def = this.content.get('weapons', item.defId);
+    const cap = def ? (def.mag || 0) : 0;
+    // 清理历史遗留的 item.mag 平行字段，防止旧存档继续制造双语义
+    if (item.mag !== undefined) delete item.mag;
+    if (!item.loaded || typeof item.loaded !== 'object') {
+      item.loaded = { ammoType: def ? def.ammoType : null, qty: 0, queue: [] };
+    }
+    const L = item.loaded;
+    if (!Array.isArray(L.queue)) L.queue = [];
+    // 旧存档只有 qty/ammoType 时，按默认弹种补出队列
+    if (L.queue.length === 0 && (L.qty || 0) > 0) {
+      const id = L.ammoType || (def && def.ammoType);
+      if (id) {
+        const n = Math.min(cap, Math.max(0, L.qty | 0));
+        for (let i = 0; i < n; i++) L.queue.push(id);
+      }
+    }
+    if (cap > 0 && L.queue.length > cap) L.queue.length = cap;
+    L.qty = Math.min(L.queue.length, cap);
+    // 下一发决定当前“显示弹种”；队列空时保留默认弹种
+    if (L.queue.length > 0) L.ammoType = L.queue[0];
+    else if (!L.ammoType && def) L.ammoType = def.ammoType;
+    return { def, cap, loaded: L };
+  }
+
+  isAmmoCompatible(weaponDef, ammoDef) {
+    return !!(weaponDef && ammoDef && ammoDef.caliber && ammoDef.caliber === weaponDef.ammoType);
+  }
+
+  // 按队列顺序返回连续的弹种分组，供详情面板“弹链”显示
+  getLoadedGroups(item) {
+    const norm = this.normalizeLoaded(item);
+    if (!norm) return [];
+    const groups = [];
+    for (const id of norm.loaded.queue) {
+      const last = groups[groups.length - 1];
+      if (last && last.ammoId === id) last.count++;
+      else groups.push({ ammoId: id, count: 1 });
+    }
+    return groups;
+  }
+
+  // 列出所有容器里与武器口径兼容的弹药（用于“选择弹种装填”）
+  listCompatibleAmmo(weaponItem, containerNames) {
+    const norm = this.normalizeLoaded(weaponItem);
+    if (!norm || !norm.def) return [];
+    const names = containerNames || ['chest', 'pocket', 'bag', 'safe', 'stash'];
+    const seen = new Map();
+    for (const cName of names) {
+      const c = this.containers[cName];
+      if (!c || !c.isActive) continue;
+      for (const uid of c.items.keys()) {
+        const it = this.items.get(uid);
+        if (!it || it.table !== 'ammo' || !(it.qty > 0)) continue;
+        const ad = this.content.get('ammo', it.defId);
+        if (!this.isAmmoCompatible(norm.def, ad)) continue;
+        const cur = seen.get(it.defId) || { defId: it.defId, def: ad, qty: 0, uids: [] };
+        cur.qty += it.qty || 0;
+        cur.uids.push(uid);
+        seen.set(it.defId, cur);
+      }
+    }
+    return Array.from(seen.values());
+  }
+
+  // 从某个弹药物品 UID 装填指定数量到弹链尾部
+  loadAmmoFromItem(weaponUid, ammoUid, count) {
+    const weapon = this.items.get(weaponUid);
+    const ammo = this.items.get(ammoUid);
+    const norm = this.normalizeLoaded(weapon);
+    if (!norm || !ammo || ammo.table !== 'ammo') return { ok: false, reason: 'no_item' };
+    const ammoDef = this.content.get('ammo', ammo.defId);
+    if (!this.isAmmoCompatible(norm.def, ammoDef)) return { ok: false, reason: 'caliber' };
+    const space = Math.max(0, norm.cap - norm.loaded.queue.length);
+    const take = Math.min(space, ammo.qty || 0, Math.max(1, count || 0));
+    if (take <= 0) return { ok: false, reason: space <= 0 ? 'full' : 'empty' };
+    for (let i = 0; i < take; i++) norm.loaded.queue.push(ammo.defId);
+    norm.loaded.qty = norm.loaded.queue.length;
+    norm.loaded.ammoType = norm.loaded.queue[0] || norm.loaded.ammoType;
+    weapon.loadedPreference = ammoDef.id || ammo.defId;
+    ammo.qty -= take;
+    if (ammo.qty <= 0) this.destroyItem(ammoUid);
+    return { ok: true, taken: take };
+  }
+
+  // 按弹种从弹链中取出指定数量；从队首开始匹配，保持其余子弹顺序
+  unloadAmmo(weaponUid, ammoId, count) {
+    const weapon = this.items.get(weaponUid);
+    const norm = this.normalizeLoaded(weapon);
+    if (!norm || norm.loaded.queue.length === 0) return { ok: false, reason: 'empty' };
+    const want = Math.max(1, count || norm.loaded.queue.length);
+    const removed = [];
+    const keep = [];
+    for (const id of norm.loaded.queue) {
+      if (removed.length < want && (!ammoId || id === ammoId)) removed.push(id);
+      else keep.push(id);
+    }
+    if (!removed.length) return { ok: false, reason: 'not_found' };
+    // 先把取出的子弹按弹种建造成弹药物品；任何一个放不下就整体回滚
+    const counts = new Map();
+    for (const id of removed) counts.set(id, (counts.get(id) || 0) + 1);
+    const created = [];
+    for (const [id, qty] of counts) {
+      const uid = this.createItem('ammo', id, { qty, lockValue: true });
+      if (!uid) { for (const c of created) this.destroyItem(c); return { ok: false, reason: 'create' }; }
+      const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
+      let placed = false;
+      for (const t of targets) {
+        if (this.addToContainer(t, uid).ok) { placed = true; break; }
+      }
+      if (!placed) {
+        this.destroyItem(uid);
+        for (const c of created) this.destroyItem(c);
+        return { ok: false, reason: 'no_space' };
+      }
+      created.push(uid);
+    }
+    norm.loaded.queue = keep;
+    norm.loaded.qty = keep.length;
+    norm.loaded.ammoType = keep[0] || norm.def.ammoType;
+    return { ok: true, removed: removed.length };
+  }
+
+  countCompatibleAmmo(weaponDef, containerNames) {
+    if (!weaponDef) return 0;
+    const names = containerNames || ['chest', 'pocket', 'bag', 'safe', 'stash'];
+    let total = 0;
+    for (const cName of names) {
+      const c = this.containers[cName];
+      if (!c || !c.isActive) continue;
+      for (const uid of c.items.keys()) {
+        const it = this.items.get(uid);
+        if (!it || it.table !== 'ammo') continue;
+        const ad = this.content.get('ammo', it.defId);
+        if (this.isAmmoCompatible(weaponDef, ad)) total += it.qty || 0;
+      }
+    }
+    return total;
+  }
+
+  consumeCompatibleAmmo(weaponDef, count, containerNames) {
+    if (!weaponDef || count <= 0) return 0;
+    const names = containerNames || ['chest', 'pocket', 'bag', 'safe', 'stash'];
+    let left = count;
+    for (const cName of names) {
+      if (left <= 0) break;
+      const c = this.containers[cName];
+      if (!c || !c.isActive) continue;
+      for (const uid of Array.from(c.items.keys())) {
+        if (left <= 0) break;
+        const it = this.items.get(uid);
+        if (!it || it.table !== 'ammo') continue;
+        const ad = this.content.get('ammo', it.defId);
+        if (!this.isAmmoCompatible(weaponDef, ad)) continue;
+        const take = Math.min(it.qty || 0, left);
+        it.qty -= take;
+        left -= take;
+        if (it.qty <= 0) this.destroyItem(uid);
+      }
+    }
+    return count - left;
   }
 
   getContainer(name) {
@@ -640,6 +813,7 @@ this.equipped[slot] = uid;
   if (!newUid) return { ok: false };
 
   const newItem = targetInv.items.get(newUid);
+  if (newItem) targetInv.normalizeLoaded(newItem);
 
   // ★ 递归转移 innerGrid：先转移子物品，再把容器本身放入目标容器
   if (item.innerGrid && newItem && newItem.innerGrid) {
@@ -872,6 +1046,7 @@ this.equipped[slot] = uid;
         item.loaded.queue = [];
         for (let i = 0; i < item.loaded.qty; i++) item.loaded.queue.push(item.loaded.ammoType);
       }
+      this.normalizeLoaded(item);
     }
     
     this.items.set(item.uid, item);
@@ -931,6 +1106,7 @@ this.equipped[slot] = uid;
         item.loaded.queue = [];
         for (let i = 0; i < item.loaded.qty; i++) item.loaded.queue.push(item.loaded.ammoType);
       }
+      this.normalizeLoaded(item);
     }
     
     this.items.set(item.uid, item);

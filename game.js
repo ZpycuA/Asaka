@@ -73,7 +73,7 @@ const ACTION_MAP = {
   reload: {
     keys: ['r'],
     label: '换弹',
-    mobile: { right: '20px', bottom: '180px', size: 60, color: 'rgba(200,200,200,.3)', border: 'rgba(255,255,255,.6)', mode: 'hold' },
+    mobile: { right: '102px', bottom: '112px', size: 58, color: 'rgba(200,200,200,.3)', border: 'rgba(255,255,255,.6)', mode: 'hold' },
   },
   fireMode: {
     keys: ['v'],
@@ -102,17 +102,17 @@ const ACTION_MAP = {
   jump: {
     keys: [' '],
     label: '跳跃',
-    mobile: { right: '210px', bottom: '40px', size: 60, color: 'rgba(80,255,150,.4)', border: 'rgba(100,255,150,.8)', mode: 'hold' },
+    mobile: { right: '196px', bottom: '38px', size: 60, color: 'rgba(80,255,150,.4)', border: 'rgba(100,255,150,.8)', mode: 'hold' },
   },
     switchWeapon: {
   keys: ['f'],
   label: '切枪',
-  mobile: { right: '160px', bottom: '180px', size: 55, color: 'rgba(160,120,255,.35)', border: 'rgba(180,140,255,.7)', mode: 'click' },
+  mobile: { right: '20px', bottom: '268px', size: 55, color: 'rgba(160,120,255,.35)', border: 'rgba(180,140,255,.7)', mode: 'click' },
 },
   bag: {
     keys: ['b'],
     label: '背包',
-    mobile: { right: '90px', bottom: '280px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
+    mobile: { right: '82px', bottom: '268px', size: 55, color: 'rgba(80,140,255,.35)', border: 'rgba(120,180,255,.7)', mode: 'click' },
   },
   protectL1:    { keys: ['['], label: '防护 L1' },
 protectL2:    { keys: [']'], label: '防护 L2' },
@@ -131,12 +131,12 @@ weaponSlot0: { keys: ['0'], label: '空手' },
       crouch: {
   keys: ['c'],
   label: '蹲',
-  mobile: { right: '120px', bottom: '120px', size: 55, color: 'rgba(150,150,150,.3)', border: 'rgba(255,255,255,.5)', mode: 'hold', rotate: true },
+  mobile: { right: '112px', bottom: '38px', size: 55, color: 'rgba(150,150,150,.3)', border: 'rgba(255,255,255,.5)', mode: 'hold', rotate: true },
 },
 ads: {
   mouse: 'right',
   label: '开镜',
-  mobile: { right: '20px', bottom: '280px', size: 55, color: 'rgba(50,150,255,.3)', border: 'rgba(100,180,255,.6)', mode: 'hold', rotate: true },
+  mobile: { right: '20px', bottom: '188px', size: 55, color: 'rgba(50,150,255,.3)', border: 'rgba(100,180,255,.6)', mode: 'hold', rotate: true },
 },
 lean_left: {
   keys: ['z'],
@@ -284,12 +284,9 @@ const CombatSystem = {
   const absorbed = energy * effRed;
   const afterArmor = energy - absorbed;
 
-  let finalDamage;
-  if (applyBruise === false) {
-    finalDamage = afterArmor;
-  } else {
-    finalDamage = pierced ? afterArmor : afterArmor * 0.25;
-  }
+  // 钝击传导由 _applyArmorLayers 按层处理；这里只返回穿透护具后的能量，
+  // 避免再出现一个隐藏的 ×0.25 双重语义。
+  const finalDamage = afterArmor;
 
   const wear = Math.min(armorItem.dur, absorbed / COMBAT.ARMOR_J_PER_DUR);
   armorItem.dur = Math.max(0, armorItem.dur - wear);
@@ -1153,11 +1150,17 @@ const AISystem = {
       if (enemy._reloadTimer === undefined) enemy._reloadTimer = 2.5;
       enemy._reloadTimer -= dt;
       if (enemy._reloadTimer <= 0) {
-        const need = w.magCap - w.loaded.qty;
+        const cur = w.loaded.queue ? w.loaded.queue.length : w.loaded.qty;
+        const need = w.magCap - cur;
         const take = Math.min(need, w.reserve);
         if (typeof w.consumeReserve === 'function') w.consumeReserve(take);
         else w.reserve -= take;
-        w.loaded.qty += take;
+        if (w.loaded.queue) {
+          for (let i = 0; i < take; i++) w.loaded.queue.push(w.def.ammoType);
+          w.loaded.qty = w.loaded.queue.length;
+        } else {
+          w.loaded.qty += take;
+        }
         enemy._reloadTimer = 2.5;
       }
     } else if (w) {
@@ -2194,6 +2197,8 @@ _updateCouplingFX(p) {
     const panel = document.getElementById('training-attack-panel');
     const btn = document.getElementById('training-settings-btn');
     const isTraining = !!(w && w.training);
+    const hudRoot = document.getElementById('hud');
+    if (hudRoot) hudRoot.classList.toggle('training-mode', isTraining);
     if (btn) btn.style.display = isTraining ? 'block' : 'none';
     // 人偶详情与攻击面板独立：即使关闭攻击数据面板，靠近人偶仍要看详情
     this._updateDummyInfoPanel(w);
@@ -2479,11 +2484,17 @@ _updateCouplingFX(p) {
       });
     }
     const modes = cw ? (cw.fireModes || []) : [];
-    const show = !!(cw && !cw.isFist && !(cw.def && cw.def.melee) && modes.length > 1);
+    // 所有枪械都显示开火模式，即使只有一种模式，也让玩家知道当前默认是什么
+    const show = !!(cw && !cw.isFist && !(cw.def && cw.def.melee));
     btn.style.display = show ? '' : 'none';
     if (show) {
-      const label = this.world._fireModeLabel(cw.fireMode);
+      const mode = cw.fireMode || (modes[0] || (cw.def && cw.def.auto ? 'auto' : 'semi'));
+      const label = this.world._fireModeLabel(mode);
       if (btn.textContent !== label) btn.textContent = label;
+      btn.title = modes.length > 1 ? '点击切换开火模式' : '当前开火模式（不可切换）';
+      btn.style.cursor = modes.length > 1 ? 'pointer' : 'default';
+      btn.style.opacity = modes.length > 1 ? '1' : '.78';
+      btn.style.pointerEvents = modes.length > 1 ? 'auto' : 'none';
     }
   }
 }
@@ -3020,10 +3031,9 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   const def = this.engine.content.get('weapons', item.defId);
   if (!def) return null;
   const ammoDef = this.engine.content.get('ammo', def.ammoType);
-  if (item.mag === undefined) item.mag = def.mag;
-
-  const self = this;
+  // 不再写 item.mag 平行字段；弹匣只由 loaded.queue/qty 表示。
 if (!item.loaded) item.loaded = { ammoType: def.ammoType, qty: 0, queue: [] };
+  inv.normalizeLoaded(item);
 
 return {
   item,
@@ -3038,8 +3048,10 @@ return {
   get loaded() { return this.item.loaded; },
   get mag() { return this.item.loaded.qty; },
   set mag(v) { this.item.loaded.qty = Math.max(0, Math.min(this.magCap, v)); },
-  get reserve() { return self._countAmmoInInventory(inv, def.ammoType); },
-  consumeReserve(count) { self._consumeAmmoInInventory(inv, def.ammoType, count); },
+  // 备用弹药按“兼容口径”统计，5.56 武器也能看到玻纤弹等特殊弹种；
+  // 只统计随身容器，仓库/stash 不参与战局换弹。
+  get reserve() { return inv.countCompatibleAmmo(def, ['chest', 'pocket', 'bag', 'safe']); },
+  consumeReserve(count) { inv.consumeCompatibleAmmo(def, count, ['chest', 'pocket', 'bag', 'safe']); },
 };
   }
 
@@ -3507,8 +3519,18 @@ _refillTrainingLoadout() {
   for (const slot of ['primary', 'secondary', 'melee']) {
     const w = p.weapons[slot];
     if (w && w.item && w.item.loaded) {
-      w.item.loaded.qty = w.magCap;
-      w.item.loaded.queue = new Array(w.magCap).fill(w.def.ammoType);
+      // 补满配装不能覆盖玩家在靶场排好的弹链顺序；只补到满弹匣
+      const inv = this.engine.app && this.engine.app.inventory;
+      if (inv) inv.normalizeLoaded(w.item);
+      const L = w.item.loaded;
+      const pref = w.item.loadedPreference;
+      const prefDef = pref ? this.engine.content.get('ammo', pref) : null;
+      const fillId = (prefDef && this.engine.app.inventory &&
+        this.engine.app.inventory.isAmmoCompatible(w.def, prefDef)) ? pref : w.def.ammoType;
+      while (L.queue.length < w.magCap) L.queue.push(fillId);
+      if (L.queue.length > w.magCap) L.queue.length = w.magCap;
+      L.qty = L.queue.length;
+      L.ammoType = L.queue[0] || fillId;
     }
   }
   if (p.armor) {
@@ -4218,42 +4240,58 @@ if (this.actionProcess.isRunning()) return;
   const p = this.player;
   const w = this.currentWeapon;
   if (!w) return;
-  const need = w.magCap - w.mag;
+  let need = w.magCap - w.mag;
   if (need <= 0) return;
-  if (this.training && this.training.infiniteAmmo && w.item && w.item.loaded) {
-    w.item.loaded.qty = w.magCap;
-    w.item.loaded.queue = new Array(w.magCap).fill(w.def.ammoType);
+  const inv = this.engine.app.inventory;
+  inv.normalizeLoaded(w.item);
+  const loaded = w.item.loaded;
+  const queue = loaded.queue;
+  need = Math.max(0, w.magCap - queue.length);
+  if (need <= 0) return;
+
+  // ★ 靶场无限弹药：保留玩家自己排好的弹链顺序，只补足到满弹匣，
+  //   不再用默认弹种覆盖整条弹链（旧版会把特殊弹全部冲掉）。
+  if (this.training && this.training.infiniteAmmo) {
+    const preferred = w.item.loadedPreference;
+    const prefDef = preferred ? inv.content.get('ammo', preferred) : null;
+    const fillId = (prefDef && inv.isAmmoCompatible(w.def, prefDef)) ? preferred : w.def.ammoType;
+    while (queue.length < w.magCap) queue.push(fillId);
+    if (queue.length > w.magCap) queue.length = w.magCap;
+    loaded.qty = queue.length;
+    loaded.ammoType = queue[0] || fillId;
     return;
   }
 
-  const inv = this.engine.app.inventory;
   const targets = ['chest', 'pocket', 'bag', 'safe'];
   let loadedCount = 0;
+  const needMore = () => loadedCount < need;
 
-  // ★ 彩虹子弹压入逻辑
-  for (const t of targets) {
-    if (loadedCount >= need) break;
-    const c = inv.containers[t];
-    if (!c) continue;
-    
-    for (const uid of Array.from(c.items.keys())) {
-      if (loadedCount >= need) break;
-      const it = inv.items.get(uid);
-      if (!it || it.table !== 'ammo') continue;
-      
-      const def = inv.getDef(it);
-      if (!def || def.caliber !== w.def.ammoType) continue;
-      
-      const take = Math.min(it.qty, need - loadedCount);
-      
-      for(let i=0; i<take; i++) w.item.loaded.queue.push(it.defId);
-      w.item.loaded.qty += take;
-      loadedCount += take;
-      
-      it.qty -= take;
-      if (it.qty <= 0) inv.destroyItem(uid);
+  // ★ 首选弹种优先；找不到时再按容器顺序装兼容弹种
+  const fillFrom = (forceDefId) => {
+    for (const t of targets) {
+      if (!needMore()) return;
+      const c = inv.containers[t];
+      if (!c) continue;
+      for (const uid of Array.from(c.items.keys())) {
+        if (!needMore()) return;
+        const it = inv.items.get(uid);
+        if (!it || it.table !== 'ammo') continue;
+        const ad = inv.getDef(it);
+        if (!ad || !inv.isAmmoCompatible(w.def, ad)) continue;
+        if (forceDefId && it.defId !== forceDefId) continue;
+
+        const take = Math.min(it.qty, need - loadedCount);
+        for (let i = 0; i < take; i++) queue.push(it.defId);
+        loadedCount += take;
+        it.qty -= take;
+        if (it.qty <= 0) inv.destroyItem(uid);
+      }
     }
-  }
+  };
+  fillFrom(w.item.loadedPreference);
+  fillFrom(null);
+  loaded.qty = queue.length;
+  loaded.ammoType = queue[0] || w.def.ammoType;
 }
 
 _meleeAttack(owner, weapon) {
@@ -5103,9 +5141,18 @@ else owner.fireCd = 60 / def.rpm * (0.9 + Math.random() * 0.4);
 if (weapon.loaded) {
   weapon.loaded.qty = Math.max(0, weapon.loaded.qty - 1);
   if (isPlayer && this.training && this.training.infiniteAmmo) {
-    // 靶场无限子弹：弹匣保持满，但保留射击节奏与后坐
-    weapon.loaded.qty = weapon.magCap;
-    if (weapon.loaded.queue) weapon.loaded.queue = new Array(weapon.magCap).fill(def.ammoType);
+    // 靶场无限子弹：只补到满弹匣，保留已排好的弹链顺序
+    if (weapon.loaded.queue) {
+      const pref = weapon.item && weapon.item.loadedPreference;
+      const prefDef = pref ? this.engine.content.get('ammo', pref) : null;
+      const fillId = (prefDef && prefDef.caliber === def.ammoType) ? pref : def.ammoType;
+      while (weapon.loaded.queue.length < weapon.magCap) weapon.loaded.queue.push(fillId);
+      if (weapon.loaded.queue.length > weapon.magCap) weapon.loaded.queue.length = weapon.magCap;
+      weapon.loaded.qty = weapon.loaded.queue.length;
+      weapon.loaded.ammoType = weapon.loaded.queue[0] || fillId;
+    } else {
+      weapon.loaded.qty = weapon.magCap;
+    }
   }
 } else if (typeof weapon.mag === 'number') {
   weapon.mag--;
@@ -10525,7 +10572,7 @@ this._showScreen('menu');
     const fxLines = document.getElementById('fx-skill-lines');
     if (fxLines) fxLines.classList.remove('on');
     const hudEl = document.getElementById('hud');
-    if (hudEl) hudEl.classList.remove('drone-mode');
+    if (hudEl) { hudEl.classList.remove('drone-mode'); hudEl.classList.remove('training-mode'); }
     const droneHud = document.getElementById('drone-hud');
     if (droneHud) droneHud.classList.remove('on');
   }

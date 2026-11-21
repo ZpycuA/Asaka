@@ -241,6 +241,20 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #extract-progress.on{display:block}
 #extract-fill{height:100%;width:0%;background:linear-gradient(90deg,#3fd0ff,#a2f0ff);transition:width .1s}
 
+/* 靶场专用排版：把攻击数据/人偶详情移到右侧竖列，避开左侧保护/技能/移动按钮。
+   小地图在右上 64~214px，所以训练面板从 224px 开始向下排。 */
+#hud.training-mode #training-settings-btn{left:auto!important;right:12px!important;top:224px!important;z-index:48!important}
+#hud.training-mode #training-attack-panel{left:auto!important;right:12px!important;top:256px!important;width:248px!important;z-index:47!important}
+#hud.training-mode #dummy-info-panel{left:auto!important;right:12px!important;top:382px!important;width:248px!important;max-height:28vh!important;z-index:47!important}
+@media(max-height:650px){#hud.training-mode #dummy-info-panel{max-height:18vh!important}}
+#hud.training-mode #nearby-list{display:none}
+@media(max-width:900px){
+  #hud.training-mode #training-settings-btn{right:8px!important;top:176px!important;left:auto!important}
+  #hud.training-mode #training-attack-panel{right:8px!important;top:208px!important;left:auto!important;width:200px!important;font-size:9px}
+  #hud.training-mode #dummy-info-panel{right:8px!important;top:318px!important;left:auto!important;width:200px!important;max-height:26vh!important;font-size:9px}
+}
+@media(max-height:650px){#hud.training-mode #dummy-info-panel{max-height:18vh!important}}
+
 /* Overlay */
 .overlay{position:absolute;inset:0;background:rgba(4,8,14,.9);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:60;padding:24px;text-align:center}
 .overlay.on{display:flex}

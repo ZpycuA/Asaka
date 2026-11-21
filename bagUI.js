@@ -69,8 +69,13 @@ const CSS = `
 .bagui-attach-val{color:#a8d8ff;font-weight:700}
 .bagui-attach-empty{color:#3a546d;font-style:italic}
 
+.bagui-ammo-chain{display:flex;flex-direction:column;gap:3px;width:100%;margin:3px 0}
+.bagui-ammo-chain-row{display:flex;justify-content:space-between;align-items:center;gap:4px;background:rgba(10,18,28,.72);border:1px solid rgba(80,125,175,.25);border-radius:4px;padding:2px 5px;min-height:22px}
+.bagui-ammo-chain-name{font-size:10px;color:#cfe4f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bagui-mini{width:auto;margin:0;padding:1px 6px;font-size:9px;line-height:1.5}
 .bagui-btn{padding:4px 10px;font-size:11px;border-radius:4px;cursor:pointer;font-family:inherit;border:1px solid rgba(110,180,255,.4);background:rgba(60,100,150,.5);color:#cfe8ff;margin-top:8px;width:100%}
 .bagui-btn:hover{background:rgba(80,150,220,.7)}
+.bagui-btn.bagui-mini{width:auto;margin:0;padding:1px 6px;font-size:9px;line-height:1.5}
 .bagui-empty{color:#5c82a8;text-align:center;padding:20px}
 .bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between;flex-shrink:0}
 .bagui-toolbar button{padding:5px 12px;font-size:11px;cursor:pointer;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:5px;font-family:inherit}
@@ -675,34 +680,71 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     }
 
     if (item.table === 'weapons') {
-      if (!item.loaded) {
-        const ammoType = def.ammoType || '9mm';
-        item.loaded = { ammoType, qty: 0, queue: [] };
+      // 以弹链 queue 为唯一真相源；qty 只做缓存，不再用单发 ammoType 冒充全部子弹
+      const norm = inv.normalizeLoaded(item);
+      const magCap = norm ? norm.cap : (def.mag || 0);
+      const queue = norm ? norm.loaded.queue : [];
+      const groups = inv.getLoadedGroups(item);
+      const total = queue.length;
+      const nextAmmo = queue.length ? inv.content.get('ammo', queue[0]) : null;
+      const nextName = nextAmmo ? this.engine.i18n.t(nextAmmo.name) : '空';
+      const world = this.engine.app ? this.engine.app.world : null;
+      const inMatchNow2 = !!(world && world.running);
+      const canDirect = !inMatchNow2 || (world && world.training) || inv !== this.inv;
+      const isReloading = world && world.actionProcess ? world.actionProcess.isRunning('reload') : false;
+      const prefDef = item.loadedPreference ? inv.content.get('ammo', item.loadedPreference) : null;
+
+      html += `<div class="bagui-ammo-row" style="align-items:flex-start;flex-direction:column;gap:3px">` +
+        `<div style="display:flex;justify-content:space-between;width:100%"><span>弹链：<b>${total}</b> / ${magCap}</span><span style="color:#8fb0c8">下一发：${this._esc(nextName)}</span></div>` +
+        (prefDef ? `<div style="font-size:9px;color:#ffd93d">首选弹药：${this._esc(this.engine.i18n.t(prefDef.name))}</div>` : '');
+
+      if (groups.length === 0) {
+        html += `<div style="color:#6f8fae;font-size:10px">弹匣为空</div>`;
+      } else {
+        html += `<div class="bagui-ammo-chain">`;
+        for (const g of groups) {
+          const ad = inv.content.get('ammo', g.ammoId);
+          const an = ad ? this.engine.i18n.t(ad.name) : g.ammoId;
+          html += `<div class="bagui-ammo-chain-row">
+            <span class="bagui-ammo-chain-name">▮ ${this._esc(an)} <b>×${g.count}</b></span>
+            <span style="display:flex;gap:3px">
+              <button class="bagui-btn bagui-mini" data-action="unload-one" data-uid="${uid}" data-ammo="${this._esc(g.ammoId)}">取 1</button>
+              <button class="bagui-btn bagui-mini" data-action="unload-type" data-uid="${uid}" data-ammo="${this._esc(g.ammoId)}">全取</button>
+            </span>
+          </div>`;
+        }
+        html += `</div>`;
+        html += `<div style="display:flex;gap:4px;flex-wrap:wrap"><button class="bagui-btn bagui-mini" data-action="unload-all" data-uid="${uid}">全部扣下</button>`;
+        if (isReloading && inv === this.inv) html += `<span style="color:#ffd93d;font-size:10px;align-self:center">换弹中…</span>`;
+        html += `</div>`;
       }
-      const ammoDef = inv.content.get('ammo', item.loaded.ammoType);
-      const ammoName = ammoDef ? this.engine.i18n.t(ammoDef.name) : item.loaded.ammoType;
-      const magCap = def.mag || 0;
-      
-      let currentQty = item.loaded.qty;
-      if (inv === this.inv) {
-        const world = this.engine.app ? this.engine.app.world : null;
-        if (world && world.running) {
-          const w = world.currentWeapon;
-          if (w && w.item === item) currentQty = w.mag;
+      html += `</div>`;
+
+      // 兼容口径的弹药列表：可以精确选择“装哪一种”，而不是按容器顺序瞎抓
+      if (inv === this.inv || !inMatchNow2) {
+        const avail = inv.listCompatibleAmmo(item);
+        html += `<div class="bagui-attach-title">可用弹药 · 口径 ${this._esc(def.ammoType || '—')}</div>`;
+        if (!avail.length) {
+          html += `<div style="color:#6f8fae;font-size:10px">没有兼容弹药</div>`;
+        } else {
+          for (const a of avail) {
+            const ad = inv.content.get('ammo', a.defId);
+            const an = ad ? this.engine.i18n.t(ad.name) : a.defId;
+            const srcUid = a.uids[0];
+            html += `<div class="bagui-ammo-chain-row">
+              <span class="bagui-ammo-chain-name">${this._esc(an)} <b>×${a.qty}</b></span>
+              <span style="display:flex;gap:3px">`;
+            if (canDirect) {
+              html += `<button class="bagui-btn bagui-mini" data-action="load-one" data-uid="${uid}" data-ammo-uid="${srcUid}">装 1</button>
+                <button class="bagui-btn bagui-mini" data-action="load-all" data-uid="${uid}" data-ammo-uid="${srcUid}">装满</button>`;
+            } else {
+              html += `<button class="bagui-btn bagui-mini" data-action="prefer" data-uid="${uid}" data-ammo="${this._esc(a.defId)}">设为首选</button>`;
+            }
+            html += `</span></div>`;
+          }
+          if (!canDirect) html += `<div style="color:#8fb0c8;font-size:9px">战局内不能直接改弹链；设为首选后按 R 换弹会优先装填该弹种。</div>`;
         }
       }
-      
-      const isFull = currentQty >= magCap;
-      const isReloading = this.engine.app && this.engine.app.world && this.engine.app.world.actionProcess.isRunning('reload');
-      
-      html += `<div class="bagui-ammo-row"><span>内置：${this._esc(ammoName)} × ${currentQty}/${magCap}</span><span style="display:flex;gap:4px">`;
-      if (isReloading && inv === this.inv) {
-        html += `<span style="color:#ffd93d;font-size:11px;align-self:center;">换弹中…</span>`;
-      } else {
-        if (!isFull) html += `<button class="bagui-btn" data-action="load" data-uid="${uid}" style="margin:0;width:auto">装填</button>`;
-        if (currentQty > 0) html += `<button class="bagui-btn" data-action="unload" data-uid="${uid}" style="margin:0;width:auto">扣下</button>`;
-      }
-      html += `</span></div>`;
     }
 
     if (item.attachments) {
@@ -782,10 +824,29 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       });
     }
 
-    el.querySelectorAll('.bagui-btn[data-action="load"]').forEach(btn => {
+    el.querySelectorAll('[data-action="load-one"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._loadAmmoFrom(btn.dataset.uid, btn.dataset.ammoUid, 1); };
+    });
+    el.querySelectorAll('[data-action="load-all"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._loadAmmoFrom(btn.dataset.uid, btn.dataset.ammoUid, Infinity); };
+    });
+    el.querySelectorAll('[data-action="unload-one"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._unloadAmmoFrom(btn.dataset.uid, btn.dataset.ammo, 1); };
+    });
+    el.querySelectorAll('[data-action="unload-type"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._unloadAmmoFrom(btn.dataset.uid, btn.dataset.ammo, Infinity); };
+    });
+    el.querySelectorAll('[data-action="unload-all"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._unloadAmmoFrom(btn.dataset.uid, null, Infinity); };
+    });
+    el.querySelectorAll('[data-action="prefer"]').forEach(btn => {
+      btn.onclick = (e) => { e.stopPropagation(); this._preferAmmo(btn.dataset.uid, btn.dataset.ammo); };
+    });
+    // 兼容旧按钮
+    el.querySelectorAll('[data-action="load"]').forEach(btn => {
       btn.onclick = (e) => { e.stopPropagation(); this._loadAmmo(btn.dataset.uid); };
     });
-    el.querySelectorAll('.bagui-btn[data-action="unload"]').forEach(btn => {
+    el.querySelectorAll('[data-action="unload"]').forEach(btn => {
       btn.onclick = (e) => { e.stopPropagation(); this._unloadAmmo(btn.dataset.uid); };
     });
     const openInner = document.getElementById('bagui-open-inner');
@@ -854,89 +915,89 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
     }
   }
 
+ _loadAmmoFrom(weaponUid, ammoUid, count) {
+  const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
+  const item = inv.items.get(weaponUid);
+  const ammo = inv.items.get(ammoUid);
+  if (!item || item.table !== 'weapons' || !ammo || ammo.table !== 'ammo') return;
+  const norm = inv.normalizeLoaded(item);
+  if (!norm) return;
+  const world = this.engine.app ? this.engine.app.world : null;
+  const inMatch = world && world.running;
+  // 正常战局内不允许跳过换弹动作直接改弹链；靶场/仓库允许整理
+  if (inMatch && !world.training && inv === this.inv) {
+    const active = world.player && world.player.activeWeapon;
+    if (!active || active.item !== item) {
+      alert('战局内只能整理手持武器的弹链。');
+      return;
+    }
+    const ad = inv.getDef(ammo);
+    item.loadedPreference = ad ? ad.id : ammo.defId;
+    world._startReload();
+    this.refresh();
+    return;
+  }
+  const targetDefId = ammo.defId;
+  let srcUid = ammoUid;
+  let remaining = count === Infinity ? Infinity : Math.max(1, count || 1);
+  let moved = 0;
+  while (remaining > 0) {
+    const res = inv.loadAmmoFromItem(weaponUid, srcUid, remaining);
+    if (!res.ok) {
+      if (!moved) {
+        const msg = { full: '弹匣已满', caliber: '口径不匹配', empty: '没有子弹' }[res.reason] || '装填失败';
+        alert(msg);
+        return;
+      }
+      break;
+    }
+    moved += res.taken;
+    remaining -= res.taken;
+    if (remaining <= 0) break;
+    const next = inv.listCompatibleAmmo(item).find(g => g.defId === targetDefId);
+    if (!next || !next.uids.length) break;
+    srcUid = next.uids[0];
+  }
+  this.selectedUid = weaponUid;
+  this.refresh();
+}
+
+ _unloadAmmoFrom(weaponUid, ammoId, count) {
+  const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
+  const item = inv.items.get(weaponUid);
+  if (!item || item.table !== 'weapons') return;
+  const res = inv.unloadAmmo(weaponUid, ammoId || null, count === Infinity ? Infinity : Math.max(1, count || 1));
+  if (!res.ok) {
+    const msg = { empty: '弹匣已空', no_space: '背包/胸挂/口袋都放不下' }[res.reason] || '扣弹失败';
+    alert(msg);
+    return;
+  }
+  this.selectedUid = weaponUid;
+  this.refresh();
+}
+
+ _preferAmmo(weaponUid, ammoDefId) {
+  const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
+  const item = inv.items.get(weaponUid);
+  if (!item || item.table !== 'weapons') return;
+  item.loadedPreference = ammoDefId || null;
+  const world = this.engine.app ? this.engine.app.world : null;
+  const ad = ammoDefId ? inv.content.get('ammo', ammoDefId) : null;
+  if (world) world._log('首选弹药：' + (ad ? this.engine.i18n.t(ad.name) : '自动'), 'y');
+  this.refresh();
+}
+
  _loadAmmo(weaponUid) {
   const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
   const item = inv.items.get(weaponUid);
-  if (!item || item.table !== 'weapons' || !item.loaded) return;
-  const def = inv.getDef(item);
-  if (!def) return;
-  const space = (def.mag || 0) - item.loaded.qty;
-  if (space <= 0) return;
-
-  const world = this.engine.app ? this.engine.app.world : null;
-  const isInMatch = world && world.running;
-
-  if (isInMatch && inv === this.inv) {
-    const activeWeapon = world.player.activeWeapon;
-    if (!activeWeapon || activeWeapon.item !== item) {
-      alert('战局内只能给手持武器换弹。');
-      return;
-    }
-    if (world.actionProcess.isRunning('reload')) return;
-    // ★ 启动换弹动作，但不关闭背包
-    world._startReload();
-    this.refresh();
-  } else {
-    const searchOrder = ['chest', 'pocket', 'bag', 'safe'];
-    let remaining = space;
-    for (const cName of searchOrder) {
-      if (remaining <= 0) break;
-      const c = inv.containers[cName];
-      if (!c) continue;
-      for (const uid of Array.from(c.items.keys())) {
-        if (remaining <= 0) break;
-        const it = inv.items.get(uid);
-        if (!it || it.table !== 'ammo') continue;
-        const ammoDef = inv.getDef(it);
-        if (!ammoDef || ammoDef.caliber !== def.ammoType) continue;
-
-        const take = Math.min(it.qty, remaining);
-        for (let i = 0; i < take; i++) item.loaded.queue.push(it.defId);
-        item.loaded.qty += take;
-        remaining -= take;
-
-        it.qty -= take;
-        if (it.qty <= 0) inv.destroyItem(uid);
-      }
-    }
-    if (remaining < space) this.refresh();
-  }
+  if (!item || item.table !== 'weapons') return;
+  const ammo = inv.listCompatibleAmmo(item)[0];
+  if (!ammo || !ammo.uids.length) { alert('没有兼容弹药'); return; }
+  this._loadAmmoFrom(weaponUid, ammo.uids[0], Infinity);
 }
 
   _unloadAmmo(weaponUid) {
-    const inv = this.viewInv.items.has(weaponUid) ? this.viewInv : this.inv;
-    const item = inv.items.get(weaponUid);
-    if (!item || item.table !== 'weapons' || !item.loaded || item.loaded.qty <= 0) return;
-    
-    const counts = {};
-    if (item.loaded.queue && item.loaded.queue.length > 0) {
-      for (const id of item.loaded.queue) counts[id] = (counts[id] || 0) + 1;
-    } else {
-      counts[item.loaded.ammoType] = item.loaded.qty;
-    }
-    
-    let success = false;
-    for (const [ammoId, qty] of Object.entries(counts)) {
-      const uid = inv.createItem('ammo', ammoId, { qty, lockValue: true, valueMul: item.valueMul });
-      if (!uid) continue;
-      
-      const targets = ['bag', 'chest', 'pocket', 'safe', 'stash'];
-      let placed = false;
-      for (const t of targets) {
-        if (inv.addToContainer(t, uid).ok) { placed = true; break; }
-      }
-      if (!placed) {
-        inv.destroyItem(uid);
-        continue;
-      }
-      success = true;
-    }
-    
-    if (success) {
-      item.loaded.qty = 0;
-      item.loaded.queue = [];
-      this.refresh();
-    }
+    this._unloadAmmoFrom(weaponUid, null, Infinity);
   }
 
   _splitStack(uid, count) {
