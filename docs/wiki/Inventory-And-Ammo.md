@@ -232,6 +232,8 @@ inv.unloadAmmo(weaponUid, ammoId, count)
 `_fireWeapon()`：
 
 - 从 `queue.shift()` 取当前发弹种。
+- 弹丸数：`Math.max(1, ammo.pellets || def.pellets || 1)`。独头弹 `12ga_slug` 的 `pellets: 1` 会覆盖霰弹枪的 9 颗。
+- 拆掉扩容弹匣导致容量变小时，`_syncWeaponsFromInventory` 会先留档旧 `queue`，重建后把超出新容量的子弹按弹种退回背包/胸挂/口袋/安全箱/仓库（`_preserveOverflowRounds`），不再被 `normalizeLoaded` 静默截断。
 - `qty--`。
 - 靶场无限弹药：补到满弹匣，保留已有顺序，从 `loadedPreference` 或默认弹种补尾部。
 - 不再用默认弹种覆盖整条弹链。
@@ -252,6 +254,17 @@ inv.unloadAmmo(weaponUid, ammoId, count)
 - `valuables`：贵重品/情报，`stackLimit` 1，重量按单件计算。
 - `medical`：医疗物资，部分可堆叠 2~4。
 - 两者都通过 `Inventory.createItem` 进入现有网格/重量/价值系统。
+
+### 5.9 负重硬上限（2026-11-21 补漏）
+
+- `Inventory.isCarried(uid)` 是“是否已经在身上”的唯一判定：装备槽、`c:chest/pocket/bag/safe`、以及这些容器里背包的 `inner:` 子物品算携带；`c:stash`、`c:loot` 不算。
+- `_isCarryTarget(name)` 决定目标容器是否计入承重：`inner:` 必须宿主已被携带。
+- 所有入口统一调用 `wouldExceedCarryWeight()`：
+  - `addToContainer`（含 `inner:`）；
+  - `equip`；
+  - `transferItem(..., 'eq:...')`；
+  - `installPlate`（替换插板时只算净增重）。
+- 旧实现把所有 `c:` 都当“已携带”，所以从世界容器/仓库/背包内部网格取物可以无限超载；这是硬上限“看起来没实现”的根因。
 
 ---
 

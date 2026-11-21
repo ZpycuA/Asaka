@@ -84,6 +84,7 @@
   - `transferItem`（跨 Inventory）
   - `equip / unequip`
   - `getDef / getItemValue / getCarryWeight`
+  - `isCarried / _isCarryTarget / wouldExceedCarryWeight`（负重硬上限唯一判定）
   - `splitStack`
   - `normalizeLoaded / getLoadedGroups / listCompatibleAmmo / loadAmmoFromItem / unloadAmmo / countCompatibleAmmo / consumeCompatibleAmmo`
   - `serialize / deserialize`
@@ -107,6 +108,18 @@
 - 反序列化 V1/V2 都会调用 `normalizeLoaded` 修复旧武器。
 - 新增 item 字段默认会被 `JSON.stringify` 保留；但 `innerGrid` 必须用 `toJSON/fromJSON`。
 
+### 3.4 负重硬上限（唯一判定）
+
+- `maxCarryWeight` 由 `GameWorld._updatePlayer()` 每 0.25s 写成 `carryLimit × 1.35`；离开战局归 0。
+- 只有 `isCarried(uid)` 为真的物品才被视为“已在身上”：装备槽、`c:chest/pocket/bag/safe`、以及这些容器里背包的 `inner:` 子物品。
+- `c:stash`、`c:loot`（世界容器/地面临时网格）都不算携带；从这些地方搬进随身容器必须计重。
+- 所有入口都要过 `wouldExceedCarryWeight()`：
+  - `addToContainer`（含 `inner:`，但宿主必须被携带）；
+  - `equip`（直接拖到装备槽）；
+  - `transferItem(..., 'eq:...')`（跨 Inventory 直接装备）；
+  - `installPlate`（按“新板 − 旧板”的净增重计算）。
+- 已携带物品挪位置、拆分堆叠（`splitStack` 传 `ignoreWeight`）不重复计重。
+
 ---
 
 ## 4. 应用层（game.js）
@@ -116,7 +129,7 @@
 - `ActionProcess`：同一时间一个动作；`start/cancel/update/getProgress`。
 - `CombatSystem`：纯函数 `kinetic / energyAtRange / applyArmor / applyCoupling / energyToHP`。
 - `EntityStatus`：部位 HP、伤口、血液、效果、`takeDamage/tick/isDead/isDowned/updateOverallHealth`。
-- `AISystem`：感知、警戒、状态机（patrol/investigate/combat/melee/retreat/drone/flee/loot/remove）、训练人偶移动。
+- `AISystem`：感知、警戒、状态机（patrol/investigate/combat/melee/retreat/drone/flee/loot/remove/nade/aid）、训练人偶移动、友方 AI（`_updateAlly` / `_allySupport` / `_allyCombatTalk` / `_findDownedMate` / `_aidDowned`）。
 - `HUDSystem`：HUD 更新、伤害指示、状态栏/战术状态、护甲、训练 HUD、人偶详情。
 - `GameWorld`：一局世界的全部运行时。
 - `GameApp`：菜单、配装、市场、开始/结束、训练设置、创造模式、死亡回放入口。
@@ -163,6 +176,15 @@
 | `_startThrow/_doThrowNow/_selectThrowable` | 投掷物 |
 | `_pullThrowablePin/_updateThrowFuse/_detonateHeldThrowable` | 保险式拔销、手中引信、自爆 |
 | `_throwSpeed` / `_updateThrowPreview` | 蓄力速度与抛物线预览 |
+| `_aiGrenadeList/_takeEnemyThrowable/_aiThrowGrenade` | AI 投掷物库存与抛物线投掷 |
+| `_spawnAllies/_allyArmorFromPlayer` | 匹配友方 AI（装备按玩家当前价值生成） |
+| `_findDownedMate/_aidDowned/_reviveByAI` | 同阵营互救（敌我通用） |
+| `_updateAllyCarePanel/_useMedicalOnAlly/_applyMedicalToAlly` | 靠近队友查看伤情并用自己的药品救治 |
+| `_issueSquadOrder/_getSuggestionPoint/_spawnSquadOrderMarker` | 准星建议点（前进/撤退） |
+| `_squadSay/_renderSquadChat` | 队内纯文字战术对话（可滚动） |
+| `_markEntity/_findMarkedTarget` | 同阵营共享标记（带 `markedFaction`） |
+| `_entityVoice/_updateEntityVoice` | 敌我受伤/疼痛/着火叫唤 |
+| `_hint(text, cls)` | 玩家即时提示（HUD 横幅 + 背包 toast） |
 | `_avoidObstacles` | AI 障碍规避（AISystem） |
 
 ### 4.4 战斗/伤害
@@ -205,7 +227,7 @@
 | `_exitDroneControl(reason)` | 统一退出：清 HUD/相机/按钮；本体受击、倒地、失联都走它 |
 | `_updateDroneControl(dt,e,p)` | WASD 平移、升降、碰撞、持续标记 |
 | `_droneMark/_droneScanAttack/_droneThrowPayload` | 标记/光学攻击/投掷 |
-| `_spawnDrone/_removeDrone/_destroyDrone` | 生命周期 |
+| `_spawnDrone/_removeDrone/_destroyDrone` | 生命周期；坠毁时剩余 payload 抛散为真实弹体并殉爆（不再掉盒子） |
 
 ### 4.7 死亡回放
 
@@ -298,7 +320,24 @@ BagUI drag
   → 目标装备槽: eq:<slot>
 ```
 
-### 5.6 死亡
+### 5.6 AI 投掷
+
+```
+AISystem.update -> _considerGrenade
+  → 检查 ai.grenade / lootInv 投掷物 / 7~34m / _nadeCd / 队友爆区 / 自身安全距离
+  → state='nade'，记录 _nadeDefId/_nadeWindup
+_update -> _throwEnemyGrenade
+  → 前摇 0.7~1.2s + 拉环声
+  → GameWorld._aiThrowGrenade
+      → _takeEnemyThrowable（销毁 lootInv 中的一枚实物）
+      → 计算抛物线速度，推入 projectiles
+      → 与玩家投掷共用 _updateProjectiles/_explodeProjectile
+```
+
+- AI 投掷物库存的唯一真相源是 `enemy.lootInv` 中的 `nade` 物品，不是独立计数器。
+- 闪光/震撼在 `_explodeProjectile` 中把 AI 投掷者作为 `exclude`；破片/燃烧不豁免，所以用安全距离避免自伤。
+
+### 5.7 死亡
 
 ```
 _damagePlayer → status.takeDamage → isDead
@@ -312,6 +351,32 @@ _damagePlayer → status.takeDamage → isDead
       → 掉落装备/容器
       → 战斗记录 / 死亡回放入口
 ```
+
+### 5.8 友方 AI 小队
+
+```
+菜单 chk-match-allies → GameApp.menuState.matchAllies → flags.matchAllies
+startMatch → GameWorld(config.matchAllies)
+start → _spawnAllies（仅非训练场）
+  → 2 名 isAlly，faction='player'
+  → 武器/护甲按玩家当前 equipped 生成
+AISystem.update
+  → if (enemy.isAlly) _updateAlly
+      → _findTarget / _findMarkedTarget
+      → _combat / _meleeCombat / _considerGrenade
+      → 无目标时跟随玩家
+      → _allySupport：共享标记、医疗兵包扎、低血量/计划对话
+      → _squadSay → #squad-chat
+```
+
+- 友方 AI 仍在 `world.enemies` 里：复用伤害、护甲、感知、尸体掉落；`faction='player'` 让 `isHostile` 自动区分敌我。
+- 共享标记唯一入口：`world._markEntity(target, duration, by, faction)`；同阵营 AI 用 `AISystem._findMarkedTarget` 获取最后已知位置。敌方无人机/侦察技能沿用同一套即可。
+- 对话只做文字 DOM，不用面板框；`destroy()` 清空 `#squad-chat`。
+- 训练场不刷队友，避免和人偶逻辑混用。
+- 互救：`_findDownedMate` 找 16m 内同阵营倒地者；`_aidDowned` 到 2.3m 后 3.2s 调 `_reviveByAI`。敌方 AI 走同一套，靠 `_spawnEnemy` 发放的基础药品。
+- 玩家救治：`_updateAllyCarePanel` 每帧找 4.5m 内最近友军，显示 `#ally-care`；`U` 释放 Pointer Lock 后点击药品；`_useMedicalOnAlly` 走 ActionProcess，完成时才消耗物品。
+- 建议：`P/O` -> `_issueSquadOrder` -> `_getSuggestionPoint` 射线落点 + 8s `_squadOrder`；队友在 `_updateAlly` 中按血量自行决定是否执行。
+- 撤退：友军血量 <55% 进入 `_allyRetreating`，>68% 解除；撤退中 `_allySupport` 自我急救。
 
 ---
 
@@ -328,7 +393,7 @@ _damagePlayer → status.takeDamage → isDead
 
 ### 6.2 新增弹药
 
-1. `content.ammo` 注册 `caliber/massG/v0/pen/impulse/effects`。
+1. `content.ammo` 注册 `caliber/massG/v0/pen/impulse/effects`；独头弹等特殊弹种用 `pellets` 覆盖武器弹丸数。
 2. 如有效果：`content.effects` 注册，`_applyAmmoEffects` 处理。
 3. `stackLimit`、`weight`、`value`。
 4. 检查所有同口径武器的 `reserve`/装填列表是否自动包含。
@@ -378,6 +443,7 @@ _damagePlayer → status.takeDamage → isDead
 | 弹种兼容 | `isAmmoCompatible` | 各处散落 `def.caliber === ...` |
 | 回放状态 | `snapshot.status.effects` | 另录一套“假状态” |
 | 训练场配置 | `world.training` | 写进正式模式/存档 |
+| 是否已携带 | `Inventory.isCarried()` | 用 `c:` 前缀猜携带（`c:loot`/`c:stash` 会误判） |
 
 ---
 
