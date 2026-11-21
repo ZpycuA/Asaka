@@ -15,12 +15,13 @@
   dur, durMax,
   weight, w, h, rotated,
   rarity, valueMul, stackLimit,
+  electronics, empShielded, damaged, category,
   attachments, subSlots, innerGrid,
   loaded: { ammoType, qty, queue } // 仅 weapons
 }
 ```
 
-- `table` 对应 `content.js` 的注册表：`weapons` / `ammo` / `melee` / `nade` / `helmetShell` / `helmetVisor` / `helmetEar` / `vestFiber` / `vestPlate` / `backpack` / `chestRig`。
+- `table` 对应 `content.js` 的注册表：`weapons` / `ammo` / `melee` / `nade` / `helmetShell` / `helmetVisor` / `helmetEar` / `vestFiber` / `vestPlate` / `backpack` / `chestRig` / `valuables` / `medical`。
 - `w/h` 是二维网格尺寸。
 - `innerGrid` 只用于背包/胸挂，类型 `GridContainer`。
 
@@ -210,6 +211,23 @@ inv.unloadAmmo(weaponUid, ammoId, count)
 
 ---
 
+### 5.7 电磁损坏
+
+`Inventory.applyEmpDamage(strength, includeStash=false)`：
+
+- 只处理 `item.electronics === true` 且 `item.empShielded !== true` 的物品。
+- 损坏：`item.damaged = true`、`item.valueMul *= 0.12`、武器 `loaded.disabled = true`。
+- UI 名称显示 `[损坏]`，详情显示“电磁损坏”；电子枪械 `_fireWeapon` 直接拒绝开火。
+- 默认跳过 `c:stash`；装备槽/背包/胸挂/安全箱都会受影响。
+
+### 5.8 新物品表
+
+- `valuables`：贵重品/情报，`stackLimit` 1，重量按单件计算。
+- `medical`：医疗物资，部分可堆叠 2~4。
+- 两者都通过 `Inventory.createItem` 进入现有网格/重量/价值系统。
+
+---
+
 ## 6. 搜刮 UI 的渲染源
 
 - 左侧永远 `this.inv`（玩家）。
@@ -225,7 +243,7 @@ inv.unloadAmmo(weaponUid, ammoId, count)
 
 - 靶场设置勾选“创造模式”。
 - `_openCreativeModal()` 打开物品库。
-- 分类：武器、弹药、近战、投掷物、头盔壳、面罩、耳罩、纤维内衬、防弹插板、背包、胸挂。
+- 分类：武器、弹药、近战、投掷物、头盔壳、面罩、耳罩、纤维内衬、防弹插板、背包、胸挂、贵重品/情报、医疗物资。
 - `_giveCreativeItem(table, defId)`：
   - 武器自动装满弹匣。
   - 弹药 120 发；投掷物 3 枚。

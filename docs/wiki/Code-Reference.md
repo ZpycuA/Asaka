@@ -117,7 +117,7 @@
 - `CombatSystem`：纯函数 `kinetic / energyAtRange / applyArmor / applyCoupling / energyToHP`。
 - `EntityStatus`：部位 HP、伤口、血液、效果、`takeDamage/tick/isDead/isDowned/updateOverallHealth`。
 - `AISystem`：感知、警戒、状态机（patrol/investigate/combat/melee/retreat/drone/flee/loot/remove）、训练人偶移动。
-- `HUDSystem`：HUD 更新、伤害指示、状态栏、护甲、训练 HUD、人偶详情。
+- `HUDSystem`：HUD 更新、伤害指示、状态栏/战术状态、护甲、训练 HUD、人偶详情。
 - `GameWorld`：一局世界的全部运行时。
 - `GameApp`：菜单、配装、市场、开始/结束、训练设置、创造模式、死亡回放入口。
 
@@ -160,6 +160,9 @@
 | `_startReload()` / `_finishReload()` | 换弹动作与弹链填充 |
 | `_cycleFireMode()` / `_fireModeLabel(mode)` | 开火模式 |
 | `_startThrow/_doThrowNow/_selectThrowable` | 投掷物 |
+| `_pullThrowablePin/_updateThrowFuse/_detonateHeldThrowable` | 保险式拔销、手中引信、自爆 |
+| `_throwSpeed` / `_updateThrowPreview` | 蓄力速度与抛物线预览 |
+| `_avoidObstacles` | AI 障碍规避（AISystem） |
 
 ### 4.4 战斗/伤害
 
@@ -167,10 +170,15 @@
 |---|---|
 | `_raycastBullet(...)` | 射线、射程衰减、穿透衰减、部位判定、调用伤害 |
 | `_applyArmorLayers(entity, energy, pen, hitPart, damageType)` | 护具分层 + 钝击 |
-| `_damageEnemy(enemy, energy, pen, hitPart, byPlayer, damageType)` | 敌人伤害结算、战绩、击倒/击杀 |
+| `_damageEnemy(enemy, energy, pen, hitPart, byPlayer, damageType)` | 敌人伤害结算、累计伤害、击倒/击杀 |
 | `_damagePlayer(player, energy, pen, part, srcX, srcZ, sourceEnt, damageType)` | 玩家伤害、受击反馈、技能打断、死亡/击倒 |
+| `_syncEntityLifecycle(ent, isPlayer)` | 每帧按 status 同步死亡/击倒；持续伤害致死入口 |
+| `_setEntityDowned(ent, down, isPlayer)` | 击倒姿态/相机/提示与恢复 |
 | `_applyAmmoEffects(status, part, ammoDef)` | 燃烧/玻纤 |
-| `_applyFlash/_applyStun/_blindOverlay` | 闪光/震撼/失明 |
+| `_applyFlash/_spawnLightField/_dazzleScreen` | 距离/视线衰减的闪光、真实光场、强光刺眼 |
+| `_applyEmpField/_spawnEmpRings` | 电磁场、电子物品损坏、EMP 警告 |
+| `_spawnFireField/_updateFireFields` | 燃烧瓶火焰区域 |
+| `_updateStatusVfx` | 敌人身上的玻纤碎片/火焰挂件 |
 | `_meleeAttack(owner, weapon)` | 近战射线与伤害 |
 | `_explodeProjectile/_spawnExplosionFX` | 投掷物爆炸 |
 | `_killEnemy/_playerDown` | 死亡、尸体、死亡记录 |

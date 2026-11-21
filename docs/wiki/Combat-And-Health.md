@@ -55,7 +55,7 @@ const COMBAT = {
   COUPLING_REGEN_DELAY: 1.0,
   COUPLING_LONG_THRESHOLD: 10.0,
   PROTECT_DRAIN: { L1: 0.6, L2: 1.5, L3: 2.5 },
-  PROTECT_ABSORB: { L1_MELEE: 1.0, L2_BALLISTIC: 0.8, L3_BALLISTIC: 0.7 },
+  PROTECT_ABSORB: { L1_MELEE: 1.0, L2_BALLISTIC: 0.86, L3_BALLISTIC: 0.80 },
   EXTRACT_TIME: 8,
   SEARCH_TIME: 2.5,
   SEARCH_RADIUS: 3.5,
@@ -195,6 +195,7 @@ armor.dur -= wear
 - 被击穿时，剩余能量直接进入人体（不再乘钝击）。
 - 近战不额外乘钝击系数；护具按等级吸收，余能直接进人体。
 - 爆炸 `damageType='blast'` **完全绕过护具**，直接按冲击波能量算（硬插板挡不住超压）。
+- 耦合防护额外对 `explosion` 吸收 42%/58%（L2/L3），对 `blast` 吸收 22%/32%；这是“能量场偏转”，不是护甲。
 
 ### 5.3 层组合
 
@@ -239,12 +240,13 @@ blood -= instantBleed
 ### 6.4 持续流血
 
 ```js
-bleedRate = totalWoundLevel * 10 ml/s
+bleedRate = totalWoundLevel * 24 ml/s
 ```
 
-- 额外：`fiber_acute` +18ml/s；`fiber_chronic` +3ml/s。
-- 燃烧每秒额外失血 `burn.strength * 6 ml`。
+- 额外：`fiber_acute` +26ml/s；`fiber_chronic` +4ml/s。
+- 燃烧每秒额外失血 `burn.strength * 7 ml`（灼烧伤害为 `strength * 42 J/s`）。
 - 血液最大：人类 5000ml，Prazer 6000ml。
+- 玩家被动「闪回」出血 ×1.18，Hate 反噬 ×1.12。
 
 ### 6.5 低血容量
 
@@ -258,19 +260,25 @@ if (blood < maxBlood * 0.35) addEffect('hypovolemia')
 ### 6.6 健康度
 
 ```js
-tissueQuality = headRatio*0.4 + thoraxRatio*0.4 + abdomenRatio*0.2
-bloodRatio = blood / maxBlood
+partWeights = { head:0.28, thorax:0.30, abdomen:0.16, larm:0.06, legs:0.20 }
+tissueQuality = Σ clamp(part.hp/part.maxHp, 0, 1) * partWeights
+bloodRatio = clamp(blood / maxBlood, 0, 1)
 healthQuality = clamp(min(1, tissueQuality, bloodRatio) * 100, 0, 100)
+if (blood <= 0 || head.hp <= 0) healthQuality = 0
 ```
 
+- 所有与生命直接相关的部位都计入，不再只算头/胸/腹。
 - 不能出现“组织完好但失血 40% 还显示健康”。
+- 死亡时强制归零，HUD 状态条在死亡帧恰好为 0。
 - `healthQuality` 用于 HUD、AI 判断、战斗记录。
 
 ### 6.7 死亡 / 击倒
 
 - `isDead()`：`blood ≤ 0` 或 `head.hp ≤ 0`。
 - `isDowned()`：未死，且 `thorax.hp ≤ 0` 或 `blood < maxBlood * 0.2`。
-- 击倒后 30s 未救援 → 失血死亡。
+- **死亡/击倒每帧由 `GameWorld._syncEntityLifecycle()` 同步**，不只在受击瞬间检查；流血、燃烧、玻纤、EMP 等持续伤害同样能触发。
+- 击倒后玩家锁定为 0.9m 碰撞高度、禁止跳跃/疾跑/开背包；30s 未救援 → 失血死亡。
+- 训练人偶只有在“应用靶场设置/重开靶场”时才复位，不会自动复活。
 
 ---
 
@@ -291,7 +299,9 @@ healthQuality = clamp(min(1, tissueQuality, bloodRatio) * 100, 0, 100)
 | `fiber_acute` | 玻纤滞留·急性 | 🧪 | 负 | 剧痛 + 大出血 |
 | `fiber_chronic` | 玻纤滞留·慢性 | 🧬 | 负 | 轻度持续失血 |
 | `blind` | 闪光失明 | 😵 | 负 | 视野/散布/移速 |
+| `dazzle` | 强光刺眼 | 😵‍💫 | 负 | 禁止开镜/散布/移速 |
 | `stun` | 震撼 | 💫 | 负 | 操控/移速 |
+| `emp_disrupted` | 电磁干扰 | 📡 | 负 | 操控/移速/电子设备损坏 |
 | `srdispte` | Srdispte | 🌪 | 正 | 速度/开镜 |
 | `hate` | Hate | 🔥 | 正 | 速度/射速/换弹 |
 | `inspire` | 激励 | 🎖 | 正 | 负抗/操控 |
@@ -315,16 +325,33 @@ healthQuality = clamp(min(1, tissueQuality, bloodRatio) * 100, 0, 100)
 ### 7.2 燃烧
 
 ```js
-每帧：dmg = burn.strength * 40 * dt J，随机部位
-失血：burn.strength * 6 * dt ml
+每帧：dmg = burn.strength * 42 * dt J，随机部位
+失血：burn.strength * 7 * dt ml
 升级：每秒 40% 概率升 1 档，最高 3 档
 ```
 
 ### 7.3 玻纤弹
 
 - 命中立即 `fiber_acute`（999s，强度2）+ `fiber_chronic`（9999s，强度1）+ `pain`。
-- 对 `armor.fiber` 额外 -18 耐久。
-- 急性：流血 +18ml/s，持续疼痛；慢性：+3ml/s。
+- 对 `armor.fiber` 额外 -18 耐久（可由 `ammo.fiberArmorDamage` 覆盖）。
+- 急性：流血 +26ml/s，持续疼痛；慢性：+4ml/s。
+- 玩家可按 K / 点击「拔除玻纤」耗时 4s 移除急性；AI 在安全时会进入 `remove` 状态自行拔除。
+- 玩家与敌人身上都有玻纤碎片特效。
+
+### 7.4 闪光与强光
+
+- `_applyFlash()` 先用射线检查墙体遮挡，再按 `(1 - d/radius)² × 遮挡 × 强度` 计算照度。
+- 照度 ≥0.55：`blind`，失明时长按照度缩放；
+- 0.10~0.55：`dazzle`，强光刺眼，强制退出开镜并显示抬手遮眼遮罩；
+- `<0.10`：不生效。
+- `_spawnLightField()` 同时生成真实点光源和扩散球，不是只给半径内贴状态。
+
+### 7.5 EMP
+
+- `_applyEmpField()` 按距离衰减计算电磁场强度。
+- 范围内所有 `electronics && !empShielded` 的物品：`damaged = true`、`valueMul ×0.12`、电子枪械 `disabled`，UI 显示 `[损坏]`。
+- 无人机也会损失耐久；全体收到级别 0 警告“所有非抗磁电子物品已损坏”。
+- `emp_silence`（电磁静默）只保留效果定义，尚未接入武器。
 
 ---
 
@@ -360,8 +387,8 @@ energy = centerDamage * falloff²
 ```
 
 - 中心 2600J，7.5m。
-- 能量 ≥40J 才结算中心伤害；每个受影响目标额外 3 片 60–130J 破片。
-- 破片走 `explosion` 伤害类型，会被护具吸收/钝击。
+- 能量 ≥40J 才结算中心伤害；破片数据为 120 枚预制，模拟按 `fragmentCount`（默认 8~12）抽样，每片 28~98J，走 `explosion` 类型。
+- 爆炸/破片/燃烧日志使用 `source`（破片/爆炸冲击波/燃烧），不再继承当前武器名。
 
 ---
 
