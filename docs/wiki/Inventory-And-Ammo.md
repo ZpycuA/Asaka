@@ -40,7 +40,13 @@
   - `stash`：仓库
 - `equipped`：`main/side/melee/helmetShell/helmetVisor/helmetEar/vestFiber/vestPlate/backpack/chestRig`
 
+> **插板（2026-11 起）**：`vestPlate` 槽仅为旧存档兼容保留，UI 已隐藏。
+> 插板的唯一归属是纤维护甲的 `subSlots.plate`，`_buildArmorFromInventory` 优先读这里，
+> 旧存档的 `equipped.vestPlate` 会在 `_syncArmorFromInventory` 自动迁移。
+> 不能在没有纤维的情况下单独装备插板（`Inventory.equip('vestPlate')` 返回 `need_fiber`）。
+
 > 禁止出现第二套归属逻辑。判断物品在哪里，只看 `parentOf`。
+> 嵌套子槽物品（插板）的 `parentOf` 指向宿主护甲的 UID，而不是任何容器。
 
 ---
 
@@ -68,7 +74,8 @@ sourceInv.transferItem(targetInv, uid, targetContainerPath)
 ```
 
 - 跨 Inventory（玩家↔尸体↔仓库）**必须**用它。
-- 会创建新 UID、复制 `loaded.queue`、递归转移 `innerGrid`。
+- 会创建新 UID、复制 `loaded.queue`、递归转移 `innerGrid` 与 `subSlots`（护甲内插板）、重建配件 UID。
+- **必须保留的状态**：`damaged` / `empSurge` / `loaded.disabled` / `dur` / `valueMul`。旧版漏迁 `damaged`，导致尸体上损坏的电子物品拿到手里会“一秒修好”。
 - `targetContainer` 可以是 `'eq:main'` 等装备槽。
 - **禁止**直接把 item 塞进另一个 `Inventory.items`，否则会产生幽灵物品/重复 UID。
 
@@ -77,6 +84,12 @@ sourceInv.transferItem(targetInv, uid, targetContainerPath)
 - `equip(slot, uid)` 有类型校验（`EQUIP_TABLE`）。
 - `unequip(slot)` 会把背包/胸挂内部物品正确回挂。
 - 玩家运行时 `player.weapons` 必须通过 `_syncWeaponsFromInventory()` 同步，不能直接读写 Inventory。
+
+### 2.5 护甲同步（2026-11-21 修正）
+
+- `player.armor` 必须由 `_syncArmorFromInventory()` 从装备槽重建，不能只在出生时构建一次。
+- 换甲/脱甲/把甲放进背包后，承伤模型必须立即指向新的 `equipped` 物品；背包里的甲不参与承伤。
+- `BagUI.close()`、负重刷新周期都会触发同步；拟载（BYinC）期间跳过，结束后由 `_endMimic` 恢复。
 
 ---
 
@@ -135,7 +148,7 @@ inv.isAmmoCompatible(weaponDef, ammoDef)
 ```
 
 - 备用弹药统计、装填列表、换弹都走这个函数。
-- 5.56 武器可以使用 `glassfiber`；12ga 可以使用 `dragon`。
+- 5.56 武器可以使用 `glassfiber`；12ga 可以使用 `dragon`。GF 玻纤弹现在覆盖 9mm / 5.56 / 7.62 / .45acp / 12ga（`9mm_gf`、`glassfiber`、`762_gf`、`45acp_gf`、`12ga_gf`）。
 
 ### 3.5 装填
 
@@ -183,6 +196,20 @@ inv.unloadAmmo(weaponUid, ammoId, count)
 3. `_finishReload` 靶场无线弹药直接 `new Array(magCap).fill(def.ammoType)`，把玩家排好的特殊弹冲掉。
 4. `reserve` 只统计默认弹种，导致有玻纤弹但显示 0、无法换弹。
 5. 扣弹按弹种汇总创建，但 queue 顺序/剩余数量可能不一致。
+
+### 4.3 弹药数值显示
+
+- UI **只显示一个“冲压”值**：`冲压 = pen + impulse`。
+- `pen/impulse` 仍保留在 `content.js` 作为内部字段，但详情面板不再拆成“穿透 / 冲压额外”两项。
+- `CombatSystem` 的 `basePen` 仍然是 `pen + impulse`，与实际结算一致。
+
+### 4.4 详情页装卸/丢弃（2026-11-21 修正）
+
+- **战局内（含靶场）**：武器详情不再显示“装 1 / 装满 / 取 1 / 全取 / 全部扣下”，避免瞬间改弹链；只显示“设为首选”和“卸下弹链（0.75s）”。卸弹是独立 `ActionProcess('unload')`，不会和换弹同时进行。
+- 战局外（仓库/配装）仍可直接整理弹链。
+- 战局内详情新增“丢弃到地面”：调用 `GameWorld._dropItemToGround(uid)`，生成可被重新搜刮的地面物品，而不是 `destroyItem`。
+- 丢弃装备槽物品时先 `unequip`；丢弃背包/胸挂时把内部物品一并作为地面物品掉落，避免内容被 `destroyItem` 吞掉。
+- 丢弃后立即 `_syncWeaponsFromInventory()` 与 `_syncArmorFromInventory()`，不会继续使用已丢掉的枪/甲。
 
 ---
 

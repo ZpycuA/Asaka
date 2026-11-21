@@ -230,23 +230,29 @@ WOUND_ENERGY_THRESHOLD = [0, 100, 350, 700, 1200]
 
 ```js
 vascularity = { head:1.4, thorax:1.2, abdomen:1.15, larm:0.55, legs:0.6 }[part] || 0.7
-instantBleed = energy * 0.08 * vascularity + newWound * 12   // ml
+instantBleed = energy * 0.18 * vascularity + newWound * 35   // ml
 blood -= instantBleed
 ```
 
 例：5.56 胸部 1700J：
-`1700*0.08*1.2 + 4*12 = 163.2 + 48 = 211.2ml`
+`1700*0.18*1.2 + 4*35 = 367.2 + 140 = 507.2ml`（约 10% 血容量，命中瞬间就掉）
+
+- 这是“中枪瞬间”的失血，不是等伤口开始流血才结算。
+- 低能量/护具削能后的命中按剩余能量计算，避免轻伤也大量失血。
+- 9mm 胸部 500J 约为 `500*0.18*1.2 + 35 = 143ml`。
 
 ### 6.4 持续流血
 
 ```js
-bleedRate = totalWoundLevel * 24 ml/s
+bleedRate = totalWoundLevel * 40 ml/s
 ```
 
 - 额外：`fiber_acute` +26ml/s；`fiber_chronic` +4ml/s。
 - 燃烧每秒额外失血 `burn.strength * 7 ml`（灼烧伤害为 `strength * 42 J/s`）。
 - 血液最大：人类 5000ml，Prazer 6000ml。
 - 玩家被动「闪回」出血 ×1.18，Hate 反噬 ×1.12。
+- `totalWoundLevel` 现在累加每个部位的所有伤口等级，而不是只取每部位最高伤口；同一部位连续中弹会显著加快流血。
+- 4 级伤口约 160ml/s，5L 血约 31 秒流尽；多处重伤会更快。
 
 ### 6.5 低血容量
 
@@ -325,33 +331,56 @@ if (blood <= 0 || head.hp <= 0) healthQuality = 0
 ### 7.2 燃烧
 
 ```js
-每帧：dmg = burn.strength * 42 * dt J，随机部位
-失血：burn.strength * 7 * dt ml
-升级：每秒 40% 概率升 1 档，最高 3 档
+每个着火部位：dmg = level * 8 * dt J   // 只烧该部位
+失血：level * 1.6 * dt ml
+扩散：每 4 秒，2 级及以上着火部位向相邻部位扩散 1 级
+熄灭：主动灭火 / 离开火源后 12 秒
 ```
+
+- 火焰不再每帧随机挑一个部位；命中 Dragon’s Breath 时只点燃实际命中的部位，燃烧瓶/地面火从腿部开始。
+- 状态面板会显示具体着火部位和等级；3D 火焰只出现在着火部位。
 
 ### 7.3 玻纤弹
 
-- 命中立即 `fiber_acute`（999s，强度2）+ `fiber_chronic`（9999s，强度1）+ `pain`。
-- 对 `armor.fiber` 额外 -18 耐久（可由 `ammo.fiberArmorDamage` 覆盖）。
+- 命中立即 `fiber_acute`（强度由 `ammo.fiberAcute` 决定）+ `fiber_chronic`（强度 1）+ `pain`。
+- 对 `armor.fiber` 额外 -N 耐久（`ammo.fiberArmorDamage`）。
 - 急性：流血 +26ml/s，持续疼痛；慢性：+4ml/s。
+- GF 弹覆盖 9mm / 5.56 / 7.62 / .45acp / 12ga；显示名统一为“口径 + GF 玻纤弹”。
 - 玩家可按 K / 点击「拔除玻纤」耗时 4s 移除急性；AI 在安全时会进入 `remove` 状态自行拔除。
 - 玩家与敌人身上都有玻纤碎片特效。
 
 ### 7.4 闪光与强光
 
-- `_applyFlash()` 先用射线检查墙体遮挡，再按 `(1 - d/radius)² × 遮挡 × 强度` 计算照度。
-- 照度 ≥0.55：`blind`，失明时长按照度缩放；
-- 0.10~0.55：`dazzle`，强光刺眼，强制退出开镜并显示抬手遮眼遮罩；
-- `<0.10`：不生效。
+- `_applyFlash()` 先用射线检查墙体遮挡，再按 `(1 - d/radius)^1.05 × 遮挡 × 强度` 计算照度。
+- 照度 ≥0.22：`blind`，失明时长按照度缩放；
+- 0.05~0.22：`dazzle`，强光刺眼，强制退出开镜并显示抬手遮眼遮罩；
+- `<0.05`：不生效。
+- 闪光弹半径 20m / 失明基准 7s；5m 内基本必盲，10m 左右开始转为刺眼。
 - `_spawnLightField()` 同时生成真实点光源和扩散球，不是只给半径内贴状态。
+- 2026-11-21：闪光判定改用三维距离；近距/高照度额外附带 `stun` 眩晕与 `tinnitus` 耳鸣。
+
+### 7.4.1 震撼与听觉
+
+- 震撼弹按三维距离 + 墙体遮挡衰减计算，`(1-d/r) × 遮挡(0.4)`，不再只看水平投影。
+- 爆炸/破片命中玩家会施加 `tinnitus`（耳鸣）与近距离 `deafened`（听力受损）。
+- `Status.getHearingMul()`：耳鸣 ×0.42、耳聋 ×0.2、震撼 ×0.7，作用于 `_playSFXAt` 的外部音效音量。
+- `tinnitus` 播放 3.9k/6.1k 高频铃声，1.2 秒内只叠一次。
 
 ### 7.5 EMP
 
 - `_applyEmpField()` 按距离衰减计算电磁场强度。
-- 范围内所有 `electronics && !empShielded` 的物品：`damaged = true`、`valueMul ×0.12`、电子枪械 `disabled`，UI 显示 `[损坏]`。
-- 无人机也会损失耐久；全体收到级别 0 警告“所有非抗磁电子物品已损坏”。
-- `emp_silence`（电磁静默）只保留效果定义，尚未接入武器。
+- 无电磁加固（`empShielded=false`）的 `electronics` 物品：按强度概率 `damaged = true`、`valueMul ×0.12`、电子枪械 `disabled`，UI 显示 `[损坏]`。
+- 电磁加固（`empShielded=true`）**不是免疫**：被击穿概率约 `2%~20%`（随强度），未击穿也会掉 `4% × 强度` 耐久并留下 `empSurge`。
+- 无人机按 `empResist` 折算耐久损失（默认 0.45 → 约 55% 当量）；EMP 后图传出现雪花/马赛克，只在操控无人机时显示。
+- 警告：有物品实际损坏 → “电磁干扰：N 件电子物品已损坏”；只有加固设备被冲刷 → “强电磁干扰”。
+- `emp_silence` 已接入为“强电磁干扰”状态，用于加固设备被冲刷但未损坏的情况。
+
+### 7.6 投掷物碰撞与 AI 规避（2026-11-21）
+
+- 所有投掷物逐帧用“上一帧位置 → 当前帧位置”的线段做物理射线，薄墙也不会被穿透。
+- 定时引信撞墙/箱子：按法线反射并乘以 0.45 弹性；落地保留 28% 垂直速度。
+- 碰撞触发 `nade_bounce` 音效与 `malignant` 声纹，AI 能听见脚边落雷。
+- AI 发现 9.5m 内的爆炸投掷物会进入 `flee`，目标点设在反方向 13m；威胁消失后立刻回到战斗。
 
 ---
 

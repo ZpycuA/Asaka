@@ -155,6 +155,7 @@
 | `_buildWeapon(id)` | 给 AI/临时武器建运行时（`loaded.queue` 初始满弹） |
 | `_buildWeaponFromInventory(inv, slot)` | 从装备槽建运行时；`mag/reserve/loaded` 指向 item |
 | `_syncWeaponsFromInventory()` | 背包变化后同步 `player.weapons` |
+| `_syncArmorFromInventory()` | 背包/装备变化后从装备槽重建 `player.armor` |
 | `_updatePlayer(dt)` | 输入、体力、移动、射击、换弹、技能、护具 |
 | `_fireWeapon(owner, weapon, isPlayer, target)` | 取 queue 首发、弹道、伤害、后坐、曳光 |
 | `_startReload()` / `_finishReload()` | 换弹动作与弹链填充 |
