@@ -1180,7 +1180,6 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
   }
   const norm = inv.normalizeLoaded(item);
   if (!norm) return;
-  const world = this.engine.app ? this.engine.app.world : null;
   const inMatch = world && world.running;
   // 正常战局内不允许跳过换弹动作直接改弹链；靶场/仓库允许整理
   if (inMatch && !world.training && inv === this.inv) {
