@@ -1,6 +1,6 @@
 /* ============================================================
    LaiAsaka Engine · Core
-   v3.0.0 · © 2026 ZpycuA · 游戏代码 GPL-3.0 · 游戏资产 CC BY-NC 4.0
+   v3.0.0 · © 2026 ZpycuA · 游戏代码 Apache-2.0 · 游戏资产 CC BY-NC 4.0
    ------------------------------------------------------------
    定位：轻量级第三人称射击 / 撤离玩法专用内核。
 
@@ -2622,7 +2622,8 @@ class ProfileSystem {
     //   切换玩法预设时不能被清空；游戏性 HUD 默认值仍随预设变化。
     const keep = {};
     const persist = ['input.sensitivity','input.wheelSensitivity','input.throwPower',
-      'input.adsToggle','input.breathHold','input.gyroSensitivity','input.gyroEnabled','world.squadProtect'];
+      'input.adsToggle','input.autoAdsOnFire','input.autoBreathOnAds','input.breathHold',
+      'input.gyroSensitivity','input.gyroEnabled','world.squadProtect'];
     for (const k of persist) if (k in this.current) keep[k] = this.current[k];
     this.currentProfileId = id;
     this.custom = false;
@@ -2708,7 +2709,7 @@ class ProfileSystem {
 const BUILTIN_LOCALE_ZH = {
   'engine.title': 'LaiAsaka',
   'engine.subtitle': 'ENGINE',
-  'engine.copyright': '© 2026 <b>ZpycuA</b> · 游戏本体 GPL-3.0 · 资产 CC BY-NC 4.0',
+  'engine.copyright': '© 2026 <b>ZpycuA</b> · 游戏本体 Apache-2.0 · 资产 CC BY-NC 4.0',
   'ui.boot.loading': '正在初始化引擎…',
   'ui.menu.title': 'Asaka Straight Project',
   'ui.menu.subtitle': 'LaiAsaka Engine',
@@ -2737,7 +2738,7 @@ class Engine {
     this.name    = 'LaiAsaka';
     this.version = '3.3.0';
     this.author  = 'ZpycuA';
-    this.license = 'GPL-3.0 (code) / CC BY-NC 4.0 (assets)';
+    this.license = 'Apache-2.0 (code) / CC BY-NC 4.0 (assets)';
 
     // 子系统（无依赖，构造函数里直接创建）
     this.bus          = new EventBus();

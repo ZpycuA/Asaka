@@ -1,6 +1,6 @@
 /* ============================================================
    LaiAsaka Engine · Bag UI (Grid & Loot Edition)
-   v2.3.0 · © 2026 ZpycuA · 游戏代码 GPL-3.0 · 游戏资产 CC BY-NC 4.0
+   v2.3.0 · © 2026 ZpycuA · 游戏代码 Apache-2.0 · 游戏资产 CC BY-NC 4.0
    ============================================================ */
 
 import * as THREE from 'three'
@@ -86,6 +86,10 @@ const CSS = `
 .bagui-empty{color:#5c82a8;text-align:center;padding:20px}
 .bagui-toolbar{display:flex;gap:6px;margin-top:8px;padding:6px;background:rgba(10,18,28,.5);border-radius:6px;align-items:center;justify-content:space-between;flex-shrink:0}
 .bagui-toolbar button{padding:5px 12px;font-size:11px;cursor:pointer;background:rgba(40,80,130,.7);border:1px solid rgba(110,180,255,.5);color:#cfe8ff;border-radius:5px;font-family:inherit}
+.bagui-toolbar button.bagui-sell{background:rgba(120,70,30,.75);border-color:rgba(255,190,100,.7);color:#ffe8c8}
+.bagui-item.sell-select{cursor:crosshair;box-shadow:0 0 0 1px rgba(255,217,61,.18) inset}
+.bagui-item.sell-selected{outline:2px solid #ffd93d;outline-offset:-2px;box-shadow:0 0 12px rgba(255,217,61,.35) inset}
+.bagui-sell-check{position:absolute;right:2px;bottom:2px;width:14px;height:14px;border-radius:3px;background:rgba(0,0,0,.72);border:1px solid rgba(255,217,61,.6);color:#ffd93d;font-size:10px;line-height:13px;text-align:center;pointer-events:none}
 .bagui-total{font-size:10px;color:#ffd93d;letter-spacing:1px;font-weight:700}
 .bagui-preview{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 40%,rgba(40,60,90,.6),rgba(10,18,28,.9));border-radius:8px;overflow:hidden}
 .bagui-preview canvas{max-width:100%;max-height:100%;display:block}
@@ -129,6 +133,10 @@ export class BagUI {
     this._drag = null;
     this._lootTarget = null;
     this._expandedEffect = null;
+    // mode: 'straight' | 'asaka'；主模式不显示仓库卖出/丢弃等 Straight 仓储操作。
+    this.mode = 'straight';
+    this._sellMode = false;
+    this._sellSel = new Set();
     this._injectCSS();
     this._buildDOM();
     // 背包打开期间让纯文字信息持续刷新（负重/状态/耐久/详情），不再必须关掉重开
@@ -195,6 +203,12 @@ export class BagUI {
   toggle() { this.open ? this.close() : this.show(); }
   
   show() {
+    // ★ 主模式仓库必须在游戏内（据点/容器）管理，不在大厅提供 Straight 式仓库。
+    const worldNow = this.engine.app && this.engine.app.world;
+    if (this.mode === 'asaka' && !(worldNow && worldNow.running)) {
+      this._toast('主模式仓库需在据点或战局内管理');
+      return;
+    }
     if (document.pointerLockElement) document.exitPointerLock();
     this.open = true;
     this.viewInv = this.inv;
@@ -207,6 +221,8 @@ export class BagUI {
   
   close() {
     this.open = false;
+    this._sellMode = false;
+    this._sellSel.clear();
     document.getElementById('bagui-overlay').classList.remove('on');
     this._cancelDrag();
     this._clearGhosts();
@@ -307,18 +323,88 @@ export class BagUI {
       html += '<button id="bagui-take-ground">拾取全部</button>';
     }
     if (!isInMatch && !this._lootTarget) {
-      html += '<button id="bagui-prep-mags">整备弹匣（从散弹压满）</button>';
-      html += '<button id="bagui-stash-all">整理 · 全部入仓</button>';
+      if (this.mode !== 'asaka' && this._sellMode) {
+        const picked = this._selectedSellUids();
+        const total = this._sellTotal(picked);
+        html += `<button class="bagui-sell" id="bagui-sell-apply" ${picked.length ? '' : 'disabled'}>卖出选中 ${picked.length} 件 · ${total} cp</button>`;
+        html += '<button id="bagui-sell-cancel">取消多选</button>';
+      } else {
+        html += '<button id="bagui-prep-mags">整备弹匣（从散弹压满）</button>';
+        html += '<button id="bagui-stash-all">整理 · 全部入仓</button>';
+        if (this.mode !== 'asaka') html += '<button class="bagui-sell" id="bagui-sellmode">多选卖出</button>';
+      }
     }
     bar.innerHTML = html;
     const btn = document.getElementById('bagui-stash-all');
     if (btn) btn.onclick = () => this._stashAll();
     const prepBtn = document.getElementById('bagui-prep-mags');
     if (prepBtn) prepBtn.onclick = () => this._prepAllMags();
+    const sellModeBtn = document.getElementById('bagui-sellmode');
+    if (sellModeBtn) sellModeBtn.onclick = () => { this._sellMode = true; this._sellSel.clear(); this.refresh(); };
+    const sellCancelBtn = document.getElementById('bagui-sell-cancel');
+    if (sellCancelBtn) sellCancelBtn.onclick = () => { this._sellMode = false; this._sellSel.clear(); this.refresh(); };
+    const sellApplyBtn = document.getElementById('bagui-sell-apply');
+    if (sellApplyBtn) sellApplyBtn.onclick = () => this._applySellSelected();
     const takeBtn = document.getElementById('bagui-take-ground');
     if (takeBtn) takeBtn.onclick = () => this._takeAllGroundLoot();
     const searchCorpseBtn = document.getElementById('bagui-search-corpse');
     if (searchCorpseBtn) searchCorpseBtn.onclick = () => this._searchCorpseAll();
+  }
+
+  // 当前选中且仍在仓库里的物品（刷新后自动剔除已移走的）
+  _selectedSellUids() {
+    const out = [];
+    for (const uid of this._sellSel) {
+      const item = this.inv.items.get(uid);
+      if (item && this.inv.parentOf.get(uid) === 'c:stash') out.push(uid);
+    }
+    return out;
+  }
+
+  _sellValueOf(uid) {
+    const item = this.inv.items.get(uid);
+    if (!item) return 0;
+    let total = this.inv.getItemValue(uid);
+    // getItemValue 不递归武器配件；卖整枪时把配件价值一起算进去。
+    if (item.attachments) {
+      for (const k in item.attachments) {
+        const a = item.attachments[k];
+        if (a) total += this.inv.getItemValue(a);
+      }
+    }
+    return total;
+  }
+
+  _sellTotal(uids) {
+    let total = 0;
+    for (const uid of uids) total += Math.floor(this._sellValueOf(uid) * 0.8);
+    return total;
+  }
+
+  _applySellSelected() {
+    if (this.mode === 'asaka') return;
+    const uids = this._selectedSellUids();
+    if (!uids.length) { this._toast('先点选仓库里的物品'); return; }
+    const total = this._sellTotal(uids);
+    if (!confirm(`卖出选中的 ${uids.length} 件物品，获得 ${total} cp？`)) return;
+    let sold = 0, gained = 0;
+    for (const uid of uids) {
+      const item = this.inv.items.get(uid);
+      if (!item) continue;
+      const val = Math.floor(this._sellValueOf(uid) * 0.8);
+      this.inv.destroyItem(uid);
+      gained += val;
+      sold++;
+    }
+    this.engine.save.data.credits = (this.engine.save.data.credits || 0) + gained;
+    this.engine.save.save();
+    if (this.engine.app && this.engine.app._syncActiveInventoryToSave) this.engine.app._syncActiveInventoryToSave();
+    if (this.engine.app && this.engine.app._updateCredits) this.engine.app._updateCredits();
+    this._sellMode = false;
+    this._sellSel.clear();
+    this._deselectDetail();
+    this._toast(`已卖出 ${sold} 件，获得 ${gained} cp`);
+    this.refresh();
   }
 
   // ★ 战局外一键整备：把所有弹匣从散装弹药压满。战局内不提供，避免绕过动作时间。
@@ -878,12 +964,16 @@ export class BagUI {
       if (pItem && pItem.durMax > 0) platePct = Math.max(0, Math.min(100, Math.round(pItem.dur / pItem.durMax * 100)));
     }
     const plateTxt = platePct >= 0 ? `<span class="bagui-item-durpct upper" style="color:${platePct > 60 ? '#9fd8ff' : platePct > 30 ? '#ffe066' : '#ff8b7b'}">🛡${platePct}%</span>` : '';
-    
-    return `<div class="bagui-item has-item${dur >= 0 ? ' has-dur' : ''}" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
+    // 仓库多选卖出：只在 Straight 大厅的仓库格上显示勾选层。
+    const sellable = this._sellMode && this.mode !== 'asaka' && inv === this.inv
+      && this.inv.parentOf.get(uid) === 'c:stash';
+    const picked = sellable && this._sellSel.has(uid);
+    return `<div class="bagui-item has-item${dur >= 0 ? ' has-dur' : ''}${sellable ? ' sell-select' : ''}${picked ? ' sell-selected' : ''}" data-uid="${uid}" data-rarity="${rarity}" data-container="${containerName}"
       style="left:${pos.x * cell}px;top:${pos.y * cell}px;width:${pos.w * cell}px;height:${pos.h * cell}px${item.damaged ? ';border-color:rgba(255,90,90,.65)' : ''}">
       <div class="bagui-item-icon">${this._icon(item, inv)}</div>
       <div class="bagui-item-name">${this._esc(name)}</div>
       ${qty}${magText}${lockText}${plateTxt}${durTxt}${durBar}
+      ${sellable ? `<span class="bagui-sell-check">${picked ? '✓' : ''}</span>` : ''}
     </div>`;
   }
 
@@ -922,10 +1012,23 @@ export class BagUI {
       el.addEventListener('pointerdown', (e) => {
         const item = this.viewInv.items.get(uid) || this.inv.items.get(uid);
         if (item && item.searched === false) return;
+        if (this._sellMode && this.mode !== 'asaka'
+            && this.inv.parentOf.get(uid) === 'c:stash') {
+          e.preventDefault();
+          e.stopPropagation();
+          this._toggleSellUid(uid);
+          return;
+        }
         this._onDown(e, uid, el);
       });
 
       el.addEventListener('click', (e) => {
+        if (this._sellMode && this.mode !== 'asaka'
+            && this.inv.parentOf.get(uid) === 'c:stash') {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         const item = this.viewInv.items.get(uid) || this.inv.items.get(uid);
         if (item && item.searched === false) {
           e.stopPropagation();
@@ -964,6 +1067,22 @@ export class BagUI {
       // 双击已由上面的 click 双击判定接管；不再单独监听 dblclick，
       // 否则桌面端会“双击 = 拿取两次”或与延迟打开详情互相打架。
     });
+  }
+
+  _toggleSellUid(uid) {
+    const item = this.inv.items.get(uid);
+    if (!item) return;
+    if (this._sellSel.has(uid)) {
+      this._sellSel.delete(uid);
+    } else {
+      // 容器里还有东西时不允许直接卖，避免把内部物品一起销毁。
+      if (item.innerGrid && item.innerGrid.items && item.innerGrid.items.size > 0) {
+        this._toast('容器里还有物品，先取出来再卖');
+        return;
+      }
+      this._sellSel.add(uid);
+    }
+    this.refresh();
   }
 
   // ★ 尸体整体搜索：一次读条把所有未搜索遗物翻开；被击中会打断（ActionProcess）。
@@ -1627,12 +1746,12 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
 
     const isInStash = inv.parentOf.get(uid) === 'c:stash';
     const isInMatch = this.engine.app && this.engine.app.world && this.engine.app.world.running;
-    if (isInStash && !isInMatch && inv === this.inv) {
+    if (isInStash && !isInMatch && inv === this.inv && this.mode !== 'asaka') {
       const sellValue = Math.floor(unitVal * 0.8);
       html += `<button class="bagui-btn" id="bagui-sell-btn" style="background:rgba(200,80,80,.6);border-color:rgba(255,100,100,.8);margin-top:8px">卖出 (${sellValue} cp)</button>`;
     }
 
-    if (isInMatch && inv === this.inv && !isInStash) {
+    if (isInMatch && inv === this.inv && !isInStash && this.mode !== 'asaka') {
       html += `<button class="bagui-btn" id="bagui-discard-btn" style="background:rgba(100,100,100,.5);border-color:rgba(200,200,200,.5)">丢弃到地面</button>`;
     }
 

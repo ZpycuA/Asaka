@@ -1,6 +1,6 @@
 /* ============================================================
    LaiAsaka Engine · Content Registry
-   v3.0.0 · © 2026 ZpycuA · 游戏代码 GPL-3.0 · 游戏资产 CC BY-NC 4.0
+   v3.0.0 · © 2026 ZpycuA · 游戏代码 Apache-2.0 · 游戏资产 CC BY-NC 4.0
    ------------------------------------------------------------
    本文件是"所有游戏内容的注册入口"。引擎不认识这里的东西，
    只是把数据存到 ContentRegistry 里，由 game.js 取用。
@@ -1525,7 +1525,10 @@ c.registerAll('attach', ATTACH);
   const ASCE = {
     default: {
       // 难度越高，降临概率越高（game.js 再乘 difficulty 系数）。
-      chance: 0.6, delay: 14, breachTime: 180, alertRadius: 120,
+      chance: 0.22, delay: 14, breachTime: 180, alertRadius: 120,
+      // 警告阶段的“贴脸也先不开火”保护：召唤后至少 8 秒只警告，
+      // 避免玩家正蹲在容器边搜刮时，Moments 一出场就因距离过近立刻仇恨。
+      warnGrace: 8, proximityRange: 2.8, armedLinger: 7,
       // 频谱对消阵：与容器分开刷新。核心是“电源”，玩家必须按相位顺序
       // 站到三根锚柱旁完成对消，而不是站在中央读秒。
       // anchorTime 是总对消秒数，平均分给三根锚柱；完成后失稳计时停止。

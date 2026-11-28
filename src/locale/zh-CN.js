@@ -1,7 +1,7 @@
 export default {
   'engine.title': 'LaiAsaka',
   'engine.subtitle': 'ENGINE',
-  'engine.copyright': '© 2026 <b>ZpycuA</b> · 游戏本体 GPL-3.0 · 资产 CC BY-NC 4.0',
+  'engine.copyright': '© 2026 <b>ZpycuA</b> · 游戏本体 Apache-2.0 · 资产 CC BY-NC 4.0',
   'ui.boot.loading': '正在初始化引擎…',
   'ui.boot.step.core': '正在加载核心…',
   'ui.boot.step.content': '正在注册内容表…',

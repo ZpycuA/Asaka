@@ -36,6 +36,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
 /* ---------- Menu Layout ---------- */
 #menu-screen{background:radial-gradient(circle at 50% 20%,#0f1a28 0%,#05070a 78%);z-index:50;align-items:stretch;justify-content:flex-start;overflow-y:auto}
+#menu-screen.on{animation:screen-in .35s ease both}
 .menu-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:rgba(10,18,28,.8);border-bottom:1px solid var(--line2)}
 .menu-tabs{display:flex;gap:12px}
 .menu-tab{padding:8px 24px;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--dim);cursor:pointer;border-radius:8px;transition:.2s;background:rgba(0,0,0,.3);border:1px solid transparent}
@@ -74,13 +75,18 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
    ============================================================ */
 /* ---------- 主大厅（Asaka 主模式入口） ---------- */
 #title-screen{background:#030405;z-index:55;display:none;overflow:hidden}
-#title-screen.on{display:block}
+#title-screen.on{display:block;animation:screen-in .55s ease both}
 .title-bg{position:absolute;inset:0;background:
-  radial-gradient(ellipse at 62% 30%, #1a232d 0%, #0a0e14 46%, #020304 100%);
-  /* TODO(Default 背景图)：正式背景图请放到 assets/lobby-bg.jpg，
-     然后取消下一行注释并把上面的渐变保留为加载兜底。
-     background-image:url('assets/lobby-bg.jpg');background-size:cover;background-position:center; */
-}
+  radial-gradient(ellipse at 62% 30%, #1a232d 0%, #0a0e14 46%, #020304 100%);}
+/* 默认背景图：放到 assets/lobby-bg.jpg；缺失时自动回落到上面的渐变。 */
+.title-bg-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;filter:saturate(.9) brightness(.82);opacity:0;animation:bg-in 1.2s ease .1s forwards}
+.title-bg-shade{position:absolute;inset:0;background:
+  linear-gradient(90deg,rgba(2,3,5,.92) 0%,rgba(3,5,8,.55) 34%,rgba(3,5,8,.12) 62%,rgba(2,3,5,.42) 100%),
+  linear-gradient(0deg,rgba(2,3,5,.88) 0%,transparent 36%)}
+.title-bg-vignette{position:absolute;inset:0;box-shadow:inset 0 0 18vw 6vw rgba(0,0,0,.62);pointer-events:none}
+body.title-active .copyright-bar{display:none!important}
+@keyframes bg-in{to{opacity:1}}
+@keyframes screen-in{from{opacity:0;transform:scale(.992)}to{opacity:1;transform:none}}
 .title-bg-glow{position:absolute;left:38%;top:8%;width:60vw;height:60vw;border-radius:50%;
   background:radial-gradient(circle,rgba(214,166,72,.11) 0%,rgba(214,166,72,.035) 38%,transparent 68%);filter:blur(8px)}
 .title-bg-horizon{position:absolute;left:0;right:0;bottom:0;height:46%;background:
@@ -109,26 +115,27 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .title-rule i:last-child{background:linear-gradient(90deg,rgba(216,170,80,.5),transparent)}
 .title-rule span{font-size:10px;letter-spacing:5px;color:#a88b52}
 .title-tagline{font-size:12px;letter-spacing:3px;color:#8b97a4;margin-top:12px}
-.title-nav{position:absolute;left:7.5vw;bottom:9vh;display:flex;flex-direction:column;gap:1px;width:min(330px,48vw);z-index:3}
+.title-nav{position:absolute;left:7.5vw;bottom:8vh;display:flex;flex-direction:column;gap:2px;width:min(340px,48vw);z-index:3;padding-left:2px}
 .title-item{position:relative;display:flex;align-items:baseline;gap:12px;width:100%;padding:11px 14px 11px 16px;text-align:left;
   background:linear-gradient(90deg,rgba(10,14,19,.66),rgba(10,14,19,.14));border:none;border-left:2px solid rgba(216,170,80,.12);
   color:#d8dee6;cursor:pointer;font-family:inherit;transition:background .16s,border-color .16s,transform .16s;overflow:hidden}
 .title-item::after{content:'';position:absolute;right:0;top:0;bottom:0;width:34%;background:linear-gradient(90deg,transparent,rgba(216,170,80,.045));opacity:0;transition:.2s}
 .title-item:hover:not(:disabled){background:linear-gradient(90deg,rgba(30,25,15,.78),rgba(16,14,10,.28));border-left-color:#d9ad55;transform:translateX(5px)}
 .title-item:hover:not(:disabled)::after{opacity:1}
+.title-item:active:not(:disabled){transform:translateX(3px) scale(.995)}
 .title-item .ti-main{font-size:19px;letter-spacing:3px;font-weight:700;color:#efe6d4;white-space:nowrap}
 .title-item .ti-side{font-size:8.5px;letter-spacing:2px;color:#7e6a44;font-family:var(--mono);white-space:nowrap}
 .title-item .ti-note{position:absolute;right:12px;bottom:5px;max-width:56%;font-size:9px;color:#7c8b9a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .title-item.locked{opacity:.42;cursor:not-allowed}
 .title-item:disabled{cursor:not-allowed}
 .title-foot{position:absolute;left:34px;right:34px;bottom:18px;display:flex;justify-content:space-between;font-size:9px;color:#5b6672;font-family:var(--mono);z-index:3}
-.title-save-hint{position:absolute;right:34px;bottom:52px;font-size:10px;color:#8d9aa7;letter-spacing:1px;z-index:3;display:flex;align-items:center;gap:7px;text-align:right}
+.title-save-hint{position:static;margin:10px 0 0 16px;font-size:9.5px;color:#8d9aa7;letter-spacing:1px;display:flex;align-items:center;gap:7px;text-align:left;min-height:14px}
 .title-save-hint .dot{width:5px;height:5px;border-radius:50%;background:#d9ad55;box-shadow:0 0 8px rgba(216,170,80,.8);flex:0 0 auto}
 .title-save-hint .dot.dim{background:#4a5662;box-shadow:none}
 
 /* ---------- 计划树 ---------- */
 #plan-tree-screen{background:#020203;z-index:80;display:none;overflow:hidden;align-items:stretch;justify-content:flex-start}
-#plan-tree-screen.on{display:flex;flex-direction:column}
+#plan-tree-screen.on{display:flex;flex-direction:column;animation:screen-in .4s ease both}
 .pt-stars{position:absolute;inset:0;background:
   radial-gradient(circle at 12% 18%,rgba(255,236,190,.55) 0 1px,transparent 1.5px),
   radial-gradient(circle at 72% 12%,rgba(210,220,255,.35) 0 1px,transparent 1.5px),
@@ -143,18 +150,23 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .pt-heading h2{font-size:30px;letter-spacing:12px;font-weight:900;color:#e9d6a4;margin-top:4px;text-shadow:0 0 24px rgba(216,170,80,.2)}
 .pt-heading p{font-size:10px;letter-spacing:2px;color:#6f7b87;margin-top:5px}
 .pt-body{position:relative;z-index:2;flex:1;min-height:0;display:flex;gap:14px;padding:0 22px 4px 12px}
-.pt-canvas{position:relative;flex:1;min-width:0;min-height:0}
-#pt-svg{width:100%;height:100%;display:block}
+.pt-canvas{position:relative;flex:1;min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;scrollbar-width:thin;scrollbar-color:rgba(216,170,80,.28) transparent}
+#pt-svg{width:100%;height:auto;display:block;min-height:100%}
 .pt-branch{fill:none;stroke:url(#pt-gold-dim);stroke-width:2;opacity:.62;stroke-linecap:round}
 .pt-branch.lit{stroke:url(#pt-gold);stroke-width:2.8;opacity:1;filter:url(#pt-glow)}
 .pt-branch.ending{stroke-dasharray:1 6}
+.pt-branch.ghost-branch{opacity:.18;stroke-width:1.4}
+.pt-ghost-twig{fill:none;stroke:url(#pt-gold-dim);stroke-width:1;opacity:.16;stroke-linecap:round}
 .pt-node{cursor:pointer}
 .pt-node .pt-node-halo{fill:rgba(216,170,80,.08)}
 .pt-node .pt-node-ring{fill:#080704;stroke:#8c6d33;stroke-width:1.6}
 .pt-node .pt-node-core{fill:url(#pt-node-core)}
 .pt-node .pt-label{fill:#e7d4a5;font-size:13px;font-weight:700;letter-spacing:1px;paint-order:stroke;stroke:rgba(0,0,0,.7);stroke-width:3px}
 .pt-node .pt-sublabel{fill:#8c7440;font-size:9px;letter-spacing:2px;paint-order:stroke;stroke:rgba(0,0,0,.7);stroke-width:2.5px}
-.pt-node.locked{opacity:.42}
+.pt-node.locked{opacity:.16;pointer-events:none}
+.pt-node.locked .pt-node-ring,.pt-node.locked .pt-node-core{fill:#2a2418;stroke:#4b3c20}
+.pt-node.has-save .pt-node-ring{stroke:#ffe3a3;stroke-width:2.2}
+.pt-node.selected .pt-label{fill:#fff2c8}
 .pt-node.locked .pt-node-ring{stroke:#56482a}
 .pt-node.locked .pt-label{fill:#8c7c58}
 .pt-node.completed .pt-node-ring{stroke:#e0b75e;stroke-width:2}
@@ -163,7 +175,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .pt-node.selected .pt-node-halo{stroke:rgba(255,238,190,.5);stroke-width:1}
 .pt-node.ending .pt-node-ring{stroke-dasharray:3 2}
 .pt-node.ending .pt-label{font-size:12px}
-.pt-mini-knot{fill:none;stroke:#ffd98a;stroke-width:.9;opacity:.9;transform:translate(-22px,-14px) scale(.55);transform-origin:0 0}
+.pt-mini-knot{fill:none;stroke:#ffd98a;stroke-width:1.1;opacity:.95;transform:translate(-24px,-18px) scale(.55);transform-origin:0 0}
+.pt-mini-knot ellipse{fill:none}
 .pt-knot-badge{position:absolute;left:14px;top:6px;display:flex;align-items:center;gap:9px;padding:8px 12px;border:1px solid rgba(216,170,80,.14);background:rgba(8,7,5,.55);border-radius:6px;opacity:.45;transition:.2s}
 .pt-knot-badge.has-save{opacity:1;border-color:rgba(216,170,80,.32)}
 .pt-knot{display:block;width:28px;height:28px}
@@ -201,9 +214,25 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .title-btn.small{padding:8px 14px;font-size:10px}
 .title-btn:disabled{opacity:.32;cursor:not-allowed}
 
+/* ---------- 计划树：长地图 / 粒子 / 两类存档 ---------- */
+.pt-particles{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+.pt-particles i{position:absolute;width:2px;height:2px;border-radius:50%;background:#e9c56b;box-shadow:0 0 7px 2px rgba(233,197,107,.55);animation:pt-drift linear infinite}
+@keyframes pt-drift{0%{transform:translate3d(0,18px,0) scale(.8);opacity:0}18%{opacity:.8}100%{transform:translate3d(22px,-120px,0) scale(1.15);opacity:0}}
+.pt-head-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.pt-latest-line{display:flex;justify-content:space-between;gap:12px;margin-top:10px;padding:7px 10px;border:1px solid rgba(216,170,80,.12);border-radius:4px;font-size:9.5px;color:#9b865e}
+.pt-latest-line b{color:#d9bd82;font-weight:600}
+.pt-latest-line.dim{opacity:.55}
+.pt-panel-empty{padding:20px 0;color:#5c6672;font-size:11px;letter-spacing:2px}
+.pt-locked-title{color:#6f6650!important}
+.pt-node.locked .pt-node-label{display:none}
+.pt-scroll-hint{margin-left:auto;color:#655d4e;font-size:8.5px}
+.pt-canvas::-webkit-scrollbar{width:4px}
+.pt-canvas::-webkit-scrollbar-thumb{background:rgba(216,170,80,.24);border-radius:2px}
+.pt-canvas::-webkit-scrollbar-track{background:transparent}
+
 /* ---------- 关于 ---------- */
 .about-screen{background:#040506;z-index:90;display:none;overflow:hidden;align-items:stretch;justify-content:flex-start}
-.about-screen.on{display:flex;flex-direction:column}
+.about-screen.on{display:flex;flex-direction:column;animation:screen-in .38s ease both}
 .about-stars{position:absolute;inset:0;background:
   radial-gradient(ellipse at 50% 0%,rgba(38,52,68,.35) 0%,transparent 55%),
   radial-gradient(circle at 18% 22%,rgba(255,236,190,.3) 0 1px,transparent 1.5px) 0 0/260px 260px,
@@ -238,7 +267,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
 /* ---------- 剧情 UI（3D 场景内） ---------- */
 #story-ui{position:absolute;inset:0;z-index:120;display:none;pointer-events:auto;color:#f0e6d2}
-#story-ui.on{display:block}
+#story-ui.on{display:block;animation:story-in .4s ease both}
 .story-cinema{position:absolute;left:0;right:0;height:7vh;background:linear-gradient(180deg,#000,#000 88%,transparent);z-index:2;pointer-events:none}
 .story-cinema.top{top:0}
 .story-cinema.bottom{bottom:0;transform:rotate(180deg)}
@@ -272,6 +301,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 #game-screen.story-mode #action-progress{opacity:0 !important;pointer-events:none !important}
 @keyframes pt-pulse{0%,100%{opacity:.35;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}
 @keyframes knot-spin{to{transform:rotate(360deg)}}
+@keyframes story-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes modal-in{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
 @keyframes story-next-pulse{0%,100%{opacity:.4}50%{opacity:1}}
 @media (max-width:900px){
   .title-top{left:18px;right:18px;top:14px}
@@ -284,7 +315,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   .title-item{padding:6px 10px 6px 12px}
   .title-item .ti-main{font-size:15px}
   .title-item .ti-note{display:none}
-  .title-save-hint{left:6vw;right:auto;bottom:auto;top:calc(12vh + 118px);text-align:left}
+  .title-save-hint{left:auto;right:auto;bottom:auto;top:auto;text-align:left}
   .title-foot{left:18px;right:18px;font-size:8px}
   .pt-head{padding:14px 18px 4px}
   .pt-heading h2{font-size:22px;letter-spacing:8px}
@@ -311,8 +342,8 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
 /* ---------- Modal (设置 & 市场) ---------- */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
-.modal-overlay.on{display:flex}
-.modal-box{width:100%;max-width:600px;max-height:85vh;background:var(--panel2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.8);overflow:hidden}
+.modal-overlay.on{display:flex;animation:screen-in .22s ease both}
+.modal-box{width:100%;max-width:600px;animation:modal-in .26s cubic-bezier(.2,.8,.2,1) both;max-height:85vh;background:var(--panel2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.8);overflow:hidden}
 .modal-head{padding:16px 20px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center;background:rgba(20,35,55,.8)}
 .modal-head h3{font-size:16px;color:var(--accent);letter-spacing:2px}
 .modal-close{background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer}
@@ -394,6 +425,10 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 .next-ammo{font-size:11px;color:#ffd93d;margin-top:2px}
 .ammo-text{font-size:28px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
 .fire-mode-btn{pointer-events:auto;padding:2px 8px;font-size:10.5px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.75);border:1px solid rgba(120,190,255,.8);color:#e0f0ff;font-family:inherit}
+.weapon-toggle-row{display:flex;justify-content:flex-end;gap:4px;margin-top:4px;pointer-events:none}
+.weapon-toggle-btn{pointer-events:auto;padding:3px 8px;font-size:9.5px;font-weight:700;border-radius:4px;cursor:pointer;background:rgba(30,50,75,.82);border:1px solid rgba(120,180,240,.5);color:#cfe8ff;font-family:inherit;touch-action:none}
+.weapon-toggle-btn.on{background:rgba(70,160,120,.75);border-color:rgba(120,255,190,.8);color:#e8fff2}
+.weapon-toggle-btn:active{transform:scale(.96)}
 /* 当前状态图标（屏幕最下方，图标显示，绿=正面 / 红=负面） */
 #status-bar{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26}
 #status-bar .status-chip{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)}
@@ -489,13 +524,12 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
 /* ---------- 移动端 HUD 重排：武器栏贴底让出右侧操作区，附近列表靠右、击杀提示上移 ---------- */
 /* 移动端用 ACTION_MAP 的独立按钮控制开火模式/侧瞄，武器框里的小按钮不再和开火键抢触摸。 */
-#game-screen.mobile-ui #fire-mode-btn,
-#game-screen.mobile-ui #side-sight-btn{display:none!important}
 @media (max-width:900px){
   #minimap-container{width:110px;height:110px;top:60px;right:8px}
   #kill-feed{left:8px;right:auto;top:145px;align-items:flex-start;max-width:180px;max-height:110px;overflow:hidden;font-size:11px}
   #weapon-bar{left:8px;right:200px;bottom:8px;transform:none;gap:4px}
   #weapon-bar .wb-slot{flex:1;min-width:0;padding:5px 4px;font-size:10px;gap:3px;justify-content:center}
+  .weapon-toggle-btn{padding:5px 12px;font-size:11px}
   #nearby-list{right:8px;top:42%;max-width:150px;max-height:100px;overflow-y:auto}
   #protect-group{left:8px;bottom:132px;transform:scale(.82);transform-origin:bottom left}
   #status-bar{bottom:46px}
@@ -559,7 +593,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
 
 /* Overlay */
 .overlay{position:absolute;inset:0;background:rgba(4,8,14,.9);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:60;padding:24px;text-align:center}
-.overlay.on{display:flex}
+.overlay.on{display:flex;animation:screen-in .25s ease both}
 .overlay h2{font-size:28px;letter-spacing:10px;margin-bottom:20px;color:var(--accent)}
 .overlay .stat{font-size:13px;line-height:2;color:var(--dim);margin-bottom:22px;max-width:520px}
 
@@ -793,11 +827,13 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
       <div class="weapon-box">
         <div class="wb-top">
           <span class="weapon-name" id="weapon-name"></span>
-          <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
-          <button class="fire-mode-btn" id="side-sight-btn" title="切换侧瞄（F4）" style="display:none;margin-left:3px">侧瞄</button>
         </div>
         <div class="next-ammo" id="next-ammo"></div>
         <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
+        <div class="weapon-toggle-row">
+          <button class="weapon-toggle-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
+          <button class="weapon-toggle-btn" id="side-sight-btn" title="切换侧瞄（F4）" style="display:none">侧瞄</button>
+        </div>
         <div class="carry-line" id="ammo-spares" style="font-size:10px;color:#8fb0c8">备用弹匣 0</div>
         <div class="carry-line" style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
       </div>
@@ -931,7 +967,7 @@ canvas{display:block;position:absolute;inset:0;touch-action:none}
   </div>
 </div>
 
-<div class="copyright-bar">LaiAsaka Engine · v3.3.0<br>© 2026 ZpycuA · Assets CC BY-NC 4.0 · Code GPL-3.0</div>
+<div class="copyright-bar">LaiAsaka Engine · v3.3.0<br>© 2026 ZpycuA · Assets CC BY-NC 4.0 · Code Apache-2.0</div>
 
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }

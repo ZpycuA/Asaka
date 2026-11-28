@@ -332,3 +332,18 @@ inv.unloadAmmo(weaponUid, ammoId, count)
 - [ ] `reserve` 是否统计到特殊弹（玻璃纤维/龙息）？
 - [ ] 跨尸体转移武器后，弹链 queue 是否完整保留？
 - [ ] 旧存档 V1/V2 反序列化后，`qty` 与 `queue` 是否一致？
+
+
+---
+
+## 10. 主模式 / Straight 双库存（2026-11-28 第十轮）
+
+- 两套库存彻底分开：
+  - Straight：`engine.save.data.inventory`。
+  - 主模式：`AsakaSave.data.inventory`。
+  - `GameApp.activeMode` 决定 `this.inventory`、`BagUI.inv`、`GameWorld` 使用的库存；进入大厅/战局时调用 `_setActiveInventory()`。
+- 开主模式新档会新建空的 Asaka Inventory，不读取也不清空 Straight 仓库；继续游戏从最新状态/重要节点的 `inventory` 快照反序列化。
+- 主模式大厅不允许打开 Straight 仓库：`BagUI.show()` 在 asaka 且战局未运行时直接拒绝；B 键同样拦截。主模式仓库只能在游戏内（据点/容器）管理。
+- 主模式物品详情隐藏「卖出 / 丢弃」，避免在大厅/背包里对持久存档做 Straight 式处理。
+- Straight 仓库新增「多选卖出」：仓库格进入多选模式后点选多件，按 0.8 估值一次卖出；容器内有物品时禁止直接卖，整枪配件价值计入。
+- 主模式队伍状态：`AsakaSave.data.party` 保存玩家/队友的部位耐久、伤口、失血、封堵和效果；`GameWorld.serializeParty/applyParty` 在关卡开始/关键节点/退出时同步。Straight 不写该字段。

@@ -19,9 +19,9 @@
 | `src/modes.js` | 业务 | `straight` / `asaka` 模式注册与 hooks | 不写具体战斗公式 |
 | `src/locale/*.js` | 文案 | 所有 i18n 文本 | 不写逻辑 |
 | `src/title.js` | 主大厅 | 主大厅菜单、关于页、入口路由 | 不直接改 GameWorld |
-| `src/plantree.js` | 计划树 | SVG 金色树、节点状态、唯一自动存档读取 | 不写剧情文本 |
+| `src/plantree.js` | 计划树 | SVG 长图金色树、未来节点拟态枝、latest/重要节点读取 | 不写剧情文本 |
 | `src/story.js` | 剧情 | 3D 场景内剧情 UI、打字机、选项、暂停/隐藏 HUD | 不写章节数据 |
-| `src/asakaSave.js` | 主模式存档 | 主模式进度、flag、唯一 autosave、关键节点白名单 | 不碰 Straight 存档/装备 |
+| `src/asakaSave.js` | 主模式存档 | 主模式进度、flag、latest、keyframes、关键节点白名单 | 不碰 Straight 存档/装备 |
 | `src/settings.js` | 设置 | asaka/straight 分模式 localStorage 快照 | 不保存语言（语言全局） |
 | `src/story/*.js` | 剧情数据 | 计划树节点、章节文本、选项、触发节点 | 不含运行时逻辑 |
 | `index.html` | 壳 | DOM 骨架、全局 CSS、Bootloader | 不写复杂游戏逻辑 |
@@ -675,8 +675,8 @@ _aiMoveTo(enemy, tx, tz, speed, dt)
 
 ## 9. 主模式 / 剧情 / 计划树（v3.3.0）
 
-- `GameApp.showTitle()` → 主大厅；`startAsakaNewGame()` 建立 `AsakaSave` 新档并写 `prologue_start` 自动存档；`continueAsaka({fromPlanTree:true})` 会先 `restoreAutosave()`。
+- `GameApp.showTitle()` → 主大厅；`startAsakaNewGame()` 建立 `AsakaSave` 新档并写 `prologue_start` keyframe；`continueAsaka({nodeId})` 读重要节点，`continueAsaka({})` 读 latest；退出/切后台/行动结束写 `saveLatest()`。
 - `GameWorld._updateStoryTriggers(dt)` 读取 `layout.storyTriggers`；进入半径后调用 `world.startStory(chapterId)` → `StoryPlayer.play()`。
-- `StoryPlayer` 暂停世界、隐藏 HUD、播放章节、在 `onStoryEnd` 回写计划树节点与关键节点自动存档。演出中禁止存档、暂停、背包与设置。
+- `StoryPlayer` 暂停世界、隐藏 HUD、播放章节、在 `onStoryStart/onStoryEnd` 写重要节点 keyframe。演出中禁止存档、暂停、背包与设置。
 - 设置快照：`ModeSettings.capture/apply`；旧 `save.data.flags.profileConfig` 只在首次升级时迁移到 Straight 快照，之后不再读写。
-- 剧情数据扩展：在 `src/story/` 新建章节文件，保持 `{ id,title,start,autoSaveNode,nodes }` 结构，并在 `story.js` 的 `getStoryChapter` 注册；计划树节点在 `asaka-plan.js` 增加，并把关键节点 id 加进 `asakaSave.js` 的 `AUTOSAVE_NODES`。
+- 剧情数据扩展：在 `src/story/` 新建章节文件，保持 `{ id,title,start,autoSaveNode,nodes }` 结构，并在 `story.js` 的 `getStoryChapter` 注册；计划树节点在 `asaka-plan.js` 增加，并把重要节点 id 加进 `asakaSave.js` 的 `KEY_NODES`。

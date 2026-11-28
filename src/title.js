@@ -40,40 +40,20 @@ export class TitleScreen {
       </button>`;
     this.root.innerHTML = `
       <div class="title-bg" aria-hidden="true">
+        <img class="title-bg-img" src="assets/lobby-bg.jpg" alt="" onerror="if(!this.dataset.png){this.dataset.png='1';this.src='assets/lobby-bg.png'}else{this.style.display='none'}">
+        <div class="title-bg-shade"></div>
         <div class="title-bg-glow"></div>
-        <div class="title-bg-horizon"></div>
-        <div class="title-bg-grain"></div>
-      </div>
-      <div class="title-top">
-        <div class="title-brand">
-          <div class="title-la" aria-hidden="true">LA</div>
-          <div>
-            <div class="title-engine">LaiAsaka Engine</div>
-            <div class="title-version">ASP · MAIN MODE</div>
-          </div>
-        </div>
-        <div class="title-top-actions">
-          <button class="title-ghost" id="title-settings">设置</button>
-        </div>
-      </div>
-      <div class="title-hero">
-        <div class="title-kicker">LAIASKA ENGINE PRESENTS</div>
-        <h1>ASAKA</h1>
-        <div class="title-rule"><i></i><span>阿萨卡大陆</span><i></i></div>
-        <p class="title-tagline">沙尘之下，计划仍在生长。</p>
+        <div class="title-bg-vignette"></div>
       </div>
       <nav class="title-nav">
         ${item('title-new', '开始游戏', 'NEW GAME', '开启一份主模式新存档')}
-        ${item('title-continue', '继续游戏', 'CONTINUE', '读取最近的主模式进度')}
+        ${item('title-continue', '继续游戏', 'CONTINUE', '读取退出前的最新状态')}
         ${item('title-plan', '计划树', 'PLAN TREE', '剧情轨迹与存档管理')}
         ${item('title-straight', 'Straight 模式', 'STRAIGHT', '硬核撤离 · 独立战斗模式')}
         ${item('title-about', '关于', 'ABOUT', '')}
-      </nav>
-      <div class="title-foot">
-        <span>v3.3.0 · 主模式</span>
-        <span class="title-license">Assets CC BY-NC 4.0 · Code GPL-3.0</span>
-      </div>
-      <div id="title-save-hint" class="title-save-hint"></div>`;
+        ${item('title-settings', '设置', 'SETTINGS', '主模式设置')}
+        <div id="title-save-hint" class="title-save-hint"></div>
+      </nav>`;
     this.planTree = new PlanTree(this.app);
     this._bind();
     this._refresh();
@@ -106,16 +86,17 @@ export class TitleScreen {
       cont.classList.toggle('locked', !has);
     }
     if (note) {
-      const auto = has ? save.getAutosave() : null;
+      const latest = has ? save.getLatest() : null;
       note.textContent = has
-        ? (auto ? '最近自动存档 · ' + this._time(auto.at) : '读取最近的主模式进度')
+        ? (latest ? '最新状态 · ' + this._time(latest.at) : '读取最近的主模式进度')
         : '没有找到主模式存档';
     }
     const hint = this.root.querySelector('#title-save-hint');
     if (hint) {
       if (has) {
+        const latest = save.getLatest();
         const auto = save.getAutosave();
-        hint.innerHTML = `<span class="dot"></span>主模式存档已建立${auto ? ' · 最近关键节点：' + this._esc(this._nodeName(auto.nodeId)) : ''}`;
+        hint.innerHTML = `<span class="dot"></span>${latest ? '退出前状态 · ' + this._time(latest.at) : '已抵达关键节点 · ' + this._esc(this._nodeName((auto && auto.nodeId) || save.data.node))}`;
       } else {
         hint.innerHTML = '<span class="dot dim"></span>尚未建立主模式存档';
       }
@@ -139,7 +120,7 @@ export class TitleScreen {
   _startNew(){
     const save = this.app.asakaSave;
     if (save && save.hasSave()) {
-      if (!confirm('开始新游戏会覆盖当前主模式进度与唯一的自动存档。\n确定重新开始？')) return;
+      if (!confirm('开始新游戏会覆盖当前主模式进度、关键节点与最新状态。\n确定重新开始？')) return;
     }
     this.app.startAsakaNewGame();
   }
@@ -191,7 +172,7 @@ export class TitleScreen {
         <section class="about-card">
           <h4>协议与说明</h4>
           <div class="about-license-row"><b>游戏资产</b><span><a class="about-link" href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a> · 允许署名、非商业分享与改编，禁止商业使用。</span></div>
-          <div class="about-license-row"><b>游戏本体 / 代码</b><span><a class="about-link" href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener noreferrer">GPL-3.0</a> · 源码可自由使用、修改与再分发，衍生作品须以同一协议开源。</span></div>
+          <div class="about-license-row"><b>游戏本体 / 代码</b><span><a class="about-link" href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener noreferrer">Apache-2.0</a> · 源码可自由使用、修改与再分发，保留版权与许可声明即可。</span></div>
           <div class="about-license-row"><b>Three.js</b><span><a class="about-link" href="https://github.com/mrdoob/three.js/blob/dev/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a> · 渲染引擎依赖。</span></div>
           <div class="about-license-row"><b>字体</b><span>使用系统字体栈（PingFang SC / Microsoft YaHei / system-ui），不随包分发字体文件。</span></div>
           <p class="about-small">第三方组件仅列直接依赖；后续接入新的开源库时会同步补充到此页与仓库 NOTICE。</p>

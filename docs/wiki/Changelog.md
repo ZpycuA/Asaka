@@ -5,6 +5,76 @@
 
 ---
 
+## 2026-11-28 · 第十一轮（补记）：开火方式归位 / 屏息开关 / 自动开镜与自动屏息
+
+- 移动端与桌面 HUD：开火方式按钮移到弹药数字下面，和侧瞄同一行；屏息按钮回到移动端左侧原位。
+- 屏息改为移动端点按切换（PC 的 H 仍可按住）；新增体验性设置「开火自动开镜」「开镜自动屏息」，随分模式设置持久化。
+- 主模式/Straight 双库存与仓库多选卖出沿用第十轮。
+
+**影响文件**
+`index.html`、`src/game.js`、`src/engine.js`、`docs/wiki/Changelog.md`。
+
+---
+
+## 2026-11-28 · 第十轮：主模式 / Straight 双库存、主模式队伍状态、仓库多选卖出
+
+**原因**
+- 主模式与 Straight 共用 `GameApp.inventory`，开主模式会读到 Straight 仓库，退出还会写回 Straight。
+- 主模式应当是持续存档（含队伍身体状态），Straight 应当是一过性；主模式仓库只应在游戏内管理。
+- Straight 仓库需要批量卖出，而不是逐个打开详情。
+
+**新行为**
+- 双库存：`straightInventory` 与 `asakaInventory` 各自持久化，`activeMode` 决定 BagUI/GameWorld 使用哪套。
+- 主模式新档新建空 Asaka 库存；继续/回档从 `AsakaSave.data.inventory` 反序列化；Straight 不再被读写。
+- 主模式大厅禁止打开 Straight 仓库（B 键与 BagUI.show 双重拦截）；主模式详情隐藏卖出/丢弃。
+- `AsakaSave.data.party` 保存玩家/队友部位、伤口、失血、封堵与效果；`GameWorld.serializeParty/applyParty` 在关键节点/退出/继续时同步；Straight 不写。
+- Straight 仓库新增「多选卖出」：点选多件、按 0.8 估值卖出；容器有内部物品时禁止直接卖。
+- 主模式战斗/剧情仍不结算 Straight 掉落；主模式死亡路径后续再接“回关键节点”。
+
+**影响文件**
+`src/game.js`、`src/bagUI.js`、`src/asakaSave.js`、`docs/wiki/Inventory-And-Ammo.md`、`docs/wiki/Changelog.md`、`docs/wiki/Home.md`。
+
+**验证**
+- 开主模式新档不应看到 Straight 仓库物品；B 键在大厅无效，战局内只显示主模式背包。
+- 主模式退出再继续，装备/部位/伤口/效果保留；Straight 仓库不受影响。
+- Straight 仓库多选卖出：选中几件、一次结算，仓库与 credits 正确；容器内部有物时不能直接卖。
+- 切换主模式/Straight 后背包内容立刻切换，不串仓。
+
+---
+
+## 2026-11-28 · 第九轮：大厅清理 / 两类存档 / 计划树长图 / AI 脱困与反群聚
+
+**原因**
+- 主大厅已有背景图后，代码再渲染 ASAKA 标题/LA/协议水印会重复；设置入口也应在大厅菜单里。
+- 计划树会剧透未来节点，且只有单个 autosave；用户明确存档分两类：退出前最新状态 + 所有重要节点。
+- 移动端屏息/侧瞄应回到弹药下方；左/右倾按钮与开火重叠；上方按钮需要上移。
+- Straight 中 Assee 几乎每局都出（旧调试 localStorage 残留）；Moments 落地即仇恨；AI 群聚/站桩/卡墙。
+- 投掷物提示过于精确；大厅/页面切换缺少过渡。
+
+**新行为**
+- 主大厅：移除 ASAKA 大字、左上 LA、右下协议水印；背景图接 `assets/lobby-bg.jpg`，缺失时用渐变。设置移到「关于」下方。
+- 计划树：从根到当前节点点亮；未来节点只留无字拟态枝、不可点。支持随节点增加自动变高并上下滚动；金色粒子/光晕。重要节点显示三环结存档点。
+- 存档：`AsakaSave` v2 分 `latest`（退出/切后台/行动结束时写）与 `keyframes`（每个重要节点一份，可回档）；计划树可读取任一重要节点或最新状态。
+- 移动端：屏息/侧瞄移到弹药下；左倾/右倾改名左/右并上移；投掷/医疗/模式按钮上移。
+- AI：交火名额最多 4 人，其余在 16m 外待命；小队警报 13m、最多 3 人；枪声 30m 内才调查。
+- AI 脱困：卡墙 1.6s 强制侧向绕行点；A* 进度检测、同阵营分离、换枪冷却，减少站桩。
+- Assee：默认概率 0.6→0.22；`LaiAsaka_AsceDebug` 旧键清除，且只有开发模式才允许强制。
+- Moments：召唤后 8 秒警告保护期，贴脸 2.8m 内也先警告；之后才按持械逼近/逗留判定。
+- 投掷物提示：只显示图标与大致方向，不报距离/引信/类型。
+- 过场：主大厅/计划树/关于/剧情/弹窗/按钮增加淡入与位移动画。
+- 授权：代码改为 Apache-2.0，资产仍 CC BY-NC 4.0。
+
+**影响文件**
+`index.html`、`src/game.js`、`src/plantree.js`、`src/title.js`、`src/asakaSave.js`、`src/content.js`、`src/locale/zh-CN.js`。
+
+**验证**
+- 大厅无重复 ASAKA/LA/水印，设置位于关于下方；背景图放 `assets/lobby-bg.jpg` 后显示。
+- 计划树未来节点无文字且点不到；退出后重开可读最新状态，重要节点可逐个回档；长树可滚动。
+- 移动端屏息/侧瞄在弹药下、左/右不再压开火；Straight 中 Assee 不因旧调试每局必出。
+- 工厂横墙附近队友能绕行；Moments 落地先警告；投掷物提示只有图标与方向。
+
+---
+
 ## 2026-11-28 · 第八轮：主大厅 / 计划树 / 剧情系统 / 分模式设置 / AI 识别
 
 **原因**
@@ -22,7 +92,7 @@
 - AI 投掷：抛物线采样，命中墙/容器/顶板不扔。
 - 移动端：开火键上移；开火模式/侧瞄改为 ACTION_MAP 独立按钮。
 - 文件：脚本移入 `src/`，文案 `src/locale/`，剧情 `src/story/`；地图仍根 `maps/`，按 `../maps/` 解析。
-- 授权：代码 GPL-3.0，资产 CC BY-NC 4.0。
+- 授权：代码 Apache-2.0，资产 CC BY-NC 4.0。
 
 **影响文件**
 `index.html`、`src/*.js`、`src/locale/zh-CN.js`、`src/story/*.js`、`src/{asakaSave,settings,title,plantree,story}.js`、`maps/void.json`、`assets/game-icon.svg`。

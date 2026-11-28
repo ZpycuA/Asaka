@@ -119,12 +119,12 @@
 |---|---|---|
 | `src/story/asaka-plan.js` | 计划树节点：id/父节点/坐标/标签/说明/是否关键节点 | `plantree.js`、`GameApp` |
 | `src/story/asaka.prologue.js` | 章节文本、说话人、选项、下一节点、章节关键存档节点 | `story.js` |
-| `src/asakaSave.js` | 主模式进度、唯一 autosave、关键节点白名单 | `GameApp`、`PlanTree` |
+| `src/asakaSave.js` | 主模式进度、latest 最新状态、keyframes 重要节点、关键节点白名单 | `GameApp`、`PlanTree` |
 
 规则：
 
 1. 章节文件只描述“谁说了什么、给什么选择”，不得出现 DOM/Three.js/存档逻辑。
-2. 新增关键节点时，必须同时更新 `asaka-plan.js`、章节的 `autoSaveNode`、`asakaSave.js` 的 `AUTOSAVE_NODES`，三处缺一不可。
-3. 演出途中不写盘；自动存档只在章节开始前或章节结束后的关键节点写入。
+2. 新增重要节点时，必须同时更新 `asaka-plan.js`、章节的 `autoSaveNode`、`asakaSave.js` 的 `KEY_NODES`，三处缺一不可。
+3. 演出途中不写盘；章节开始/结束只写重要节点 keyframe，退出战局/切后台/关闭页面才写 latest。
 4. 计划树节点坐标是逻辑画布（1000×640），渲染器只负责缩放，不在 UI 里硬编码剧情。
 5. 新章节的 flag 由选项的 `flags` 字段声明，禁止在 `story.js` 里写死分支名。

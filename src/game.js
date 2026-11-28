@@ -1,6 +1,6 @@
 /* ============================================================
    LaiAsaka Engine · Game Layer
-   v3.3.0 · © 2026 ZpycuA · 游戏代码 GPL-3.0 · 游戏资产 CC BY-NC 4.0
+   v3.3.0 · © 2026 ZpycuA · 游戏代码 Apache-2.0 · 游戏资产 CC BY-NC 4.0
    ------------------------------------------------------------
    更新日志：暂无
    ============================================================ */
@@ -79,7 +79,7 @@ const ACTION_MAP = {
     keys: [],
     mouse: 'left',
     label: '攻击',
-    // ★ 右开火键上移，给武器框里的弹药/模式留出空间；开火模式与侧瞄改由左侧独立按钮触发。
+    // ★ 右开火键上移，给武器框里的弹药与屏息/侧瞄按钮留出空间。
     mobile: { right: '18px', bottom: '118px', size: 78, color: 'rgba(255,80,80,.4)', border: 'rgba(255,100,100,.8)', mode: 'hold', rotate: true },
   },
   reload: {
@@ -90,13 +90,13 @@ const ACTION_MAP = {
   fireMode: {
     keys: ['v'],
     label: '模式',
-    // ★ 移动端独立按钮：不再被右开火键压住，也不依赖武器框里的小按钮。
-    mobile: { left: '228px', bottom: '246px', size: 45, color: 'rgba(120,180,255,.3)', border: 'rgba(150,215,255,.7)', mode: 'click' },
+    // 开火方式按钮在弹药数字下面（DOM），不再额外生成移动端圆钮。
   },
   holdBreath: {
     keys: ['h'],
     label: '屏息',
-    mobile: { left: '128px', bottom: '246px', size: 45, color: 'rgba(120,200,255,.3)', border: 'rgba(150,220,255,.6)', mode: 'hold' },
+    // 点一下切换屏息开关；PC 的 H 仍可按住屏息。
+    mobile: { left: '128px', bottom: '246px', size: 45, color: 'rgba(120,200,255,.3)', border: 'rgba(150,220,255,.65)', mode: 'click' },
   },
   throw: {
     keys: ['g'],
@@ -110,12 +110,12 @@ const ACTION_MAP = {
   throwWheel: {
     keys: ['t'],
     label: '投掷轮盘',
-    mobile: { left: '20px', bottom: '246px', size: 45, color: 'rgba(255,170,60,.3)', border: 'rgba(255,200,90,.65)', mode: 'click' },
+    mobile: { left: '20px', bottom: '290px', size: 45, color: 'rgba(255,170,60,.3)', border: 'rgba(255,200,90,.65)', mode: 'click' },
   },
   medWheel: {
     keys: ['n'],
     label: '医疗轮盘',
-    mobile: { left: '72px', bottom: '246px', size: 45, color: 'rgba(90,220,160,.3)', border: 'rgba(120,255,190,.65)', mode: 'click' },
+    mobile: { left: '72px', bottom: '290px', size: 45, color: 'rgba(90,220,160,.3)', border: 'rgba(120,255,190,.65)', mode: 'click' },
   },
   squadAdvance: { keys: ['p'], label: '建议前进' },
   squadRetreat: { keys: ['o'], label: '建议撤退' },
@@ -170,7 +170,6 @@ hazardAction:{ keys: ['k'], label: '拔除/灭火' },
   sideSight: {
     keys: ['f4'],
     label: '侧瞄',
-    mobile: { left: '176px', bottom: '246px', size: 45, color: 'rgba(120,200,255,.3)', border: 'rgba(150,220,255,.65)', mode: 'click' },
   },
   exoVisor: {
     keys: ['l'],
@@ -245,13 +244,13 @@ ads: {
 },
 lean_left: {
   keys: ['z'],
-  label: '左倾',
-  mobile: { left: '20px', bottom: '192px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
+  label: '左',
+  mobile: { left: '20px', bottom: '238px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
 },
 lean_right: {
   keys: ['x'],
-  label: '右倾',
-  mobile: { left: '72px', bottom: '192px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
+  label: '右',
+  mobile: { left: '72px', bottom: '238px', size: 45, color: 'rgba(100,100,100,.3)', border: 'rgba(200,200,200,.5)', mode: 'hold', rotate: true },
 },
 skill1: {
   keys: ['q'],
@@ -1115,8 +1114,19 @@ const AISystem = {
       enemy.targetEntity = target;
       this._alertSquad(world, enemy, target, dist);
       this._switchEnemyWeapon(world, enemy, dist, true);
+      this._limitEngagement(world, enemy, target, dist);
+      // ★ 正在翻尸体/救人的单位，一旦看见玩家（近距离）必须立刻中断：
+      //   旧版会继续蹲在尸体堆里，玩家看到的就是“看着我傻站着”。
+      if (canSee && dist < 24 && (enemy.state === 'loot' || enemy.state === 'aid')) {
+        enemy.state = 'combat';
+        enemy.stateT = 0;
+        if (!(enemy.reactionTimer > 0)) {
+          enemy.reactionTimer = dist <= 6 ? 0.1 : Math.min(0.5, 0.12 + dist / 90);
+        }
+      }
     } else {
       enemy.targetEntity = null;
+      enemy._overwatch = false;
       // 没有视线但本阵营有人标记过：去最后已知位置查看，而不是完全失忆
       const marked = this._findMarkedTarget(world, enemy, 65);
       if (marked) {
@@ -1251,7 +1261,7 @@ const AISystem = {
       }
     }
 
-    if (enemy.awareness >= 1.0 && enemy.state !== 'combat' && enemy.state !== 'flee' && enemy.state !== 'melee' && enemy.state !== 'retreat' && enemy.state !== 'drone' && enemy.state !== 'nade' && enemy.state !== 'aid') {
+    if (enemy.awareness >= 1.0 && !enemy._overwatch && enemy.state !== 'combat' && enemy.state !== 'flee' && enemy.state !== 'melee' && enemy.state !== 'retreat' && enemy.state !== 'drone' && enemy.state !== 'nade' && enemy.state !== 'aid') {
       enemy.state = 'combat';
       const baseReact = (rule.reactionBase || 1.5) - ai.composure * (rule.reactionComposureMul || 1.2);
       // 距离越近，抬枪/确认的时间越短；45m 外才给完整反应时间。
@@ -1451,19 +1461,24 @@ const AISystem = {
     if (!enemy.spec || !enemy.spec.faction) return;
     if (enemy._squadAlertAt && world.time - enemy._squadAlertAt < 2.5) return;
     enemy._squadAlertAt = world.time;
+    let alerted = 0;
     for (const mate of world.enemies) {
       if (mate === enemy || !mate.alive) continue;
       if (mate.spec.faction !== enemy.spec.faction) continue;
       const d = Math.hypot(mate.body.position.x - enemy.body.position.x, mate.body.position.z - enemy.body.position.z);
-      if (d > 20) continue;
-      // 只让同一小队互相响应，避免整张图的同阵营一起扑向玩家
+      // ★ 只叫醒同一个小队，且只在近距交火时叫：旧版 20m 内、甚至跨小队都能被叫来，
+      //   形成“一个人看到玩家，半张图都压过来”的排队枪毙。
+      if (d > 13) continue;
       if (enemy.squad && mate.squad !== enemy.squad) continue;
+      if (!enemy.squad && d > 8) continue;
+      if (++alerted > 3) break;
       if (mate.awareness < 0.75) mate.awareness = 0.75;
       if (!mate.targetEntity || !mate.targetEntity.alive) mate.targetEntity = target;
+      // ★ 只给“去查看”的指令，不直接把人推进 combat：
+      //   真正是否接战交给 _limitEngagement 的交火名额判断，避免一个哨兵喊来整队。
       if (mate.state === 'patrol' || mate.state === 'investigate') {
-        mate.state = 'combat';
+        mate.state = 'investigate';
         mate.stateT = 0;
-        mate.reactionTimer = Math.max(mate.reactionTimer || 0, 0.2);
       }
       mate.targetPos = { x: target.body.position.x, z: target.body.position.z };
     }
@@ -1558,6 +1573,7 @@ const AISystem = {
     const slots = enemy.weapons;
     if (!slots) return;
     if (enemy._weaponLock && world.time < enemy._weaponLock) return;
+    const switchLocked = !!(enemy._weaponSwitchCd && world.time < enemy._weaponSwitchCd);
     const ai = enemy.spec.ai || {};
     const canUse = (w) => !!(w && w.def && !w.def.melee && !w.disabled
       && !(w.item && w.item.damaged)
@@ -1660,11 +1676,15 @@ const AISystem = {
     }
 
     if (want !== current && slots[want]) {
+      // ★ 换枪冷却：防止“A 枪分数高→切 A→B 分数高→切 B”来回抖，
+      //   旧版可以整场站在玩家面前反复换枪，等同于发呆。
+      if (switchLocked && !curBroken && !curEmpty) return;
       enemy.currentSlot = want;
       enemy.weapon = slots[want];
       // 贴脸换枪必须快；远距离才有完整的 1.1~1.6s 换枪动作。
       const lockTime = dist <= 6 ? 0.35 : (enemy.isAlly && dist < 18 ? 0.55 : 1.1);
       enemy._weaponLock = world.time + lockTime + Math.random() * 0.25;
+      enemy._weaponSwitchCd = world.time + 2.8 + Math.random() * 1.2;
       enemy.fireCd = Math.max(enemy.fireCd || 0, dist <= 6 ? 0.2 : 0.45);
       // 切枪后先完成一次抬枪，不会瞬间开枪
       enemy.reactionTimer = Math.max(enemy.reactionTimer || 0, dist <= 6 ? 0.06 : 0.18);
@@ -1683,6 +1703,36 @@ const AISystem = {
       if (d < bestD) { bestD = d; best = pr; }
     }
     return best ? { pr: best, dist: bestD, x: best.pos.x, z: best.pos.z } : null;
+  },
+
+  // ★ 交火名额：同一阵营同时压上去的最多 4 人，其余在 18m 外待命。
+  //   避免“一个哨兵看到玩家，半张图排队冲脸”，也保留轮换进攻。
+  _limitEngagement(world, enemy, target, dist) {
+    if (!target || !target.body || !enemy.spec) return false;
+    if (enemy.isMoment || enemy.isBoss) return false;
+    if (['combat', 'melee', 'flee', 'retreat', 'aid', 'selfaid', 'remove', 'nade'].includes(enemy.state)) return false;
+    const faction = enemy.spec.faction;
+    let engaged = 0;
+    for (const e of world.enemies) {
+      if (!e || e === enemy || !e.alive || !e.body) continue;
+      if ((e.spec && e.spec.faction) !== faction) continue;
+      if (e.status && e.status.isDowned && e.status.isDowned()) continue;
+      if (e._overwatch) continue;
+      if (e.state !== 'combat' && e.state !== 'melee') continue;
+      const d = Math.hypot(e.body.position.x - target.body.position.x, e.body.position.z - target.body.position.z);
+      if (d < 20) engaged++;
+    }
+    if (engaged < 4) { enemy._overwatch = false; return false; }
+    if (enemy._overwatch) return false;
+    if (enemy.state === 'combat' || enemy.state === 'melee') return false;
+    enemy._overwatch = true;
+    enemy.state = 'combat';
+    enemy.stateT = 0;
+    enemy.targetEntity = target;
+    enemy.reactionTimer = Math.max(enemy.reactionTimer || 0, 0.12);
+    enemy.angle = Math.atan2(target.body.position.z - enemy.body.position.z,
+      target.body.position.x - enemy.body.position.x);
+    return true;
   },
 
   _findTarget(world, enemy, ai) {
@@ -1793,23 +1843,55 @@ const AISystem = {
       }
       if ((enemy._stuckT || 0) > 0.9) {
         // 卡住太久：强制侧移/后退，避免永久顶墙
-        const side = Math.random() < 0.5 ? 1 : -1;
+        const side = enemy._avoidSide || (Math.random() < 0.5 ? 1 : -1);
+        enemy._avoidSide = side;
         enemy.body.velocity.x = -uz * sp * side;
         enemy.body.velocity.z = ux * sp * side;
         enemy._stuckT = 0;
       }
+      // 前方开阔一小段时间后，才允许重新选择绕行方向，避免左右横跳。
+      if (world.time > (enemy._avoidUntil || 0) + 0.4) enemy._avoidSide = 0;
+      enemy._blockedT = 0;
       return;
     }
-    // 前方被挡：在 ±45°/±90°/±135° 中找最开阔的方向
+
+    // ★ 前方被挡：绕行方向必须保持一段时间，否则每帧都会在左右两侧之间抖动。
+    enemy._blockedT = (enemy._blockedT || 0) + dt;
+    if (enemy._blockedT > 1.6) {
+      // 侧滑超过 1.6 秒仍在同一面墙前：强制给一个明确的绕行点，不让它在墙边磨。
+      const side0 = enemy._avoidSide || 1;
+      enemy._aiDetour = {
+        x: px - uz * side0 * 2.8,
+        z: pz + ux * side0 * 2.8,
+        until: world.time + 1.4,
+      };
+      enemy._navPath = null;
+      enemy._blockedT = 0;
+      return;
+    }
+    if (!enemy._avoidSide || world.time > (enemy._avoidUntil || 0)) {
+      // 优先朝路径/目标那一侧绕；没有目标时随机选一次并锁住。
+      let gx = 0, gz = 0;
+      if (enemy._navGoal) { gx = enemy._navGoal.x - px; gz = enemy._navGoal.z - pz; }
+      else if (enemy.targetPos) { gx = enemy.targetPos.x - px; gz = enemy.targetPos.z - pz; }
+      const cross = ux * gz - uz * gx;
+      enemy._avoidSide = Math.abs(cross) > 0.15 ? (cross > 0 ? 1 : -1)
+        : (Math.random() < 0.5 ? 1 : -1);
+      enemy._avoidUntil = world.time + 1.25;
+    }
+    const side = enemy._avoidSide || 1;
+    const degs = side > 0
+      ? [45, 90, 135, 30, 60, -45, 180]
+      : [-45, -90, -135, -30, -60, 45, 180];
     let best = null;
-    for (const deg of [45, -45, 90, -90, 135, -135, 180]) {
+    for (const deg of degs) {
       const a = Math.atan2(uz, ux) + deg * Math.PI / 180;
       const ax = Math.cos(a), az = Math.sin(a);
-      const d = probeBoth(ax, az, 1.3 + radius);
+      const d = probeBoth(ax, az, 1.6 + radius);
       if (d > (best ? best.d : 0)) best = { x: ax, z: az, d };
-      if (d > 2.2) break;
+      if (d > 2.4) break;
     }
-    if (best) {
+    if (best && best.d > 1.0) {
       enemy.body.velocity.x = best.x * sp;
       enemy.body.velocity.z = best.z * sp;
       // ★ 交火/近战时绕障只改移动方向，不改瞄准朝向：
@@ -1819,6 +1901,15 @@ const AISystem = {
         || enemy.state === 'aid' || enemy.state === 'selfaid';
       if (!aiming) enemy.angle = Math.atan2(best.z, best.x);
     } else {
+      // 连侧移都没有空间：给一个明确的侧向绕行点，交给 _aiMoveTo 执行，
+      // 不要在墙边原地抖。工厂里的两道横墙/Boss 房门口主要靠这一步脱困。
+      if (enemy._blockedT > 0.9) {
+        const tx = px - uz * side * 2.6;
+        const tz = pz + ux * side * 2.6;
+        enemy._aiDetour = { x: tx, z: tz, until: world.time + 1.5 };
+        enemy._navPath = null;
+        enemy._blockedT = 0;
+      }
       enemy.body.velocity.x = 0;
       enemy.body.velocity.z = 0;
     }
@@ -2093,6 +2184,24 @@ const AISystem = {
     const ex = enemy.body.position.x, ez = enemy.body.position.z;
     const dx = target.body.position.x - ex, dz = target.body.position.z - ez;
     const d = Math.hypot(dx, dz) || 1;
+
+    // ★ 交火名额之外的“火力支援位”：保持 14~22m，不冲脸，但继续射击。
+    //   旧版让它们 investigate 站在 16m 看戏，看起来像傻站；现在它们会在射程内压枪。
+    if (enemy._overwatch) {
+      if (enemy.prone) this._setProne(enemy, false);
+      if (d < 14) {
+        world._aiMoveTo(enemy, ex + (ex - target.body.position.x) / d * 4,
+          ez + (ez - target.body.position.z) / d * 4, sprint * 0.9, dt);
+      } else if (d > 22) {
+        world._aiMoveTo(enemy, ex + dx / d * 4, ez + dz / d * 4, sprint * 0.75, dt);
+      } else {
+        enemy.body.velocity.x *= 0.72;
+        enemy.body.velocity.z *= 0.72;
+        this._setCrouch(enemy, d < 18);
+      }
+      enemy.angle = aim;
+      return;
+    }
 
     // 低血量掩体：先跑到掩体，再在掩体后打；避免残血 AI 原地站桩或直线送死
     if (enemy._coverX !== undefined && world.time < (enemy._coverUntil || 0)) {
@@ -5567,8 +5676,13 @@ this._navGrid = null;
   this.groundLoots = [];
   this.asce = null;
   this._asceSpawnAt = null;
-  this._asceForce = !!(engine.profile && engine.profile.get && engine.profile.get('world.asceDebug', false))
-    || (typeof localStorage !== 'undefined' && localStorage.getItem('LaiAsaka_AsceDebug') === '1');
+  // ★ 只认当前设置，且必须同时处于开发模式；不再读 localStorage 里的旧调试痕迹。
+  //   旧版测试期勾过一次“必出容器”会永久留在这个键里，导致正式局也每把都出 Assee。
+  let _urlDev = false;
+  try { _urlDev = new URLSearchParams(location.search).has('dev'); } catch (_) {}
+  const _devOn = _urlDev || !!(engine.profile && engine.profile.get && engine.profile.get('world.devMode', false));
+  this._asceForce = _devOn && !!(engine.profile && engine.profile.get && engine.profile.get('world.asceDebug', false));
+  try { localStorage.removeItem('LaiAsaka_AsceDebug'); } catch (_) {}
   this._momentAggro = false;
   this._momentWarned = false;
   // ★ P空间波及/撕裂的表现层：扩张环、裂缝、HUD、语音字幕都在本世界内创建与销毁
@@ -5690,6 +5804,71 @@ if (this._playerSpawnPos && typeof this._playerSpawnPos.angle === 'number') {
     if (this.kind === 'training') {
       this._log(this.engine.i18n.t('log.training_mode'), 'y');
       this._log('训练场不配发装备：用武器架或创造模式自选；中途退出不会结算战利品。', 'y');
+    }
+  }
+
+  // ===================== 主模式角色持续状态 =====================
+  // 主模式的队伍是持续存档：部位耐久、伤口、失血、状态效果都要跨战局保留。
+  // Straight 是单局模式，不调用这两个入口。
+  _serializeCharacterState(e) {
+    if (!e || !e.alive || !e.status) return null;
+    const st = e.status;
+    const parts = {};
+    for (const k in st.parts) {
+      const p = st.parts[k];
+      parts[k] = {
+        hp: p.hp,
+        wounds: (p.wounds || []).map(w => ({ level: w.level, treated: !!w.treated })),
+        fracture: p.fracture || 0,
+      };
+    }
+    const effects = [];
+    for (const [id, ef] of st.effects.entries()) {
+      if (!ef) continue;
+      effects.push({ id, duration: ef.duration, strength: ef.strength, awareness: ef.awareness || 0 });
+    }
+    return { blood: st.blood, bleedSeal: st.bleedSeal || 0, parts, effects };
+  }
+
+  _applyCharacterState(e, snap) {
+    if (!e || !e.alive || !e.status || !snap) return;
+    const st = e.status;
+    for (const k in (snap.parts || {})) {
+      const p = st.parts[k], s = snap.parts[k];
+      if (!p || !s) continue;
+      p.hp = Math.max(0, Math.min(p.maxHp, Number(s.hp) || 0));
+      p.wounds = Array.isArray(s.wounds) ? s.wounds.map(w => ({ level: w.level, treated: !!w.treated })) : [];
+      p.fracture = Number(s.fracture) || 0;
+    }
+    if (snap.blood !== undefined) st.blood = Math.max(0, Math.min(st.maxBlood, Number(snap.blood) || 0));
+    st.bleedSeal = Math.max(0, Number(snap.bleedSeal) || 0);
+    st.effects.clear();
+    for (const ef of (snap.effects || [])) {
+      const dur = Number(ef && ef.duration);
+      if (!ef || !ef.id || !(dur > 0) || !isFinite(dur)) continue;
+      st.addEffect(ef.id, dur, Number(ef.strength) || 1, Number(ef.awareness) || 0);
+    }
+    st.updateOverallHealth();
+  }
+
+  serializeParty() {
+    const out = {};
+    if (this.player) out.player = this._serializeCharacterState(this.player);
+    for (const a of (this.allies || [])) {
+      if (!a || !a.alive) continue;
+      const id = a.charId || a.allyName || ('ally' + (a.allyIndex || 0));
+      out['ally:' + id] = this._serializeCharacterState(a);
+    }
+    return out;
+  }
+
+  applyParty(party) {
+    if (!party || typeof party !== 'object') return;
+    if (party.player) this._applyCharacterState(this.player, party.player);
+    for (const a of (this.allies || [])) {
+      const id = a.charId || a.allyName || ('ally' + (a.allyIndex || 0));
+      const snap = party['ally:' + id];
+      if (snap) this._applyCharacterState(a, snap);
     }
   }
 
@@ -6487,12 +6666,18 @@ _updateAsce(dt) {
       if (!e.alive || !e.isMoment || !e.body) continue;
       nearest = Math.min(nearest, Math.hypot(e.body.position.x - p.body.position.x, e.body.position.z - p.body.position.z));
     }
-    // ★ 只有真正贴脸（<4.5m）或持械在 8m 内赖着不走才视为威胁。
-    //   不再因为“进入 22m 且警告时间到”就自动开战——玩家只是路过/观察也会被打。
-    if (nearest < 4.5) this._momentProvoke('你进入了 Moment 的警戒圈');
-    else if (nearest < 8 && p.activeWeapon && p.activeWeapon.def && !p.activeWeapon.def.melee) {
+    // ★ 警告阶段先给玩家反应时间：召唤后的 warnGrace 秒内，即使贴脸也只警告。
+    //   旧版 nearest<4.5 直接仇恨，玩家蹲在容器边搜刮时 Moment 一落地就打，像没有警告。
+    const _acfg = this.engine.content.get('asce', 'default') || {};
+    const _grace = _acfg.warnGrace !== undefined ? _acfg.warnGrace : 8;
+    const _prox = _acfg.proximityRange !== undefined ? _acfg.proximityRange : 2.8;
+    const _armedLinger = _acfg.armedLinger !== undefined ? _acfg.armedLinger : 7;
+    const warnElapsed = this.time - (this._momentWarnAt || this.time);
+    if (warnElapsed > _grace && nearest < _prox) {
+      this._momentProvoke('你进入了 Moment 的警戒圈');
+    } else if (warnElapsed > _grace && nearest < 8 && p.activeWeapon && p.activeWeapon.def && !p.activeWeapon.def.melee) {
       if (!this._momentCloseSince) this._momentCloseSince = this.time;
-      else if (this.time - this._momentCloseSince > 4.5) this._momentProvoke('持械在警告距离内停留过久');
+      else if (this.time - this._momentCloseSince > _armedLinger) this._momentProvoke('持械在警告距离内停留过久');
     } else {
       this._momentCloseSince = 0;
     }
@@ -7993,6 +8178,8 @@ _spawnMomentSquad(a) {
   const cfg = this.engine.content.get('asce', 'default') || {};
   const ids = cfg.momentSquad || ['moment_leader', 'moment_shield', 'moment_breacher', 'moment_assault', 'moment_carrier', 'moment_scout_medic'];
   const spawned = [];
+  this._momentWarnAt = this.time;
+  this._momentCloseSince = 0;
   for (const id of ids) {
     const e = this._spawnMomentOne(a, id);
     if (e) spawned.push(e);
@@ -10250,7 +10437,7 @@ _refillTrainingLoadout() {
   // ★ Assee 的调度必须放在“地图自带容器”早退之前。
   //   旧版地图 JSON 一旦定义了 containers，this.containers.length > 0 就直接 return，
   //   正式战局永远走不到下面的 Assee 概率判定——这就是“正式战局刷不出来”的根因。
-  const asceForce = this._asceForce || this.engine.profile.get('world.asceDebug', false);
+  const asceForce = !!this._asceForce;
   if (!this.training || asceForce) {
     const cfg = this.engine.content.get('asce', 'default');
     // ★ Assee 是地图事件而不是难度奖励：概率固定取自 content，不再受难度倍率影响。
@@ -10794,9 +10981,21 @@ if (_noAdsWeapon || knockedNow || this.time < (p._adsBlockedUntil || 0)) {
 // ★ 疾跑时强制收镜：真枪在全力奔跑时不可能保持贴腮瞄准。
 if (isSprinting) { p.ads = false; p._adsToggled = false; }
 
-// ★ 屏息：开镜时按住屏息，压制晃动/散布，但持续消耗体力
+// ★ 体验性设置：开火自动开镜。只对枪械生效，近战/空手/投掷物不强制 ADS。
+if (this.engine.profile.get('input.autoAdsOnFire', false) && !p.ads && !_noAdsWeapon
+    && !knockedNow && !lightDisabled && !isSprinting
+    && this.time >= (p._adsBlockedUntil || 0)
+    && (e.input.isActive('fire') || this._edge.fire)) {
+  p.ads = true;
+}
+
+// ★ 屏息：开镜时按住/切换屏息，压制晃动/散布，但持续消耗体力
 const breathEnabled = this.engine.profile.get('input.breathHold', true);
-p.holdingBreath = !!(p.ads && breathEnabled && e.input.isActive('holdBreath') && p.stamina > 0);
+const autoBreath = this.engine.profile.get('input.autoBreathOnAds', false);
+// 移动端屏息是“点一下切换”，PC H 仍是按住；两种都受“开镜自动屏息”影响。
+p.holdingBreath = !!(p.ads && breathEnabled
+  && (e.input.isActive('holdBreath') || p._breathToggle || autoBreath)
+  && p.stamina > 0);
 if (p.holdingBreath) p.stamina = Math.max(0, p.stamina - dt * 9);
 
 // 记录相机基础高度（供 update 主循环读取）
@@ -12481,8 +12680,8 @@ _meleeAttack(owner, weapon) {
     function pyGround(pos) { return pos.y < 0.12; }
   }
 
-  // ★ 附近投掷物警告：预设 `hud.warnNade` 关闭时不显示。
-  //   只给“敌方弹体/未知来源”提示，不暴露精确落点；6m 内转红。
+  // ★ 附近投掷物警告：只给一个图标 + 大概方向，不报距离/引信/类型。
+  //   方向按玩家当前视角换算，图标浮在准星周围；贴近时会变红。
   _updateNadeWarning() {
     let el = document.getElementById('nade-warning');
     const p = this.player;
@@ -12494,20 +12693,29 @@ _meleeAttack(owner, weapon) {
     for (const pr of (this.projectiles || [])) {
       if (!pr || !pr.pos || pr.owner === p) continue;
       const d = Math.hypot(pr.pos.x - p.body.position.x, pr.pos.z - p.body.position.z);
-      if (d < 15 && d < bd) { bd = d; best = pr; }
+      if (d < 18 && d < bd) { bd = d; best = pr; }
     }
     if (!el) {
       el = document.createElement('div');
       el.id = 'nade-warning';
-      el.style.cssText = 'position:fixed;left:50%;bottom:154px;transform:translateX(-50%);z-index:65;pointer-events:none;display:none;padding:3px 12px;border-radius:5px;background:rgba(50,12,8,.82);border:1px solid rgba(255,110,90,.7);font-size:12px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 3px #000;white-space:nowrap';
+      el.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:65;pointer-events:none;display:none;width:34px;height:34px;border-radius:50%;background:rgba(28,12,8,.55);border:1px solid rgba(255,150,110,.55);align-items:center;justify-content:center;font-size:17px;line-height:1;text-shadow:0 1px 4px #000;filter:drop-shadow(0 0 6px rgba(255,120,60,.35))';
       document.body.appendChild(el);
     }
     if (!best) { el.style.display = 'none'; return; }
-    const fuse = best.trigger === 'impact' ? '撞击引信'
-      : (best.fuse > 0 ? best.fuse.toFixed(1) + 's' : '引爆');
-    el.style.display = 'block';
-    el.style.color = bd < 6 ? '#ff5a5a' : '#ffd36a';
-    el.textContent = '⚠ 附近投掷物 · ' + Math.round(bd) + 'm · ' + fuse;
+    const yaw = (this.engine.cameraCtl && typeof this.engine.cameraCtl.yaw === 'number') ? this.engine.cameraCtl.yaw : (p.angle || 0);
+    const dx = best.pos.x - p.body.position.x;
+    const dz = best.pos.z - p.body.position.z;
+    // 相机前向 = (sin(yaw), -cos(yaw))，右向 = (cos(yaw), sin(yaw))
+    const forward = dx * Math.sin(yaw) - dz * Math.cos(yaw);
+    const right = dx * Math.cos(yaw) + dz * Math.sin(yaw);
+    const ang = Math.atan2(right, forward);
+    const R = Math.min(window.innerWidth, window.innerHeight) * 0.19;
+    el.style.display = 'flex';
+    el.style.left = (window.innerWidth / 2 + Math.sin(ang) * R) + 'px';
+    el.style.top = (window.innerHeight / 2 - Math.cos(ang) * R) + 'px';
+    el.style.color = bd < 6 ? '#ff6a55' : '#ffd36a';
+    el.style.borderColor = bd < 6 ? 'rgba(255,90,70,.9)' : 'rgba(255,190,100,.55)';
+    el.textContent = '💣';
   }
 
   _reflectProjectile(pr, nx, ny, nz){
@@ -17317,6 +17525,13 @@ _updateMobileButtons(){
       buttons.sideSight.style.opacity = p.sideSightOn ? '1' : '0.75';
     }
   }
+  // 屏息按钮：点按切换，开/关用颜色反馈。
+  if (buttons.holdBreath) {
+    const on = !!(p && p._breathToggle);
+    buttons.holdBreath.style.background = on ? 'rgba(60,130,200,.55)' : 'rgba(120,200,255,.3)';
+    buttons.holdBreath.style.borderColor = on ? 'rgba(180,240,255,.95)' : 'rgba(150,220,255,.6)';
+    buttons.holdBreath.style.opacity = on ? '1' : '0.8';
+  }
   // ★ 开火模式按钮：移动端独立显示，文字就是当前模式；只有一种模式时半透明。
   if (buttons.fireMode) {
     const wNow = p && p.activeWeapon;
@@ -20634,11 +20849,64 @@ _trySearchContainer(){
     return true;
   }
 
+  // 同阵营 AI 之间的轻微分离：避免一群人叠在门口/墙角互相顶住，
+  // 也避免“一窝蜂”时全部挤成一个点。
+  _aiSeparation(enemy, speed) {
+    if (!enemy || !enemy.body) return null;
+    let sx = 0, sz = 0, n = 0;
+    const list = this.enemies || [];
+    for (const o of list) {
+      if (!o || o === enemy || !o.alive || !o.body) continue;
+      if (o.status && o.status.isDowned && o.status.isDowned()) continue;
+      const f1 = enemy.faction || (enemy.spec && enemy.spec.faction);
+      const f2 = o.faction || (o.spec && o.spec.faction);
+      if (!f1 || f1 !== f2) continue;
+      const dx = enemy.body.position.x - o.body.position.x;
+      const dz = enemy.body.position.z - o.body.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.12 || d > 1.65) continue;
+      sx += (dx / d) * (1.65 - d);
+      sz += (dz / d) * (1.65 - d);
+      n++;
+    }
+    if (!n) return null;
+    const len = Math.hypot(sx, sz) || 1;
+    return { x: sx / len * speed * 0.42, z: sz / len * speed * 0.42 };
+  }
+
+  _applyAiSeparation(enemy, speed) {
+    const sep = this._aiSeparation(enemy, speed);
+    if (!sep) return;
+    enemy.body.velocity.x += sep.x;
+    enemy.body.velocity.z += sep.z;
+  }
+
   _aiMoveTo(enemy, tx, tz, speed, dt) {
     if (!enemy || !enemy.body) return false;
     // ★ 失稳/击倒的 AI 跑不快：稳定度越低，实际移动速度越慢。
     speed *= 0.55 + 0.45 * this._stabilityOf(enemy);
     const ex = enemy.body.position.x, ez = enemy.body.position.z;
+    const now = this.time;
+
+    // 明确侧向脱困点：优先级高于 A*，持续很短，避免在墙角无限重算。
+    if (enemy._aiDetour) {
+      if (now > enemy._aiDetour.until) {
+        enemy._aiDetour = null;
+      } else {
+        const ddx = enemy._aiDetour.x - ex, ddz = enemy._aiDetour.z - ez;
+        const dd = Math.hypot(ddx, ddz);
+        if (dd < 0.45) {
+          enemy._aiDetour = null;
+        } else {
+          enemy.angle = Math.atan2(ddz, ddx);
+          enemy.body.velocity.x = ddx / dd * speed;
+          enemy.body.velocity.z = ddz / dd * speed;
+          this._applyAiSeparation(enemy, speed);
+          return true;
+        }
+      }
+    }
+
     const dx0 = tx - ex, dz0 = tz - ez;
     const dist = Math.hypot(dx0, dz0);
     if (dist < 0.2) {
@@ -20650,6 +20918,7 @@ _trySearchContainer(){
       enemy.angle = Math.atan2(dz0, dx0);
       enemy.body.velocity.x = dx0 / dist * speed;
       enemy.body.velocity.z = dz0 / dist * speed;
+      this._applyAiSeparation(enemy, speed);
     };
     if (dist < 1.2 || this._navLineClear(ex, ez, tx, tz)) {
       enemy._navPath = null;
@@ -20661,17 +20930,40 @@ _trySearchContainer(){
       enemy._navPath = null;
       return true;
     }
-    const now = this.time;
     const goalMoved = !enemy._navGoal || Math.hypot(tx - enemy._navGoal.x, tz - enemy._navGoal.z) > 2.2;
-    if (goalMoved || now > (enemy._navRepathAt || 0) || !enemy._navPath || (enemy._stuckT || 0) > 0.9) {
+    if (goalMoved || now > (enemy._navRepathAt || 0) || !enemy._navPath) {
       enemy._navPath = this._findNavPath(ex, ez, tx, tz);
       enemy._navGoal = { x: tx, z: tz };
       enemy._navRepathAt = now + 1.4 + Math.random() * 0.6;
       enemy._navIndex = 0;
-      enemy._stuckT = 0;
     }
     const path = enemy._navPath;
     if (!path || !path.length) { setDirect(); return true; }
+
+    // 进度检测：如果 1 秒内几乎没动，说明路点被挡/卡在墙角，先跳过当前路点，
+    // 连续卡住就换成侧向脱困点。不要像旧版那样把 _stuckT 清零后假装没事。
+    if (!enemy._navProgress) enemy._navProgress = { x: ex, z: ez, t: now };
+    if (now - enemy._navProgress.t > 0.9) {
+      const moved = Math.hypot(ex - enemy._navProgress.x, ez - enemy._navProgress.z);
+      enemy._navStuckT = moved < 0.28 ? (enemy._navStuckT || 0) + 1 : 0;
+      enemy._navProgress = { x: ex, z: ez, t: now };
+    }
+    if ((enemy._navStuckT || 0) >= 1.0) {
+      enemy._navStuckT = 0;
+      if ((enemy._navIndex || 0) < path.length - 1) enemy._navIndex = (enemy._navIndex || 0) + 1;
+      else {
+        const side = enemy._avoidSide || (Math.random() < 0.5 ? 1 : -1);
+        enemy._aiDetour = {
+          x: ex - (dz0 / (dist || 1)) * side * 3.0,
+          z: ez + (dx0 / (dist || 1)) * side * 3.0,
+          until: now + 1.4,
+        };
+        enemy._navPath = null;
+        enemy._navIndex = 0;
+        enemy._blockedT = 0;
+      }
+    }
+
     let idx = enemy._navIndex || 0;
     while (idx < path.length - 1) {
       const wp0 = path[idx];
@@ -20686,6 +20978,7 @@ _trySearchContainer(){
     enemy.angle = Math.atan2(dz, dx);
     enemy.body.velocity.x = dx / d * speed;
     enemy.body.velocity.z = dz / d * speed;
+    this._applyAiSeparation(enemy, speed);
     return true;
   }
 
@@ -21087,8 +21380,9 @@ _updateSoundSystem(dt) {
       if (e.state === 'combat' || e.state === 'flee') continue;
 
       const dist = Math.hypot(e.body.position.x - s.x, e.body.position.z - s.z);
-      // 枪声（malignant）传得比脚步远得多：远距离交火也能惊动附近小队
-      const earRange = (14 + ai.perception * 24) * (s.type === 'malignant' ? 2.6 : 1);
+      // 枪声传得比脚步远，但不再让整张图的巡逻队都循声扑过来：
+      // 远处只提高警觉，30m 内才真正去调查。
+      const earRange = (14 + ai.perception * 24) * (s.type === 'malignant' ? 1.55 : 1);
       if (dist > earRange || dist > s.maxRange) continue;
 
       const isEnemySound = this.isHostile(eFaction, s.faction);
@@ -21104,7 +21398,7 @@ _updateSoundSystem(dt) {
           }
           // 敌对声音，大幅提升警觉，并可能去调查
           e.awareness = Math.min(1.0, e.awareness + heardIntensity * (s.type === 'malignant' ? 0.8 : 0.4));
-          if (e.awareness > 0.3 && e.state === 'patrol') {
+          if (e.awareness > 0.3 && e.state === 'patrol' && (s.type !== 'malignant' || dist <= 30)) {
             e.state = 'investigate';
             e.targetPos = { x: s.x, z: s.z };
             this._unitBark(e, 'alert');
@@ -22191,6 +22485,10 @@ export class GameApp {
     this._menuReady = false;
     this.platform = 'auto'; 
     this.inventory = null;
+    // ★ 两套库存：主模式与 Straight 各自独立，不能因为共用 this.inventory 互相污染。
+    this.straightInventory = null;
+    this.asakaInventory = null;
+    this.activeMode = 'asaka';
     this.bagUI = null;
     // ★ 主模式存档与 Straight 完全分离：计划树、自动存档、剧情 flag 都在这里。
     this.asakaSave = new AsakaSave();
@@ -22244,16 +22542,39 @@ export class GameApp {
     this._syncCustomSettingsUI();
     this._persistActiveSettings();
   });
+  // ★ 主模式“退出前最新状态”：关闭页面/切后台/回大厅时同步写入（两类存档之一）。
+  const _saveAsakaLatest = () => {
+    try {
+      if (this.world && this.world.modeId === 'asaka' && this.asakaSave) {
+        this._syncAsakaInventory();
+        this._syncAsakaParty();
+        this.asakaSave.saveLatest({ label: '退出前状态' });
+      }
+    } catch (_) {}
+  };
+  window.addEventListener('beforeunload', _saveAsakaLatest);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') _saveAsakaLatest();
+  });
 
-  this.inventory = new Inventory(this.engine.content);
-  if (this.engine.save.data && this.engine.save.data.inventory) {
-    try { this.inventory.deserialize(this.engine.save.data.inventory); }
-    catch (e) { console.warn('[Bag] 库存反序列化失败，重置', e); }
-  }
-  // ★ 大厅就要完成插板迁移，否则配装页详情里看不到、也取不出插板
-  migratePlateToFiber(this.inventory);
-  this._ensureWeaponMagazines(this.inventory);
+  // ★ 两套库存分开加载：Straight 在 engine.save；主模式在 AsakaSave.data.inventory。
+  const _mkInv = (saved) => {
+    const inv = new Inventory(this.engine.content);
+    if (saved) {
+      try { inv.deserialize(saved); }
+      catch (e) { console.warn('[Bag] 库存反序列化失败，重置', e); }
+    }
+    // ★ 大厅就要完成插板迁移，否则配装页详情里看不到、也取不出插板
+    migratePlateToFiber(inv);
+    this._ensureWeaponMagazines(inv);
+    return inv;
+  };
+  this.straightInventory = _mkInv(this.engine.save.data && this.engine.save.data.inventory);
+  this.asakaInventory = _mkInv(this.asakaSave.data && this.asakaSave.data.inventory);
+  this.activeMode = 'asaka';
+  this.inventory = this.asakaInventory;
   this.bagUI = new BagUI(this.engine, this.inventory);
+  this.bagUI.mode = 'asaka';
   
   // ★ 初始化市场
   import('./market.js').then(({ MarketSystem }) => {
@@ -22581,6 +22902,8 @@ export class GameApp {
     if (ev.key.toLowerCase() === 'b' && this.bagUI && this.engine.save.data) {
       // 剧情演出期间不允许翻背包：这是“不能存档”的段落，也不能靠背包绕过。
       if (this.story && this.story.isPlaying()) return;
+      // 主模式大厅没有 Straight 式仓库；仓库只能在据点/战局内管理。
+      if (this.activeMode === 'asaka' && !(this.world && this.world.running)) return;
       const bootEl = document.getElementById('boot-screen');
       const inBoot = bootEl && bootEl.classList.contains('on');
       // 倒地/死亡时不能再翻背包，否则会出现“躺着整理装备”的假活人观感
@@ -23942,6 +24265,8 @@ async startMatch(kind){
   const _reportBtn = document.getElementById('btn-view-report');
   if (_reportBtn) _reportBtn.remove();
   hideCombatReport();
+  // ★ 进入战局前锁定本局模式库存：主模式绝不能用 Straight 的仓库。
+  this._setActiveInventory(this.menuState.mode === 'asaka' ? 'asaka' : 'straight');
   this._ensureWeaponMagazines(this.inventory);
   
   const crosshair = document.getElementById('crosshair');
@@ -23966,7 +24291,11 @@ async startMatch(kind){
   //   训练场用武器架/创造模式自选。旧版每次进靶场都塞满一套，退出后还会
   //   被当成“本局战利品”留在仓库，既破坏负重仿真也污染存档。
   try {
-    if (!this.inventory) this.inventory = new Inventory(this.engine.content);
+    if (!this.inventory) {
+      this.inventory = new Inventory(this.engine.content);
+      if (this.activeMode === 'asaka') this.asakaInventory = this.inventory;
+      else this.straightInventory = this.inventory;
+    }
   } catch (err) {
     console.error('[GameApp] 配装初始化失败:', err);
     if (loadingEl) loadingEl.style.display = 'none';
@@ -24025,6 +24354,10 @@ async startMatch(kind){
     this.world.onEnd = (success, stats) => this._onMatchEnd(success, stats);
 if (loadingBar) loadingBar.style.width = '70%';
 this.world.start();
+// 主模式：把关键帧/最新状态里的部位、伤口、失血和效果灌回本局角色。
+if (this.menuState.mode === 'asaka' && this.asakaSave && this.asakaSave.data.party) {
+  try { this.world.applyParty(this.asakaSave.data.party); } catch (e) { console.warn('[AsakaSave] party 恢复失败', e); }
+}
 this._syncDevButton();
 if (isMobile) this.world._updateMobileButtons();
 e.bus.emit('matchStarted', { kind });
@@ -24127,7 +24460,12 @@ try {
     if (!success && !(this.world && this.world.training) && !(this.world && this.world.modeId === 'asaka')) {
       this._clearRaidInventory(inv);
     }
-    save.data.inventory = inv.serialize();
+    if (this.world && this.world.modeId === 'asaka') {
+      this.asakaSave.data.inventory = inv.serialize();
+      this.asakaSave.save();
+    } else {
+      save.data.inventory = inv.serialize();
+    }
   }
 } catch (e) {
   console.warn('[GameApp] Inventory 结算失败', e);
@@ -24175,6 +24513,7 @@ save.save();
       }
       document.getElementById('btn-view-report')?.remove();
       document.getElementById('btn-death-replay')?.remove();
+      if (this.asakaSave) this.asakaSave.saveLatest({ label: '行动结束' });
       document.getElementById('result-screen')?.classList.add('on');
       e.bus.emit('matchEnded', { success, stats, reward: finalReward, assessment });
       return;
@@ -24427,6 +24766,12 @@ save.save();
     if (!ok) return;
     this._abandonRaid();
   }
+  if (wasAsaka && this.asakaSave) {
+    // 退出前保存“最新状态”：与计划树里的关键节点快照是两套东西。
+    this._syncAsakaInventory();
+    this._syncAsakaParty();
+    this.asakaSave.saveLatest({ label: '退出前状态' });
+  }
   if (document.pointerLockElement) document.exitPointerLock();
 
   // ★ 先关搜刮界面，再统一复位战局内 UI：
@@ -24443,8 +24788,7 @@ save.save();
     if (this.inventory) {
       // 战局结束解除负重硬上限，仓库/大厅里的整理不受战斗配装限制
       this.inventory.maxCarryWeight = 0;
-      this.engine.save.data.inventory = this.inventory.serialize();
-      this.engine.save.save();
+      this._syncActiveInventoryToSave();
     }
   }
   this._syncDevButton();
@@ -24585,6 +24929,7 @@ if (wasAsaka) {
   }
 
   _showScreen(name){
+    if (name !== 'title') document.body.classList.remove('title-active');
     const map = { boot: 'boot-screen', menu: 'menu-screen', game: 'game-screen', title: 'title-screen' };
     for (const key in map) {
       const el = document.getElementById(map[key]);
@@ -24733,11 +25078,13 @@ _bindCameraControls() {
     if (this.settingsContext !== 'asaka') this._persistActiveSettings();
     this.settingsContext = 'asaka';
     this._applyModeSettings('asaka');
+    this._setActiveInventory('asaka');
     if (!this.title) this.title = new TitleScreen(this);
     this.title.show();
   }
 
   showTitleScreen(){
+    document.body.classList.add('title-active');
     this._showScreen('title');
     this._updateCredits && this._updateCredits();
   }
@@ -24752,6 +25099,7 @@ _bindCameraControls() {
     this._persistActiveSettings();
     this.settingsContext = 'straight';
     this._applyModeSettings('straight');
+    this._setActiveInventory('straight');
     this.menuState.mode = 'straight';
     if (!this.menuState.map || this.menuState.map === 'asaka_void' || this.menuState.map === 'training') {
       this.menuState.map = 'factory';
@@ -24811,6 +25159,64 @@ _bindCameraControls() {
     }
   }
 
+  // ===================== 双库存：主模式 / Straight =====================
+  // activeMode 决定 this.inventory 指向哪一套；BagUI、GameWorld、配装页都跟着它走。
+  _setActiveInventory(mode){
+    const id = mode === 'straight' ? 'straight' : 'asaka';
+    this.activeMode = id;
+    this.inventory = id === 'asaka' ? this.asakaInventory : this.straightInventory;
+    if (this.bagUI) {
+      this.bagUI.inv = this.inventory;
+      this.bagUI.viewInv = this.inventory;
+      this.bagUI.mode = id;
+      if (id === 'asaka') { this.bagUI._sellMode = false; this.bagUI._sellSel.clear(); }
+      if (this.bagUI.open) {
+        try { this.bagUI.refresh(); } catch (_) {}
+      }
+    }
+  }
+
+  _syncActiveInventoryToSave(){
+    if (!this.inventory) return;
+    try {
+      const data = this.inventory.serialize();
+      if (this.activeMode === 'asaka') {
+        this.asakaSave.data.inventory = data;
+        this.asakaSave.save();
+      } else {
+        this.engine.save.data.inventory = data;
+        this.engine.save.save();
+      }
+    } catch (e) { console.warn('[Bag] 库存写入失败', e); }
+  }
+
+  _syncAsakaInventory(){
+    if (this.asakaSave && this.asakaInventory) {
+      try { this.asakaSave.data.inventory = this.asakaInventory.serialize(); } catch (_) {}
+    }
+  }
+
+  _syncAsakaParty(){
+    try {
+      if (this.asakaSave && this.world && this.world.modeId === 'asaka' && this.world.serializeParty) {
+        this.asakaSave.data.party = this.world.serializeParty();
+      }
+    } catch (e) { console.warn('[AsakaSave] party 同步失败', e); }
+  }
+
+  _loadAsakaInventoryFromSave(){
+    const inv = new Inventory(this.engine.content);
+    const saved = this.asakaSave && this.asakaSave.data ? this.asakaSave.data.inventory : null;
+    if (saved) {
+      try { inv.deserialize(saved); }
+      catch (e) { console.warn('[Bag] 主模式库存反序列化失败', e); }
+    }
+    migratePlateToFiber(inv);
+    this._ensureWeaponMagazines(inv);
+    this.asakaInventory = inv;
+    if (this.activeMode === 'asaka') this._setActiveInventory('asaka');
+  }
+
   _persistActiveSettings(){
     if (this._applyingSettings) return;
     if (!this.modeSettings || !this.engine.profile) return;
@@ -24853,6 +25259,12 @@ _bindCameraControls() {
       chapter: 'asaka.prologue',
       label: '序章 · 沙尘中的旗',
     });
+    // 新主模式存档 = 新的主模式库存；不碰 Straight 仓库。
+    this.asakaSave.data.inventory = null;
+    this.asakaSave.data.party = {};
+    this.asakaSave.save();
+    this.asakaInventory = new Inventory(this.engine.content);
+    this._setActiveInventory('asaka');
     if (this.bagUI && this.bagUI.open) { try { this.bagUI.close(); } catch (_) {} }
     this._persistActiveSettings();
     this.settingsContext = 'asaka';
@@ -24870,10 +25282,14 @@ _bindCameraControls() {
       alert('还没有主模式存档。');
       return;
     }
-    // 从计划树读取“这个关键节点”时，先把选择回滚到自动存档写入的时刻。
-    if (opts && opts.fromPlanTree && this.asakaSave.restoreAutosave) {
-      this.asakaSave.restoreAutosave();
+    // 计划树点某个重要节点：回滚到该节点的快照；否则读取退出前的最新状态。
+    if (opts && opts.nodeId && this.asakaSave.restoreKeyframe) {
+      this.asakaSave.restoreKeyframe(opts.nodeId);
+    } else if (this.asakaSave.restoreLatest) {
+      this.asakaSave.restoreLatest();
     }
+    this._loadAsakaInventoryFromSave();
+    this._setActiveInventory('asaka');
     this._persistActiveSettings();
     this.settingsContext = 'asaka';
     this._applyModeSettings('asaka');
@@ -24892,6 +25308,8 @@ _bindCameraControls() {
   // 主模式章节开始：只有关键节点才写入自动存档，且已读章节不会被回放覆盖。
   onStoryStart(chapter){
     if (!chapter || !this.asakaSave) return;
+    this._syncAsakaInventory();
+    this._syncAsakaParty();
     if (chapter.autoSaveNode && !this.asakaSave.hasSeenStory(chapter.id)) {
       this.asakaSave.autosave(chapter.autoSaveNode, {
         chapter: chapter.id,
@@ -24903,6 +25321,8 @@ _bindCameraControls() {
   // 主模式章节结束：推进计划树节点、记录选择轨迹，不额外写自动存档。
   onStoryEnd(chapterId, state, endNode){
     if (!this.asakaSave) return;
+    this._syncAsakaInventory();
+    this._syncAsakaParty();
     this.asakaSave.markStorySeen(chapterId);
     const nextNode = (endNode && endNode.nextNode) || this.asakaSave.data.node;
     // 结局节点自己的 flags 也要写入（例如 prologue_done），不能只记选择支的 flags。
@@ -24965,6 +25385,8 @@ _bindCameraControls() {
     { key: 'world.devMode', name: '战局内显示 DEV 按钮', type: 'checkbox', def: false, group: 'gameplay', dev: true },
     // 体验性
     { key: 'input.adsToggle', name: '瞄准：点按切换', type: 'checkbox', def: false, group: 'experience' },
+    { key: 'input.autoAdsOnFire', name: '开火自动开镜', type: 'checkbox', def: false, group: 'experience' },
+    { key: 'input.autoBreathOnAds', name: '开镜自动屏息', type: 'checkbox', def: false, group: 'experience' },
     { key: 'input.breathHold', name: '启用屏息', type: 'checkbox', def: true, group: 'experience' },
     { key: 'input.sensitivity', name: '视角灵敏度', type: 'range', min: 0.5, max: 3.0, step: 0.1, group: 'experience' },
     { key: 'input.wheelSensitivity', name: '投掷轮盘灵敏度', type: 'range', min: 0.8, max: 4.0, step: 0.1, def: 2.4, group: 'experience' },
@@ -24993,9 +25415,6 @@ _bindCameraControls() {
       checkbox.style.cssText = 'width:16px;height:16px;cursor:pointer;';
       checkbox.addEventListener('change', (e) => {
         this.engine.profile.set(opt.key, e.target.checked);
-        if (opt.key === 'world.asceDebug') {
-          try { localStorage.setItem('LaiAsaka_AsceDebug', e.target.checked ? '1' : '0'); } catch (_) {}
-        }
         if (opt.key === 'world.devMode') {
           try { this._syncDevButton(); } catch (_) {}
         }
@@ -25042,9 +25461,6 @@ _bindCameraControls() {
     const key = input.dataset.key;
     const def = input.dataset.def === '1';
     let val = this.engine.profile.get(key, def);
-    if (key === 'world.asceDebug' && val === undefined) {
-      try { val = localStorage.getItem('LaiAsaka_AsceDebug') === '1'; } catch (_) { val = false; }
-    }
     if (input.type === 'checkbox') {
       input.checked = val === true;
     } else if (input.type === 'range') {
@@ -25153,6 +25569,9 @@ _bindCameraControls() {
   if (this.world) this.world._cycleFireMode();
 } else if (name === 'sideSight') {
   if (this.world) this.world._toggleSideSight();
+} else if (name === 'holdBreath') {
+  const p = this.world && this.world.player;
+  if (p) p._breathToggle = !p._breathToggle;
 } else if (name === 'skill1') {
   if (this.world) this.world._useSkill(0);
 } else if (name === 'skill2') {
