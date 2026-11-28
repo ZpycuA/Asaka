@@ -1,0 +1,59 @@
+{
+  "id": "asaka_void",
+  "size": 160,
+  "playerSpawn": {
+    "x": 0,
+    "z": 48,
+    "angle": 0
+  },
+  "obstacles": [
+    {
+      "x": 0,
+      "z": -80,
+      "w": 160,
+      "d": 1,
+      "yMin": 0,
+      "yMax": 4,
+      "type": "highWall"
+    },
+    {
+      "x": 0,
+      "z": 80,
+      "w": 160,
+      "d": 1,
+      "yMin": 0,
+      "yMax": 4,
+      "type": "highWall"
+    },
+    {
+      "x": -80,
+      "z": 0,
+      "w": 1,
+      "d": 160,
+      "yMin": 0,
+      "yMax": 4,
+      "type": "highWall"
+    },
+    {
+      "x": 80,
+      "z": 0,
+      "w": 1,
+      "d": 160,
+      "yMin": 0,
+      "yMax": 4,
+      "type": "highWall"
+    }
+  ],
+  "containers": [],
+  "extracts": [],
+  "enemySpawns": [],
+  "storyTriggers": [
+    {
+      "x": 0,
+      "z": 44,
+      "r": 12,
+      "chapter": "asaka.prologue",
+      "once": true
+    }
+  ]
+}

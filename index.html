@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<title>Asaka · LaiAsaka Engine</title>
+<style>
+/* ============================================================
+   LaiAsaka Engine v3.2.0 · 全局样式 (重构版)
+   ============================================================ */
+:root{
+  --bg:#05070a;--bg2:#0a1018;
+  --panel:rgba(14,22,34,.9);--panel2:rgba(10,18,28,.96);
+  --line:rgba(105,170,235,.32);--line2:rgba(105,170,235,.16);
+  --accent:#7fd0ff;--accent2:#b98cff;--gold:#ffd93d;--danger:#ff5b5b;--green:#5fd47a;
+  --text:#d8e2ee;--dim:#8ba8c8;--dim2:#5c82a8;
+  --mono:ui-monospace,Menlo,Consolas,monospace;
+  --font:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+html, body { width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);touch-action:none;-webkit-user-select:none;}
+canvas{display:block;position:absolute;inset:0;touch-action:none}
+.screen{position:absolute;inset:0;display:none;z-index:10}
+.screen.on{display:flex;align-items:center;justify-content:center;flex-direction:column}
+
+/* ---------- Boot ---------- */
+#boot-screen{background:radial-gradient(circle at 50% 30%,#101a26 0%,#05070a 78%);z-index:100}
+.boot-content{display:flex;flex-direction:column;align-items:center;gap:20px;padding:24px;text-align:center}
+.boot-logo{width:110px;height:110px;border-radius:24px;background:linear-gradient(135deg,#1a2a3f,#0a1420);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:900;color:transparent;position:relative;box-shadow:0 0 60px rgba(120,180,255,.2)}
+.boot-logo::before{content:'LA';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;color:transparent}
+.boot-title{font-size:32px;font-weight:900;letter-spacing:8px;background:linear-gradient(90deg,#6ad0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;color:transparent}
+.boot-sub{font-size:11px;letter-spacing:6px;color:var(--dim2)}
+.boot-progress{width:420px;max-width:100%;height:3px;background:rgba(80,140,200,.15);border-radius:2px;overflow:hidden}
+.boot-progress > div{height:100%;width:0%;background:linear-gradient(90deg,#3fa8ff,#8ee7ff,#b98cff);transition:width .2s}
+.boot-status{font-size:10.5px;color:var(--dim);letter-spacing:2px;font-family:var(--mono);min-height:16px}
+
+/* ---------- Menu Layout ---------- */
+#menu-screen{background:radial-gradient(circle at 50% 20%,#0f1a28 0%,#05070a 78%);z-index:50;align-items:stretch;justify-content:flex-start;overflow-y:auto}
+.menu-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:rgba(10,18,28,.8);border-bottom:1px solid var(--line2)}
+.menu-tabs{display:flex;gap:12px}
+.menu-tab{padding:8px 24px;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--dim);cursor:pointer;border-radius:8px;transition:.2s;background:rgba(0,0,0,.3);border:1px solid transparent}
+.menu-tab.on{color:var(--accent);background:rgba(60,120,185,.3);border-color:rgba(120,190,255,.5)}
+.menu-tab:hover{background:rgba(60,120,185,.2)}
+.menu-top-actions{display:flex;gap:10px}
+.icon-btn{padding:8px 16px;font-size:12px;background:rgba(20,35,55,.7);border:1px solid var(--line2);color:var(--dim);border-radius:6px;cursor:pointer;font-family:inherit;transition:.15s}
+.icon-btn:hover{color:#fff;border-color:var(--accent)}
+
+.menu-content{max-width:1000px;width:100%;margin:0 auto;padding:20px}
+.tab-content{display:none;flex-direction:column;gap:16px;animation:fadeIn .3s}
+.tab-content.on{display:flex}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+.section-label{font-size:12px;letter-spacing:3px;color:var(--accent);border-bottom:1px solid var(--line2);padding-bottom:6px;margin-bottom:10px;font-weight:700}
+.options{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.option{padding:12px;border-radius:10px;background:var(--panel);border:1.5px solid var(--line2);cursor:pointer;transition:.15s;text-align:center}
+.option:hover{border-color:var(--line);background:rgba(30,50,75,.8)}
+.option.on{background:rgba(60,120,185,.3);border-color:rgba(120,190,255,.8);box-shadow:0 0 20px rgba(90,160,240,.15) inset}
+.option .opt-title{font-size:14px;font-weight:700;color:#e0f0ff;letter-spacing:1px}
+.option .opt-sub{font-size:11px;color:var(--dim2);margin-top:4px}
+
+/* 底部操作区 */
+.action-bar{display:flex;flex-direction:column;gap:12px;margin-top:20px}
+.btn-row{display:flex;gap:12px}
+.btn{flex:1;padding:14px;border-radius:10px;background:linear-gradient(180deg,rgba(40,70,105,.6),rgba(20,35,55,.8));border:1px solid var(--line);color:#cfe4f8;font-size:15px;font-weight:700;letter-spacing:3px;cursor:pointer;font-family:inherit;transition:.15s}
+.btn:hover{background:linear-gradient(180deg,rgba(55,95,140,.7),rgba(25,45,70,.9))}
+.btn.primary{background:linear-gradient(180deg,rgba(140,110,40,.7),rgba(70,50,15,.9));border-color:rgba(255,210,90,.6);color:#ffe8a8}
+.btn.ghost{background:rgba(20,32,46,.5);border-color:var(--line2);color:var(--dim);font-size:13px;padding:10px}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+
+
+/* ============================================================
+   v3.3.0 · 主大厅 / 计划树 / 关于 / 剧情
+   ============================================================ */
+/* ---------- 主大厅（Asaka 主模式入口） ---------- */
+#title-screen{background:#030405;z-index:55;display:none;overflow:hidden}
+#title-screen.on{display:block}
+.title-bg{position:absolute;inset:0;background:
+  radial-gradient(ellipse at 62% 30%, #1a232d 0%, #0a0e14 46%, #020304 100%);
+  /* TODO(Default 背景图)：正式背景图请放到 assets/lobby-bg.jpg，
+     然后取消下一行注释并把上面的渐变保留为加载兜底。
+     background-image:url('assets/lobby-bg.jpg');background-size:cover;background-position:center; */
+}
+.title-bg-glow{position:absolute;left:38%;top:8%;width:60vw;height:60vw;border-radius:50%;
+  background:radial-gradient(circle,rgba(214,166,72,.11) 0%,rgba(214,166,72,.035) 38%,transparent 68%);filter:blur(8px)}
+.title-bg-horizon{position:absolute;left:0;right:0;bottom:0;height:46%;background:
+  linear-gradient(to top,rgba(3,5,8,.96) 0%,rgba(6,9,13,.55) 34%,transparent 100%),
+  repeating-linear-gradient(90deg,transparent 0 78px,rgba(255,255,255,.012) 78px 79px);
+  border-bottom:1px solid rgba(216,170,80,.08)}
+.title-bg-horizon::before{content:'';position:absolute;left:8%;right:8%;bottom:12%;height:1px;background:linear-gradient(90deg,transparent,rgba(216,170,80,.18),transparent)}
+.title-bg-grain{position:absolute;inset:0;opacity:.28;mix-blend-mode:overlay;background:
+  radial-gradient(circle at 20% 30%,rgba(255,255,255,.035) 0 1px,transparent 1.4px) 0 0/5px 5px,
+  radial-gradient(circle at 70% 64%,rgba(0,0,0,.25) 0 1px,transparent 1.4px) 0 0/7px 7px}
+.title-top{position:absolute;left:34px;right:34px;top:22px;display:flex;justify-content:space-between;align-items:center;z-index:3}
+.title-brand{display:flex;align-items:center;gap:12px}
+.title-la{width:44px;height:44px;border-radius:10px;position:relative;background:linear-gradient(135deg,#1b2a3c,#080d14);border:1px solid rgba(216,170,80,.32);box-shadow:0 0 24px rgba(216,170,80,.1)}
+.title-la::before{content:'LA';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,#8fd8ff,#d9b25a);-webkit-background-clip:text;color:transparent}
+.title-engine{font-size:12px;letter-spacing:3px;color:#cfd8e2;font-weight:700}
+.title-version{font-size:9px;letter-spacing:2px;color:#6d7b8a;margin-top:3px;font-family:var(--mono)}
+.title-ghost{padding:8px 16px;font-size:11px;letter-spacing:2px;color:#a9b4c0;background:rgba(8,12,17,.55);border:1px solid rgba(160,180,200,.18);border-radius:4px;cursor:pointer;font-family:inherit;transition:.18s}
+.title-ghost:hover{color:#ffe0a0;border-color:rgba(216,170,80,.45);background:rgba(30,26,16,.55)}
+.title-hero{position:absolute;left:8.5vw;top:17vh;z-index:2;user-select:none}
+.title-kicker{font-size:9px;letter-spacing:6px;color:#8d7547;font-family:var(--mono);margin-bottom:16px}
+.title-hero h1{font-size:clamp(64px,10.5vw,148px);line-height:.9;letter-spacing:.16em;font-weight:900;
+  background:linear-gradient(180deg,#f8e3ad 0%,#d9ac55 42%,#8f6424 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 26px rgba(216,170,80,.16));margin-left:-4px}
+.title-rule{display:flex;align-items:center;gap:12px;margin-top:14px;width:min(420px,72vw)}
+.title-rule i{height:1px;flex:1;background:linear-gradient(90deg,transparent,rgba(216,170,80,.5))}
+.title-rule i:last-child{background:linear-gradient(90deg,rgba(216,170,80,.5),transparent)}
+.title-rule span{font-size:10px;letter-spacing:5px;color:#a88b52}
+.title-tagline{font-size:12px;letter-spacing:3px;color:#8b97a4;margin-top:12px}
+.title-nav{position:absolute;left:7.5vw;bottom:9vh;display:flex;flex-direction:column;gap:1px;width:min(330px,48vw);z-index:3}
+.title-item{position:relative;display:flex;align-items:baseline;gap:12px;width:100%;padding:11px 14px 11px 16px;text-align:left;
+  background:linear-gradient(90deg,rgba(10,14,19,.66),rgba(10,14,19,.14));border:none;border-left:2px solid rgba(216,170,80,.12);
+  color:#d8dee6;cursor:pointer;font-family:inherit;transition:background .16s,border-color .16s,transform .16s;overflow:hidden}
+.title-item::after{content:'';position:absolute;right:0;top:0;bottom:0;width:34%;background:linear-gradient(90deg,transparent,rgba(216,170,80,.045));opacity:0;transition:.2s}
+.title-item:hover:not(:disabled){background:linear-gradient(90deg,rgba(30,25,15,.78),rgba(16,14,10,.28));border-left-color:#d9ad55;transform:translateX(5px)}
+.title-item:hover:not(:disabled)::after{opacity:1}
+.title-item .ti-main{font-size:19px;letter-spacing:3px;font-weight:700;color:#efe6d4;white-space:nowrap}
+.title-item .ti-side{font-size:8.5px;letter-spacing:2px;color:#7e6a44;font-family:var(--mono);white-space:nowrap}
+.title-item .ti-note{position:absolute;right:12px;bottom:5px;max-width:56%;font-size:9px;color:#7c8b9a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.title-item.locked{opacity:.42;cursor:not-allowed}
+.title-item:disabled{cursor:not-allowed}
+.title-foot{position:absolute;left:34px;right:34px;bottom:18px;display:flex;justify-content:space-between;font-size:9px;color:#5b6672;font-family:var(--mono);z-index:3}
+.title-save-hint{position:absolute;right:34px;bottom:52px;font-size:10px;color:#8d9aa7;letter-spacing:1px;z-index:3;display:flex;align-items:center;gap:7px;text-align:right}
+.title-save-hint .dot{width:5px;height:5px;border-radius:50%;background:#d9ad55;box-shadow:0 0 8px rgba(216,170,80,.8);flex:0 0 auto}
+.title-save-hint .dot.dim{background:#4a5662;box-shadow:none}
+
+/* ---------- 计划树 ---------- */
+#plan-tree-screen{background:#020203;z-index:80;display:none;overflow:hidden;align-items:stretch;justify-content:flex-start}
+#plan-tree-screen.on{display:flex;flex-direction:column}
+.pt-stars{position:absolute;inset:0;background:
+  radial-gradient(circle at 12% 18%,rgba(255,236,190,.55) 0 1px,transparent 1.5px),
+  radial-gradient(circle at 72% 12%,rgba(210,220,255,.35) 0 1px,transparent 1.5px),
+  radial-gradient(circle at 42% 62%,rgba(255,220,160,.35) 0 1px,transparent 1.5px),
+  radial-gradient(circle at 88% 74%,rgba(255,236,190,.3) 0 1px,transparent 1.5px),
+  radial-gradient(circle at 26% 82%,rgba(200,215,255,.25) 0 1px,transparent 1.5px),
+  radial-gradient(circle at 58% 34%,rgba(255,236,190,.22) 0 1px,transparent 1.5px),
+  radial-gradient(ellipse at 50% 60%,rgba(30,22,9,.35) 0%,transparent 55%);
+  background-size:260px 220px,340px 280px,300px 260px,380px 300px,240px 200px,420px 340px,100% 100%;opacity:.85}
+.pt-head{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:flex-start;padding:22px 34px 6px;flex:0 0 auto}
+.pt-kicker{font-size:8.5px;letter-spacing:5px;color:#7c6438;font-family:var(--mono)}
+.pt-heading h2{font-size:30px;letter-spacing:12px;font-weight:900;color:#e9d6a4;margin-top:4px;text-shadow:0 0 24px rgba(216,170,80,.2)}
+.pt-heading p{font-size:10px;letter-spacing:2px;color:#6f7b87;margin-top:5px}
+.pt-body{position:relative;z-index:2;flex:1;min-height:0;display:flex;gap:14px;padding:0 22px 4px 12px}
+.pt-canvas{position:relative;flex:1;min-width:0;min-height:0}
+#pt-svg{width:100%;height:100%;display:block}
+.pt-branch{fill:none;stroke:url(#pt-gold-dim);stroke-width:2;opacity:.62;stroke-linecap:round}
+.pt-branch.lit{stroke:url(#pt-gold);stroke-width:2.8;opacity:1;filter:url(#pt-glow)}
+.pt-branch.ending{stroke-dasharray:1 6}
+.pt-node{cursor:pointer}
+.pt-node .pt-node-halo{fill:rgba(216,170,80,.08)}
+.pt-node .pt-node-ring{fill:#080704;stroke:#8c6d33;stroke-width:1.6}
+.pt-node .pt-node-core{fill:url(#pt-node-core)}
+.pt-node .pt-label{fill:#e7d4a5;font-size:13px;font-weight:700;letter-spacing:1px;paint-order:stroke;stroke:rgba(0,0,0,.7);stroke-width:3px}
+.pt-node .pt-sublabel{fill:#8c7440;font-size:9px;letter-spacing:2px;paint-order:stroke;stroke:rgba(0,0,0,.7);stroke-width:2.5px}
+.pt-node.locked{opacity:.42}
+.pt-node.locked .pt-node-ring{stroke:#56482a}
+.pt-node.locked .pt-label{fill:#8c7c58}
+.pt-node.completed .pt-node-ring{stroke:#e0b75e;stroke-width:2}
+.pt-node.current .pt-node-ring{stroke:#ffe9b5;stroke-width:2.4}
+.pt-node.current .pt-node-halo{fill:rgba(255,214,128,.13);animation:pt-pulse 2.6s ease-in-out infinite}
+.pt-node.selected .pt-node-halo{stroke:rgba(255,238,190,.5);stroke-width:1}
+.pt-node.ending .pt-node-ring{stroke-dasharray:3 2}
+.pt-node.ending .pt-label{font-size:12px}
+.pt-mini-knot{fill:none;stroke:#ffd98a;stroke-width:.9;opacity:.9;transform:translate(-22px,-14px) scale(.55);transform-origin:0 0}
+.pt-knot-badge{position:absolute;left:14px;top:6px;display:flex;align-items:center;gap:9px;padding:8px 12px;border:1px solid rgba(216,170,80,.14);background:rgba(8,7,5,.55);border-radius:6px;opacity:.45;transition:.2s}
+.pt-knot-badge.has-save{opacity:1;border-color:rgba(216,170,80,.32)}
+.pt-knot{display:block;width:28px;height:28px}
+.pt-knot svg{width:100%;height:100%}
+.pt-knot-svg ellipse{fill:none;stroke:#e7bd62;stroke-width:1.4;opacity:.9}
+.knot-spin{transform-origin:30px 30px;animation:knot-spin 9s linear infinite}
+.pt-knot-badge b{display:block;font-size:10px;letter-spacing:2px;color:#e7cf9a}
+.pt-knot-badge span{display:block;font-size:9px;color:#89754c;margin-top:2px}
+.pt-legend{position:absolute;left:16px;bottom:6px;display:flex;gap:16px;font-size:9.5px;color:#7b8794;letter-spacing:1px}
+.pt-legend span{display:flex;align-items:center;gap:5px}
+.pt-legend i{width:6px;height:6px;border-radius:50%;display:inline-block}
+.lg-current{background:#ffe9b5;box-shadow:0 0 8px #ffd98a}
+.lg-done{background:#d9ad55}
+.lg-locked{background:#4c4433}
+.pt-panel{width:min(360px,34vw);flex:0 0 auto;overflow-y:auto;border-left:1px solid rgba(216,170,80,.12);padding:4px 6px 12px 20px;align-self:stretch}
+.pt-panel-kicker{font-size:8.5px;letter-spacing:4px;color:#7c6438;font-family:var(--mono);margin-bottom:7px}
+.pt-panel h3{font-size:24px;letter-spacing:4px;color:#eed9a6;font-weight:900;line-height:1.2}
+.pt-panel-sub{font-size:10px;letter-spacing:2px;color:#7f8b98;margin-top:6px;display:flex;gap:8px;align-items:center}
+.pt-state{font-size:9px;letter-spacing:1px;padding:2px 7px;border:1px solid rgba(216,170,80,.25);border-radius:3px;color:#c7a964}
+.pt-state.locked{color:#6b6556;border-color:rgba(120,110,90,.2)}
+.pt-desc{font-size:12px;line-height:1.95;color:#b9c2cc;margin-top:16px;text-align:justify}
+.pt-auto-box{display:flex;align-items:center;gap:10px;margin-top:18px;padding:10px 12px;border:1px solid rgba(216,170,80,.16);background:rgba(18,15,9,.42);border-radius:5px}
+.pt-auto-box.has{border-color:rgba(216,170,80,.4);background:rgba(30,24,11,.5)}
+.pt-auto-box.plain{opacity:.72}
+.pt-auto-box svg{width:34px;height:34px;flex:0 0 auto}
+.pt-auto-box b{display:block;font-size:10px;color:#e0c68c;letter-spacing:1px}
+.pt-auto-box span{display:block;font-size:9.5px;color:#8b7a55;margin-top:3px;line-height:1.5}
+.pt-panel-actions{display:flex;flex-direction:column;gap:8px;margin-top:22px}
+.pt-panel-note{font-size:9.5px;line-height:1.8;color:#6f7883;margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06)}
+.pt-foot{position:relative;z-index:2;display:flex;justify-content:space-between;padding:8px 34px 14px;font-size:9px;color:#5e5a4f;letter-spacing:1px;flex:0 0 auto}
+.title-btn{padding:11px 16px;border-radius:3px;font-family:inherit;font-size:12px;letter-spacing:2px;cursor:pointer;transition:.16s;
+  background:rgba(12,14,17,.7);border:1px solid rgba(180,190,200,.22);color:#c7d0da}
+.title-btn:hover:not(:disabled){border-color:rgba(216,170,80,.5);color:#f2dfb2;background:rgba(30,25,15,.62)}
+.title-btn.primary{background:linear-gradient(180deg,rgba(96,72,26,.74),rgba(45,33,12,.86));border-color:rgba(216,170,80,.45);color:#ffe9b8}
+.title-btn.small{padding:8px 14px;font-size:10px}
+.title-btn:disabled{opacity:.32;cursor:not-allowed}
+
+/* ---------- 关于 ---------- */
+.about-screen{background:#040506;z-index:90;display:none;overflow:hidden;align-items:stretch;justify-content:flex-start}
+.about-screen.on{display:flex;flex-direction:column}
+.about-stars{position:absolute;inset:0;background:
+  radial-gradient(ellipse at 50% 0%,rgba(38,52,68,.35) 0%,transparent 55%),
+  radial-gradient(circle at 18% 22%,rgba(255,236,190,.3) 0 1px,transparent 1.5px) 0 0/260px 260px,
+  radial-gradient(circle at 74% 66%,rgba(255,236,190,.18) 0 1px,transparent 1.5px) 0 0/320px 300px}
+.about-head{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:flex-start;padding:24px 34px 8px;flex:0 0 auto}
+.about-kicker{font-size:8.5px;letter-spacing:5px;color:#6e7d8c;font-family:var(--mono)}
+.about-head h2{font-size:28px;letter-spacing:12px;color:#e8dcc4;margin-top:4px}
+.about-wrap{position:relative;z-index:2;width:min(920px,92vw);margin:0 auto;overflow-y:auto;padding:6px 22px 40px}
+.about-hero{display:flex;align-items:center;gap:22px;padding:20px 0 24px;border-bottom:1px solid rgba(255,255,255,.07)}
+.about-engine-icon{width:74px;height:74px;border-radius:16px;position:relative;background:linear-gradient(135deg,#1c2c3e,#080d14);border:1px solid rgba(120,180,230,.28);box-shadow:0 0 34px rgba(120,180,230,.12);flex:0 0 auto}
+.about-engine-icon::before{content:'LA';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;background:linear-gradient(135deg,#7fd0ff,#b98cff,#ff8fb0);-webkit-background-clip:text;color:transparent}
+.about-game-icon{width:74px;height:74px;flex:0 0 auto;filter:drop-shadow(0 0 18px rgba(216,170,80,.18))}
+.about-game-icon img{width:100%;height:100%;display:block}
+.about-hero-text h3{font-size:24px;letter-spacing:6px;color:#f0e4c8;font-weight:900}
+.about-hero-text h3 span{font-size:10px;letter-spacing:3px;color:#a78c58;font-weight:400;margin-left:8px}
+.about-hero-text p{font-size:12px;line-height:1.9;color:#aab5c0;margin-top:8px;max-width:620px}
+.about-hero-sub{color:#66727e !important;font-size:10px !important;letter-spacing:1px;font-family:var(--mono)}
+.about-card{margin-top:22px;padding:18px 20px;border:1px solid rgba(255,255,255,.07);background:rgba(12,15,19,.55);border-radius:5px}
+.about-card h4{font-size:12px;letter-spacing:4px;color:#d8bc84;margin-bottom:10px;font-weight:800}
+.about-card p{font-size:12px;line-height:1.95;color:#9aa6b2}
+.about-link{display:inline-block;margin-top:10px;font-size:11px;letter-spacing:1px;color:#e2c17c;text-decoration:none;border-bottom:1px solid rgba(216,170,80,.35);padding-bottom:2px}
+.about-link:hover{color:#ffe8b0;border-color:#ffe8b0}
+.about-license-row .about-link{margin-top:0;font-size:11px;border-bottom-color:rgba(216,170,80,.2)}
+.about-credit-row{display:flex;align-items:baseline;gap:16px;font-size:12px}
+.about-credit-row b{color:#e8d5a6;font-size:15px;letter-spacing:2px}
+.about-credit-row span{color:#8492a0;font-size:10.5px}
+.about-license-row{display:flex;gap:14px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;line-height:1.8}
+.about-license-row b{flex:0 0 110px;color:#c9b17e;font-weight:700;letter-spacing:1px}
+.about-license-row span{color:#95a1ad}
+.about-small{font-size:10px !important;color:#6d7884 !important;margin-top:10px;line-height:1.8 !important}
+.about-foot{margin-top:26px;font-size:9px;color:#59636e;letter-spacing:1px;font-family:var(--mono);text-align:center}
+
+/* ---------- 剧情 UI（3D 场景内） ---------- */
+#story-ui{position:absolute;inset:0;z-index:120;display:none;pointer-events:auto;color:#f0e6d2}
+#story-ui.on{display:block}
+.story-cinema{position:absolute;left:0;right:0;height:7vh;background:linear-gradient(180deg,#000,#000 88%,transparent);z-index:2;pointer-events:none}
+.story-cinema.top{top:0}
+.story-cinema.bottom{bottom:0;transform:rotate(180deg)}
+.story-head{position:absolute;top:calc(7vh + 20px);left:34px;right:34px;display:flex;justify-content:space-between;align-items:center;z-index:3;pointer-events:none}
+#story-title{font-size:11px;letter-spacing:4px;color:#b7995f;text-shadow:0 2px 8px #000}
+.story-no-save{font-size:9px;letter-spacing:2px;color:#7d6b4a;font-family:var(--mono);padding:4px 9px;border:1px solid rgba(160,130,80,.2);border-radius:3px;background:rgba(5,6,8,.4)}
+.story-box{position:absolute;left:50%;bottom:10vh;transform:translateX(-50%);width:min(880px,86vw);padding:18px 26px 30px;
+  background:linear-gradient(180deg,rgba(7,9,12,.58),rgba(3,4,6,.92));border:1px solid rgba(216,170,80,.22);border-left:2px solid rgba(216,170,80,.62);
+  box-shadow:0 20px 70px rgba(0,0,0,.65),inset 0 0 50px rgba(216,170,80,.025);backdrop-filter:blur(5px);z-index:3}
+.story-speaker-row{display:flex;align-items:center;justify-content:space-between;min-height:18px}
+#story-speaker{font-size:15px;font-weight:800;letter-spacing:4px;color:#ffd98a;text-shadow:0 0 18px rgba(216,170,80,.25)}
+#story-speaker.narration{font-size:10px;letter-spacing:6px;color:#8494a4;font-weight:400}
+#story-knot{width:20px;height:20px;display:none}
+#story-knot.auto{display:block}
+#story-knot.auto::before{content:'✦';color:#d9b25a;font-size:12px;text-shadow:0 0 8px rgba(216,170,80,.7)}
+#story-text{font-size:16px;line-height:1.95;letter-spacing:.4px;min-height:4.2em;color:#e6edf5;text-shadow:0 2px 10px rgba(0,0,0,.85);margin-top:8px}
+#story-choices{display:none;flex-direction:column;gap:6px;margin-top:12px}
+#story-choices.on{display:flex}
+.story-choice{display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;text-align:left;cursor:pointer;font-family:inherit;
+  background:linear-gradient(90deg,rgba(24,20,12,.86),rgba(10,10,10,.5));border:1px solid rgba(216,170,80,.18);border-left:2px solid rgba(216,170,80,.5);
+  color:#e4d9c2;font-size:13px;letter-spacing:1px;transition:.16s}
+.story-choice:hover{background:linear-gradient(90deg,rgba(52,40,18,.9),rgba(16,14,10,.6));border-color:rgba(216,170,80,.5);transform:translateX(3px);color:#fff0c9}
+.story-choice .sc-num{flex:0 0 auto;width:18px;height:18px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(216,170,80,.35);border-radius:2px;font-size:9px;color:#c7a964;font-family:var(--mono)}
+#story-next{position:absolute;right:24px;bottom:9px;font-size:10px;letter-spacing:2px;color:#9b8358;opacity:0;transition:opacity .2s;pointer-events:none}
+#story-next.on{opacity:1;animation:story-next-pulse 1.8s ease-in-out infinite}
+#story-next span{display:inline-block;transform:rotate(90deg);margin-left:4px}
+#game-screen.story-mode #hud,
+#game-screen.story-mode #mobile-controls,
+#game-screen.story-mode #btn-settings-game,
+#game-screen.story-mode #pause-btn,
+#game-screen.story-mode #action-progress{opacity:0 !important;pointer-events:none !important}
+@keyframes pt-pulse{0%,100%{opacity:.35;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}
+@keyframes knot-spin{to{transform:rotate(360deg)}}
+@keyframes story-next-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+@media (max-width:900px){
+  .title-top{left:18px;right:18px;top:14px}
+  .title-hero{left:6vw;top:9vh}
+  .title-hero h1{font-size:clamp(44px,12vw,76px)}
+  .title-kicker{font-size:7px;letter-spacing:3px;margin-bottom:8px}
+  .title-rule{display:none}
+  .title-tagline{font-size:10px;margin-top:6px}
+  .title-nav{left:6vw;bottom:6vh;width:min(430px,88vw)}
+  .title-item{padding:6px 10px 6px 12px}
+  .title-item .ti-main{font-size:15px}
+  .title-item .ti-note{display:none}
+  .title-save-hint{left:6vw;right:auto;bottom:auto;top:calc(12vh + 118px);text-align:left}
+  .title-foot{left:18px;right:18px;font-size:8px}
+  .pt-head{padding:14px 18px 4px}
+  .pt-heading h2{font-size:22px;letter-spacing:8px}
+  .pt-body{flex-direction:column;padding:0 10px}
+  .pt-canvas{min-height:36vh}
+  .pt-panel{width:auto;max-height:32vh;border-left:none;border-top:1px solid rgba(216,170,80,.12);padding:12px 8px 6px}
+  .pt-panel h3{font-size:18px}
+  .pt-desc{font-size:11px;margin-top:8px}
+  .pt-auto-box{margin-top:10px}
+  .pt-foot{padding:6px 18px 10px;font-size:8px}
+  .pt-knot-badge{left:4px;top:0;transform:scale(.9);transform-origin:left top}
+  .pt-legend{left:6px;bottom:0;font-size:8px;gap:10px}
+  .about-head{padding:16px 18px 4px}
+  .about-wrap{width:100%;padding:0 16px 28px}
+  .about-hero{flex-wrap:wrap;gap:14px;padding-top:12px}
+  .about-engine-icon,.about-game-icon{width:54px;height:54px;border-radius:10px}
+  .about-engine-icon::before{font-size:22px}
+  .about-hero-text h3{font-size:19px}
+  .story-head{left:18px;right:18px}
+  .story-box{width:92vw;bottom:8vh;padding:14px 16px 28px}
+  #story-text{font-size:14px;line-height:1.9;min-height:4.6em}
+  .story-choice{font-size:12px}
+}
+
+/* ---------- Modal (设置 & 市场) ---------- */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.on{display:flex}
+.modal-box{width:100%;max-width:600px;max-height:85vh;background:var(--panel2);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.8);overflow:hidden}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--line2);display:flex;justify-content:space-between;align-items:center;background:rgba(20,35,55,.8)}
+.modal-head h3{font-size:16px;color:var(--accent);letter-spacing:2px}
+.modal-close{background:none;border:none;color:var(--dim);font-size:20px;cursor:pointer}
+.modal-body{padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.settings-group{background:rgba(10,18,28,.5);padding:12px;border-radius:8px;border:1px solid var(--line2)}
+.settings-group h4{font-size:12px;color:var(--dim);margin-bottom:10px}
+.settings-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:6px 0;}
+.settings-row input[type="checkbox"]{width:18px;height:18px;cursor:pointer}
+
+/* 市场列表 */
+.market-item{display:flex;justify-content:space-between;align-items:center;padding:10px;background:rgba(20,32,46,.6);border-radius:6px;margin-bottom:6px;border:1px solid rgba(255,255,255,.05)}
+.market-info{display:flex;flex-direction:column}
+.market-name{font-size:14px;font-weight:700;color:#e0f0ff}
+.market-price{font-size:12px;color:var(--gold);margin-top:2px}
+.market-buy{padding:6px 16px;background:rgba(60,120,185,.6);border:1px solid rgba(120,190,255,.6);color:#fff;border-radius:6px;cursor:pointer;font-size:12px}
+.market-buy:disabled{opacity:.3;cursor:not-allowed}
+
+/* ---------- Game UI ---------- */
+#game-screen{z-index:20;display:none}
+#game-screen.on{display:block}
+#hud{position:absolute;inset:0;pointer-events:none;z-index:30}
+
+#fx-filter,#fx-vignette,#fx-coupling,#fx-hit-flash,#fx-skill,#fx-pspace{position:absolute;inset:0;pointer-events:none;transition:opacity 0.3s}
+#fx-filter{z-index:10}#fx-vignette{z-index:11;opacity:0;background:radial-gradient(ellipse at center, transparent 50%, rgba(120,0,0,0.55) 95%, rgba(40,0,0,0.9) 100%)}
+/* ★ P 空间破碎：紫色空间闪光，不再靠红色受伤蒙版表达 */
+#fx-pspace{z-index:18;opacity:0;background:
+  radial-gradient(circle at 50% 52%, rgba(210,120,255,.22) 0%, rgba(150,40,230,.10) 32%, transparent 66%),
+  repeating-linear-gradient(115deg, transparent 0 34px, rgba(190,110,255,.055) 35px 36px, transparent 37px 86px);
+  mix-blend-mode:screen}
+#fx-pspace.on{animation:pspace-burst 1.5s ease-out forwards}
+@keyframes pspace-burst{
+  0%{opacity:0;filter:brightness(.6) saturate(1.2)}
+  7%{opacity:1;filter:brightness(2.4) saturate(1.8)}
+  22%{opacity:.72;filter:brightness(1.2)}
+  100%{opacity:0;filter:brightness(.9)}
+}
+#fx-coupling{z-index:12;box-shadow:none}#fx-hit-flash{z-index:13;background:rgba(255,0,0,0.15);opacity:0}
+#fx-skill{z-index:14;opacity:0}
+#drone-interference{position:fixed;inset:0;z-index:414;pointer-events:none;opacity:0;transition:opacity .12s;background:repeating-linear-gradient(0deg,rgba(80,220,255,.10) 0 2px,transparent 2px 5px);mix-blend-mode:screen}
+#drone-interference.on{opacity:.7;animation:drone-glitch .16s steps(2) infinite}
+@keyframes drone-glitch{0%{transform:translate(0,0);filter:none}50%{transform:translate(-2px,1px);filter:hue-rotate(25deg)}100%{transform:translate(2px,-1px);filter:none}}
+#dmg-indicator{position:absolute;inset:0;pointer-events:none;z-index:15}
+#hazard-overlay{position:fixed;inset:0;z-index:408;pointer-events:none;opacity:0;transition:opacity .4s;mix-blend-mode:screen}
+#hazard-overlay.burning{opacity:.8;background:radial-gradient(ellipse at 50% 100%,rgba(255,120,30,.5) 0%,rgba(255,80,20,.22) 35%,transparent 72%);animation:hazard-flicker .45s ease-in-out infinite alternate}
+#hazard-overlay.fiber{opacity:.55;background:repeating-radial-gradient(circle at 18% 62%,rgba(220,180,120,.28) 0 1px,transparent 1px 7px),radial-gradient(ellipse at 50% 50%,rgba(180,40,40,.18),transparent 70%);animation:hazard-pulse 1.6s ease-in-out infinite}
+@keyframes hazard-flicker{0%{opacity:.62}100%{opacity:.9}}
+@keyframes hazard-pulse{0%,100%{opacity:.35}50%{opacity:.62}}
+#crosshair{position:absolute;left:50%;top:50%;width:24px;height:24px;transform:translate(-50%,-50%);pointer-events:none;z-index:20}
+#crosshair .line-h{position:absolute;top:11px;width:6px;height:2px;background:#fff;box-shadow:0 0 2px #000}
+#crosshair .line-v{position:absolute;left:11px;width:2px;height:6px;background:#fff;box-shadow:0 0 2px #000}
+#hit-marker{position:absolute;inset:0;opacity:0;transition:opacity 0.1s}
+#armor-hit-indicator{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);border:1.5px solid rgba(255,255,255,.85);border-radius:50%;display:none;align-items:center;justify-content:center;background:transparent;box-sizing:border-box;pointer-events:none}
+#armor-hit-indicator.on{display:flex}
+#armor-hit-indicator.broken{border-style:dashed;border-color:rgba(255,140,140,.95)}
+#armor-hit-icon{font-size:13px;line-height:1;text-shadow:0 1px 2px #000}
+#minimap-container{position:absolute;right:12px;top:64px;width:150px;height:150px;border-radius:8px;overflow:hidden;border:2px solid rgba(100,160,220,.5);background:rgba(230,236,244,.92);z-index:25;display:none}
+#kill-feed{position:absolute;right:176px;top:64px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:280px;z-index:25;pointer-events:none;font-size:12px;color:#fff;text-shadow:0 1px 3px #000}
+#top-left{position:absolute;left:12px;top:12px;pointer-events:auto}
+.task-panel{padding:10px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);min-width:220px}
+.panel-title{font-size:10px;color:var(--accent);letter-spacing:2px;margin-bottom:6px}
+.task-item{font-size:11px;line-height:1.6;color:#cfe4f8}
+#bottom-left{position:absolute;left:12px;bottom:12px;pointer-events:auto}
+.player-panel{padding:12px;border-radius:10px;background:var(--panel2);border:1px solid var(--line);min-width:240px}
+.player-name{font-size:13px;font-weight:700;color:#cfe6ff;display:flex;justify-content:space-between;margin-bottom:8px}
+.stat-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:var(--dim)}
+.bar{flex:1;height:12px;border-radius:6px;background:rgba(0,0,0,.6);position:relative;overflow:hidden}
+.bar>div{height:100%;transition:width .1s}
+.bar>span{position:absolute;inset:0;text-align:center;font-size:9px;line-height:12px;font-weight:700;color:#fff}
+.armor-row{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:8px;padding-top:8px;border-top:1px solid rgba(105,170,235,.15)}
+.armor-cell{padding:4px 2px;background:rgba(10,18,28,.7);border-radius:4px;text-align:center;border:1px solid rgba(80,125,175,.2)}
+.armor-icon{font-size:14px;margin-bottom:2px}
+.armor-bar{height:3px;background:rgba(0,0,0,.7);border-radius:2px;overflow:hidden}
+.armor-bar>i{display:block;height:100%;background:#6fe07a}
+.armor-lv{font-size:8px;color:#8fb0cc;margin-top:2px}
+#bottom-right{position:absolute;right:16px;bottom:16px;text-align:right;pointer-events:none}
+.weapon-box{display:inline-block;text-align:right;padding:8px 12px;background:rgba(14,22,34,.78);border:1px solid rgba(105,170,235,.4);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.5);backdrop-filter:blur(2px)}
+.weapon-box .wb-top{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.weapon-name{font-size:13px;font-weight:700;color:#cfe6ff;letter-spacing:1px}
+.next-ammo{font-size:11px;color:#ffd93d;margin-top:2px}
+.ammo-text{font-size:28px;font-weight:800;font-family:var(--mono);color:#eaf4ff;margin-top:2px}
+.fire-mode-btn{pointer-events:auto;padding:2px 8px;font-size:10.5px;font-weight:700;border-radius:5px;cursor:pointer;background:rgba(60,120,185,.75);border:1px solid rgba(120,190,255,.8);color:#e0f0ff;font-family:inherit}
+/* 当前状态图标（屏幕最下方，图标显示，绿=正面 / 红=负面） */
+#status-bar{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26}
+#status-bar .status-chip{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:15px;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+#status-bar .status-chip.neg{background:rgba(180,40,40,.42);border:1px solid rgba(255,110,110,.65);color:#fff}
+#status-bar .status-chip.pos{background:rgba(40,160,90,.42);border:1px solid rgba(120,255,170,.65);color:#fff}
+/* 战术状态条：把“正在左倾/蹲伏/疾跑/开镜”明确画出来，避免按了没反馈 */
+#tactical-state{position:absolute;left:50%;bottom:168px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;z-index:27;pointer-events:none;white-space:nowrap}
+#tactical-state .tac-chip{padding:3px 9px;border-radius:5px;font-size:10px;font-weight:700;letter-spacing:1px;background:rgba(14,22,34,.82);border:1px solid rgba(105,170,235,.35);color:#9fc4e8;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+#tactical-state .tac-chip.on{background:rgba(60,120,185,.55);border-color:rgba(150,215,255,.85);color:#eaf6ff;box-shadow:0 0 10px rgba(90,180,255,.35)}
+#tactical-state .tac-chip.warn{background:rgba(180,70,30,.55);border-color:rgba(255,150,90,.85);color:#ffe2c8}
+/* 技能栏：真实技能名 + 冷却（不显示键位） */
+#skill-bar{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);display:flex;gap:8px;z-index:26;pointer-events:none}
+.skill-slot{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:rgba(14,22,34,.82);border:1px solid rgba(80,125,175,.3);font-size:11px;color:#6f8fae;min-width:104px}
+.skill-slot.ready{border-color:rgba(120,190,255,.7);color:#e0f0ff}
+.skill-slot .sk-key{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:rgba(0,0,0,.45);font-size:9px;color:#a8d8ff;flex-shrink:0}
+.skill-slot .sk-icon{font-size:15px;line-height:1;flex-shrink:0}
+.skill-slot .sk-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-slot .sk-cd{font-size:10px;color:#ffd93d;font-family:ui-monospace,monospace;flex-shrink:0}
+#throwable-hint{position:absolute;left:50%;bottom:196px;transform:translateX(-50%);z-index:27;pointer-events:none;padding:4px 12px;background:rgba(20,30,44,.85);border:1px solid rgba(255,200,90,.5);border-radius:6px;color:#ffe8b0;font-size:12px;display:none;white-space:nowrap}
+/* 屏幕中上：警觉度提示（位置暴露等），横向排列，溢出省略 */
+/* 无人机操控：隐藏人类武器/投掷 UI，换成无人机专用 HUD */
+#hud.drone-mode #bottom-right,
+#hud.drone-mode #weapon-bar,
+#hud.drone-mode #nade-wheel-btn,
+#hud.drone-mode #med-wheel-btn,
+#hud.drone-mode #throwable-hint,
+#hud.drone-mode #throwable-arm-btn,
+#hud.drone-mode #protect-group,
+#hud.drone-mode #skill-bar,
+#hud.drone-mode #exo-panel{display:none!important}
+#drone-hud{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:27;pointer-events:none;padding:8px 16px;border-radius:8px;background:rgba(8,22,36,.9);border:1px solid rgba(80,200,255,.6);color:#bfe8ff;font-size:11px;letter-spacing:1px;display:none;text-align:center;box-shadow:0 0 18px rgba(50,180,255,.18)}
+#drone-hud.on{display:block}
+#drone-hud .dh-title{font-size:12px;font-weight:800;color:#7be8ff;letter-spacing:3px;margin-bottom:4px}
+#drone-hud .dh-line{color:#8fb0c8;font-size:10px;margin-top:3px}
+#drone-hud b{color:#e0f8ff}
+#alert-bar{position:absolute;left:50%;top:14px;transform:translateX(-50%);display:flex;gap:6px;align-items:center;pointer-events:none;z-index:26;max-width:72%;overflow:hidden}
+#alert-bar .alert-chip{flex-shrink:0;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:1px;background:rgba(200,140,30,.5);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;box-shadow:0 2px 8px rgba(0,0,0,.4);backdrop-filter:blur(2px)}
+#alert-bar .alert-more{flex-shrink:0;font-size:15px;color:#ffe8b0;font-weight:700}
+/* Assee 事件条放在战术字幕下方，不遮挡顶部对话框；手机端再下移一档 */
+#asce-hud{top:128px}
+@media (max-width:900px){#asce-hud{top:240px !important}}
+#protect-group{position:absolute;left:12px;bottom:260px;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
+.protect-btn{width:60px;padding:8px 2px;border-radius:8px;font-size:11px;font-weight:700;border:1.5px solid;background:rgba(0,0,0,.5);cursor:pointer;color:#fff}
+.protect-btn.active{background:rgba(255,255,255,.22);box-shadow:0 0 16px currentColor}
+#action-progress{position:fixed;left:50%;top:63%;transform:translateX(-50%);width:168px;display:none;text-align:center;pointer-events:none;z-index:600}
+#action-progress.on{display:block}
+/* ★ 镂空进度条：只保留描边与一条极细进度线，不再用实心块挡住视野 */
+#action-progress-bar{position:relative;height:9px;background:transparent;border-radius:2px;overflow:visible;border:1px solid rgba(255,205,90,.55);box-shadow:0 0 7px rgba(0,0,0,.55)}
+#action-progress-bar::after{content:'';position:absolute;inset:2px;border:1px solid rgba(255,215,130,.16);border-radius:1px;pointer-events:none}
+#action-progress-fill{position:absolute;left:1px;bottom:1px;height:2px;max-width:calc(100% - 2px);width:0%;background:#ffd93d;border-radius:1px;box-shadow:0 0 6px rgba(255,220,80,.85);transition:width .05s}
+#action-progress-cancel{pointer-events:auto}
+#weapon-bar{position:absolute;left:50%;bottom:88px;transform:translateX(-50%);display:flex;flex-direction:row;align-items:stretch;justify-content:center;gap:8px;z-index:26;pointer-events:auto}
+#weapon-bar .wb-slot{display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(14,22,34,.85);border:1.5px solid rgba(80,125,175,.3);border-radius:6px;font-size:11px;color:#8fb0cc;min-width:104px;cursor:pointer;transition:all .15s;user-select:none}
+#weapon-bar .wb-slot:hover{border-color:rgba(120,190,255,.7);background:rgba(30,50,75,.9)}
+#weapon-bar .wb-slot.active{background:rgba(60,120,185,.5);border-color:rgba(120,190,255,.9);color:#e0f0ff;font-weight:700}
+#weapon-bar .wb-slot.empty{opacity:.35;cursor:not-allowed}
+#weapon-bar .wb-slot .wb-num{width:16px;height:16px;display:flex;align-items:center;justify-content:center;border-radius:3px;background:rgba(0,0,0,.4);font-size:9px;color:#a8d8ff;flex-shrink:0}
+#weapon-bar .wb-slot.active .wb-num{background:rgba(120,190,255,.5);color:#fff}
+#weapon-bar .wb-slot .wb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+#nearby-list{position:absolute;left:12px;top:120px;transform:none;display:flex;flex-direction:column;gap:4px;z-index:26;pointer-events:auto;max-width:220px;max-height:30vh;overflow:hidden}
+#nearby-list .nb-item{display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(14,22,34,.9);border:1px solid rgba(255,210,80,.5);border-radius:5px;font-size:11px;color:#ffe8a8;cursor:pointer;transition:all .15s;user-select:none}
+#nearby-list .nb-item:hover{background:rgba(60,50,25,.9);border-color:rgba(255,220,100,.9)}
+#nearby-list .nb-item .nb-icon{font-size:13px;flex-shrink:0}
+#nearby-list .nb-item .nb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nearby-list .nb-item .nb-dist{font-size:9px;color:#7fa0bc;flex-shrink:0}
+#nearby-list .nb-empty{padding:8px 10px;background:rgba(14,22,34,.8);border:1px solid rgba(80,125,175,.2);border-radius:5px;font-size:11px;color:#5c82a8;text-align:center}
+
+/* 队内对话：桌面移到顶部中央空白区，移动端移到小地图下方右侧；单行省略、不再接收滚轮/触摸滚动。
+   旧版在左下角且 pointer-events:auto，移动/转身时手指一扫就滚到聊天记录，
+   还会挡住左侧操作区；现在只做“余光可读”的战术字幕。 */
+#squad-chat{position:absolute;left:50%;top:52px;transform:translateX(-50%);width:min(520px,62vw);max-height:68px;overflow:hidden;z-index:27;pointer-events:none;font-size:10.5px;line-height:1.45;color:#cfe4f8;text-shadow:0 1px 3px #000,0 0 6px rgba(0,0,0,.8);white-space:normal;word-break:break-word;user-select:none;-webkit-user-select:none}
+#squad-chat .sc-line{display:flex;gap:4px;margin:0 0 1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#squad-chat .sc-name{color:#7fe8ff;font-weight:700;flex:0 0 auto}
+#squad-chat .sc-name.enemy{color:#ff9b8b}
+#squad-chat .sc-text{overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* 移动端：小地图下方、右侧中上是相对空闲的竖条，避开左上任务面板与左下操作区 */
+@media (max-width:900px){#squad-chat{left:auto;right:8px;top:176px;transform:none;width:48vw;max-height:58px;font-size:9.5px}}
+/* 队友伤情：从屏幕正左移到任务面板下方，默认去掉底板/边框，只保留可读文字。
+   旧版 300px 宽、44vh 高、半透明底板，站在队友旁边时非常挡视野。 */
+#ally-care{position:absolute;left:12px;top:148px;z-index:29;pointer-events:auto;width:min(250px,34vw);max-height:32vh;overflow-y:auto;padding:2px 4px;background:transparent;border:none;border-radius:0;color:#cfe4f8;font-size:10px;line-height:1.5;text-shadow:0 1px 3px #000,0 0 7px rgba(0,0,0,.9);box-shadow:none}
+#ally-care.active{background:rgba(8,18,28,.45);border:none;border-radius:6px;box-shadow:none}
+#hud.drone-mode #ally-care{display:none!important}
+#ally-care .ac-title{font-size:12px;font-weight:800;color:#9fe8ff;letter-spacing:1px;margin-bottom:4px}
+#ally-care .ac-bar{height:4px;background:rgba(0,0,0,.5);border-radius:2px;overflow:hidden;margin:3px 0 6px}
+#ally-care .ac-bar i{display:block;height:100%;background:#5fd47a}
+#ally-care .ac-med{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+#ally-care .ac-med button{padding:3px 7px;border-radius:5px;background:rgba(40,110,80,.8);border:1px solid rgba(120,240,180,.6);color:#d8ffe8;font-size:9px;font-family:inherit;cursor:pointer}
+#ally-care .ac-med button:disabled{opacity:.4;cursor:not-allowed}
+#squad-advance-btn,#squad-retreat-btn{position:absolute;left:12px;bottom:322px;z-index:28;pointer-events:auto;padding:4px 9px;border-radius:5px;background:rgba(30,70,110,.85);border:1px solid rgba(120,190,255,.6);color:#d8f0ff;font-size:10px;font-family:inherit;font-weight:700;cursor:pointer}
+#squad-retreat-btn{left:112px;background:rgba(110,65,30,.85);border-color:rgba(255,190,120,.65);color:#ffe8c8}
+@media (max-width:900px){#ally-care{left:8px;top:auto;bottom:150px;transform:none;width:54vw;max-height:30vh}#squad-advance-btn,#squad-retreat-btn{bottom:278px;font-size:9px}#squad-retreat-btn{left:104px}}
+
+/* ---------- 移动端 HUD 重排：武器栏贴底让出右侧操作区，附近列表靠右、击杀提示上移 ---------- */
+/* 移动端用 ACTION_MAP 的独立按钮控制开火模式/侧瞄，武器框里的小按钮不再和开火键抢触摸。 */
+#game-screen.mobile-ui #fire-mode-btn,
+#game-screen.mobile-ui #side-sight-btn{display:none!important}
+@media (max-width:900px){
+  #minimap-container{width:110px;height:110px;top:60px;right:8px}
+  #kill-feed{left:8px;right:auto;top:145px;align-items:flex-start;max-width:180px;max-height:110px;overflow:hidden;font-size:11px}
+  #weapon-bar{left:8px;right:200px;bottom:8px;transform:none;gap:4px}
+  #weapon-bar .wb-slot{flex:1;min-width:0;padding:5px 4px;font-size:10px;gap:3px;justify-content:center}
+  #nearby-list{right:8px;top:42%;max-width:150px;max-height:100px;overflow-y:auto}
+  #protect-group{left:8px;bottom:132px;transform:scale(.82);transform-origin:bottom left}
+  #status-bar{bottom:46px}
+  /* 移动端武器框压缩，给下方操作键让位 */
+  .weapon-box{padding:4px 8px}
+  .weapon-box .carry-line{display:none}
+  .weapon-box .ammo-text{font-size:22px}
+  .weapon-box .next-ammo{font-size:10px}
+  .weapon-box .weapon-name{font-size:11px}
+  #skill-bar{display:none}
+  #throwable-hint{display:none!important}
+}
+/* 死亡回放：保留玩家同款 HUD，只隐藏战局专属面板 */
+#hud.replay-hud #top-left,
+#hud.replay-hud #minimap-container,
+#hud.replay-hud #kill-feed,
+#hud.replay-hud #nearby-list,
+#hud.replay-hud #squad-chat,
+#hud.replay-hud #squad-advance-btn,
+#hud.replay-hud #squad-retreat-btn,
+#hud.replay-hud #ally-care,
+#hud.replay-hud #weapon-bar,
+#hud.replay-hud #skill-bar,
+#hud.replay-hud #alert-bar,
+#hud.replay-hud #protect-group,
+#hud.replay-hud #extract-progress,
+#hud.replay-hud #nade-wheel-btn,
+#hud.replay-hud #med-wheel-btn,
+#hud.replay-hud #fiber-pull-btn,
+#hud.replay-hud #extinguish-btn,
+#hud.replay-hud #tactical-state,
+#hud.replay-hud #throwable-hint,
+#hud.replay-hud #throwable-arm-btn,
+#hud.replay-hud #drone-panel,
+#hud.replay-hud #drone-hud,
+#hud.replay-hud #exo-panel,
+#hud.replay-hud #training-attack-panel,
+#hud.replay-hud #training-settings-btn,
+#hud.replay-hud #dummy-info-panel,
+#hud.replay-hud #fx-filter,
+#hud.replay-hud #fx-coupling,
+#hud.replay-hud #fx-skill,
+#hud.replay-hud #dmg-indicator{display:none!important}
+#extract-progress{position:absolute;left:50%;top:18%;transform:translateX(-50%);display:none;text-align:center}
+#extract-progress.on{display:block}
+#extract-fill{height:100%;width:0%;background:linear-gradient(90deg,#3fd0ff,#a2f0ff);transition:width .1s}
+
+/* 靶场专用排版：把攻击数据/人偶详情移到右侧竖列，避开左侧保护/技能/移动按钮。
+   小地图在右上 64~214px，所以训练面板从 224px 开始向下排。 */
+#hud.training-mode #training-settings-btn{left:auto!important;right:12px!important;top:224px!important;z-index:48!important}
+#hud.training-mode #training-attack-panel{left:auto!important;right:12px!important;top:256px!important;width:248px!important;z-index:47!important}
+#hud.training-mode #dummy-info-panel{left:auto!important;right:12px!important;top:382px!important;width:248px!important;max-height:28vh!important;z-index:47!important}
+@media(max-height:650px){#hud.training-mode #dummy-info-panel{max-height:18vh!important}}
+#hud.training-mode #nearby-list{display:none}
+@media(max-width:900px){
+  #hud.training-mode #training-settings-btn{right:8px!important;top:176px!important;left:auto!important}
+  #hud.training-mode #training-attack-panel{right:8px!important;top:208px!important;left:auto!important;width:200px!important;font-size:9px}
+  #hud.training-mode #dummy-info-panel{right:8px!important;top:318px!important;left:auto!important;width:200px!important;max-height:26vh!important;font-size:9px}
+}
+@media(max-height:650px){#hud.training-mode #dummy-info-panel{max-height:18vh!important}}
+
+/* Overlay */
+.overlay{position:absolute;inset:0;background:rgba(4,8,14,.9);display:none;align-items:center;justify-content:center;flex-direction:column;z-index:60;padding:24px;text-align:center}
+.overlay.on{display:flex}
+.overlay h2{font-size:28px;letter-spacing:10px;margin-bottom:20px;color:var(--accent)}
+.overlay .stat{font-size:13px;line-height:2;color:var(--dim);margin-bottom:22px;max-width:520px}
+
+.copyright-bar{position:fixed;right:10px;bottom:8px;font-size:9px;color:rgba(92,130,168,.45);font-family:var(--mono);z-index:200;pointer-events:none}
+</style>
+</head>
+<body>
+
+<!-- Boot Screen -->
+<div id="boot-screen" class="screen on">
+  <div class="boot-content">
+    <div class="boot-logo"></div>
+    <h1 class="boot-title">LaiAsaka</h1>
+    <p class="boot-sub">ENGINE</p>
+    <div class="boot-progress"><div id="boot-bar"></div></div>
+    <p id="boot-status" class="boot-status">正在初始化引擎…</p>
+    <div id="boot-error" style="display:none;color:#ff8b8b;font-size:11px;max-height:50vh;overflow-y:auto;white-space:pre-wrap;text-align:left;padding:10px;border:1px solid rgba(255,100,100,.3);background:rgba(80,20,20,.3);margin-top:10px;user-select:text;"></div>
+  </div>
+</div>
+
+<!-- 主大厅 · Asaka 主模式入口 -->
+<div id="title-screen" class="screen"></div>
+
+<!-- 计划树（由 plantree.js 填充） -->
+<div id="plan-tree-screen" class="screen"></div>
+
+<!-- Menu Screen · Straight 大厅 -->
+
+<div id="menu-screen" class="screen">
+  <div class="menu-header">
+    <div style="display:flex;align-items:center;gap:16px">
+      <button class="icon-btn" id="btn-back-title" style="padding:8px 14px">← 主大厅</button>
+      <div>
+        <div style="font-size:16px;font-weight:900;letter-spacing:5px;color:#cfe4f8">STRAIGHT</div>
+        <div style="font-size:9px;letter-spacing:3px;color:#5c82a8;margin-top:2px">硬核撤离 · 战斗原型</div>
+      </div>
+    </div>
+    <div class="menu-top-actions">
+      <span id="menu-credits" style="display:inline-flex;align-items:center;padding:8px 14px;font-size:12px;font-weight:800;letter-spacing:1px;color:#ffd93d;background:rgba(40,32,10,.6);border:1px solid rgba(255,217,61,.35);border-radius:6px">0 cp</span>
+      <button class="icon-btn" id="btn-market">市场</button>
+      <button class="icon-btn" id="btn-settings">Straight 设置</button>
+      <button class="icon-btn" id="btn-dev-console">DEV</button>
+    </div>
+  </div>
+
+  <div class="menu-content">
+    <!-- Straight Tab -->
+    <div class="tab-content on" id="tab-straight">
+      <div>
+        <div class="section-label">选择地图</div>
+        <div class="options" id="map-options"></div>
+      </div>
+      <div>
+        <div class="section-label">选择角色</div>
+        <div class="options" id="char-options"></div>
+      </div>
+      <div>
+        <div class="section-label">玩法预设</div>
+        <div class="options" id="profile-options"></div>
+      </div>
+      <div id="difficulty-display" style="margin-top:10px;padding:12px;background:var(--panel2);border-radius:10px;font-size:12px;display:flex;justify-content:space-between;align-items:center">
+        <span style="color:var(--dim)">—</span>
+      </div>
+      <label id="match-allies-row" style="margin-top:10px;padding:10px 12px;background:var(--panel2);border-radius:10px;font-size:12px;color:#cfe4f8;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="chk-match-allies" style="width:16px;height:16px;accent-color:#3fa8ff;cursor:pointer">
+        <span>匹配友方 AI 小队 <span style="color:#7fa0bc;font-size:10px">（2 人）</span></span>
+      </label>
+      <div class="action-bar">
+        <div class="btn-row">
+          <button class="btn ghost" id="btn-loadout-ticket">制式券 / 配装</button>
+          <button class="btn ghost" id="btn-stash">打开仓库 / 配装</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="btn-start">进 入 战 区</button>
+          <button class="btn" id="btn-train">训 练 场</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 制式券配装页 -->
+<div id="loadout-page" class="screen" style="z-index:70;background:radial-gradient(circle at 50% 20%,#0f1a28 0%,#05070a 82%);align-items:stretch;justify-content:flex-start;overflow-y:auto">
+  <div class="menu-header" style="flex:0 0 auto">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="font-size:18px;font-weight:900;letter-spacing:4px;color:#7fd0ff">制式券 · 配装</div>
+      <span style="font-size:10px;color:#5c82a8;letter-spacing:2px">制式券内容每次刷新重新随机</span>
+    </div>
+    <div class="menu-top-actions">
+      <span id="loadout-credits" style="display:inline-flex;align-items:center;padding:8px 14px;font-size:12px;font-weight:800;color:#ffd93d;background:rgba(40,32,10,.6);border:1px solid rgba(255,217,61,.35);border-radius:6px">0 cp</span>
+      <button class="icon-btn" id="btn-loadout-close">返回</button>
+    </div>
+  </div>
+  <div style="max-width:1080px;width:100%;margin:0 auto;padding:20px;display:flex;flex-direction:column;gap:14px">
+    <div id="loadout-tiers" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px"></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px" id="loadout-main">
+      <div id="loadout-preview" style="background:rgba(14,22,34,.9);border:1px solid rgba(105,170,235,.28);border-radius:10px;padding:14px;min-height:300px;font-size:12px;line-height:1.7"></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div id="loadout-summary" style="background:rgba(14,22,34,.9);border:1px solid rgba(105,170,235,.28);border-radius:10px;padding:14px;font-size:12px;line-height:1.8"></div>
+        <button class="btn primary" id="btn-loadout-equip">领取并装备</button>
+        <button class="btn ghost" id="btn-loadout-reroll">刷新随机配装</button>
+        <button class="btn ghost" id="btn-loadout-empty" style="border-color:rgba(255,140,120,.5);color:#ffb0a0">空装进入（随身装备移入仓库，使用仓库自配）</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>设置</h3>
+      <button class="modal-close" data-close="settings-modal">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-group">
+        <h4>操作模式</h4>
+        <div class="options" id="platform-options" style="grid-template-columns:repeat(3,1fr)">
+          <div class="option on" data-value="auto"><div class="opt-title">自动识别</div></div>
+          <div class="option" data-value="pc"><div class="opt-title">PC (键鼠)</div></div>
+          <div class="option" data-value="mobile"><div class="opt-title">移动端</div></div>
+        </div>
+      </div>
+      <div class="settings-group">
+        <h4>手感与视角</h4>
+        <div id="custom-settings-experience" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+      </div>
+      <div class="settings-group">
+        <h4>信息与辅助</h4>
+        <div id="custom-settings-gameplay" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+      </div>
+      <div class="settings-group">
+        <h4>陀螺仪（体验性 · 移动端）</h4>
+        <div class="settings-row">
+          <span>启用陀螺仪</span>
+          <button class="icon-btn" id="btn-gyro-toggle"><span id="gyro-status">未开启</span></button>
+        </div>
+        <div class="settings-row">
+          <span>灵敏度</span>
+          <input type="range" id="gyro-sensitivity" min="0.1" max="3.0" step="0.1" value="1.0" style="width:150px">
+          <span id="gyro-sens-val">1.0</span>
+        </div>
+        <div style="font-size:10px;color:#7fa0bc;line-height:1.6">需要设备提供方向传感器并通过浏览器授权；开启后若状态显示“无数据”，通常是页面不是 HTTPS 或系统禁止了传感器。</div>
+      </div>
+      <div class="settings-group">
+        <h4>语言</h4>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="icon-btn lang-btn on" data-lang="zh-CN">中文</button>
+          <button class="icon-btn lang-btn" data-lang="en-US">English</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Market Modal -->
+<div class="modal-overlay" id="market-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>黑市 · 交易中心</h3>
+      <button class="modal-close" data-close="market-modal">✕</button>
+    </div>
+    <div class="modal-body" id="market-list">
+      <!-- JS 动态注入 -->
+    </div>
+  </div>
+</div>
+
+<!-- Game Screen -->
+<div id="game-screen" class="screen">
+  <canvas id="game-canvas"></canvas>
+  <div id="hud">
+    <div id="fx-filter"></div><div id="fx-vignette"></div><div id="fx-coupling"></div><div id="fx-hit-flash"></div><div id="fx-skill"></div><div id="fx-pspace"></div><div id="drone-interference"></div>
+    <canvas id="dmg-indicator"></canvas>
+    <canvas id="sound-radar-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:16"></canvas>
+    
+    <div id="crosshair">
+      <svg id="hit-marker" width="24" height="24" viewBox="0 0 24 24">
+        <line x1="4" y1="4" x2="8" y2="8" stroke="#ffffff" stroke-width="2" />
+        <line x1="20" y1="4" x2="16" y2="8" stroke="#ffffff" stroke-width="2" />
+        <line x1="4" y1="20" x2="8" y2="16" stroke="#ffffff" stroke-width="2" />
+        <line x1="20" y1="20" x2="16" y2="16" stroke="#ffffff" stroke-width="2" />
+      </svg>
+      <div id="armor-hit-indicator">
+        <div id="armor-hit-icon"></div>
+      </div>
+    </div>
+    
+    <div id="quick-melee-hint" style="position:absolute;left:50%;top:calc(50% + 34px);transform:translateX(-50%);z-index:21;display:none;pointer-events:none;padding:4px 10px;border-radius:5px;background:rgba(20,12,8,.82);border:1px solid rgba(255,190,90,.75);color:#ffe0a8;font-size:11px;letter-spacing:1px;white-space:nowrap">快速近战 · F2 / 鼠标中键</div>
+    
+    <div id="minimap-container"><canvas id="minimap" width="150" height="150"></canvas></div>
+    <div id="kill-feed"></div>
+    
+    <div id="top-left">
+      <div class="task-panel"><div class="panel-title">📋 任务</div><div id="task-list"></div></div>
+    </div>
+    <div id="training-attack-panel" style="display:none;position:absolute;left:12px;top:178px;width:214px;padding:8px 10px;background:rgba(8,18,28,.86);border:1px solid rgba(120,190,255,.4);border-radius:8px;color:#cfe4f8;font-size:10px;line-height:1.6;z-index:27;pointer-events:none;font-family:ui-monospace,monospace">
+      <div style="color:#7fe8ff;font-weight:800;letter-spacing:2px;margin-bottom:3px">靶场攻击数据</div>
+      <div id="training-attack-body">—</div>
+    </div>
+    <button id="training-settings-btn" style="display:none;position:absolute;left:12px;top:340px;z-index:28;pointer-events:auto;padding:5px 10px;border-radius:6px;background:rgba(40,80,130,.8);border:1px solid rgba(110,180,255,.55);color:#cfe8ff;font-size:10px;font-family:inherit;cursor:pointer;touch-action:manipulation">靶场设置</button>
+    <div id="dummy-info-panel" style="display:none;position:absolute;left:12px;top:392px;width:248px;max-height:42vh;overflow-y:auto;padding:8px 10px;background:rgba(8,18,28,.9);border:1px solid rgba(120,190,255,.4);border-radius:8px;color:#cfe4f8;font-size:10px;line-height:1.55;z-index:27;pointer-events:none;font-family:ui-monospace,monospace">
+      <div style="color:#7fe8ff;font-weight:800;letter-spacing:2px;margin-bottom:4px">训练人偶详情</div>
+      <div id="dummy-info-body">—</div>
+    </div>
+    <div id="drone-panel" style="display:none;position:absolute;left:12px;top:160px;padding:8px 10px;background:rgba(10,20,32,.88);border:1px solid rgba(80,200,255,.5);border-radius:8px;color:#bfe8ff;font-size:11px;line-height:1.6;z-index:27;pointer-events:none;min-width:170px"></div>
+    <div id="drone-hud"><div class="dh-title">🛸 侦察无人机</div><div id="drone-hud-stats">电量 100% · 耐久 70/70</div><div class="dh-line">攻击键：光学标记 · P 前进点 / O 撤退点 · 空格升 / C 降 · Y 退出</div><div style="display:flex;gap:4px;justify-content:center;margin-top:5px"><button id="drone-frag-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(200,100,60,.65);border:1px solid rgba(255,160,100,.8);color:#ffe0d0;font-size:10px;font-family:inherit;cursor:pointer">手雷 ×2</button><button id="drone-emp-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(80,200,180,.55);border:1px solid rgba(120,255,220,.8);color:#dffeff;font-size:10px;font-family:inherit;cursor:pointer">EMP ×2</button><button id="drone-advance-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(80,160,220,.55);border:1px solid rgba(120,220,255,.7);color:#dff6ff;font-size:10px;font-family:inherit;cursor:pointer">前进点 P</button><button id="drone-retreat-btn" style="pointer-events:auto;padding:3px 7px;border-radius:5px;background:rgba(110,65,30,.7);border:1px solid rgba(255,190,120,.8);color:#ffe8c8;font-size:10px;font-family:inherit;cursor:pointer">撤退点 O</button></div></div>
+    
+    <div id="bottom-left">
+      <div class="player-panel">
+        <div class="player-name"><span id="player-name">—</span><span id="player-tag" style="color:var(--accent)">—</span></div>
+        <div class="stat-row">
+          <span>状态</span>
+          <div class="bar"><div id="hp-bar" style="background:#5fd47a;width:100%"></div><span id="hp-text">健康</span></div>
+        </div>
+        <div id="effect-bar" style="display:none"></div>
+        <div class="stat-row"><span style="color:#ffd93d">体力</span><div class="bar" style="height:6px"><div id="stamina-bar" style="background:#ffd93d;width:100%"></div></div></div>
+        <div class="stat-row" id="weight-row"><span style="color:#8fb0cc">负重</span><span id="carry-weight" style="font-size:11px;color:#cfe4f8">0.0 / 24 kg</span><span id="load-state" style="font-size:10px;color:#6fe07a;margin-left:auto">正常</span></div>
+        <div class="stat-row" id="cp-row"><span>耦合</span><div class="bar"><div id="cp-bar" style="background:#3fa8ff"></div><span id="cp-text">100%</span></div></div>
+        <div class="armor-row" id="armor-row">
+          <div class="armor-cell" data-slot="shell"><div class="armor-icon">⛑</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+          <div class="armor-cell" data-slot="visor"><div class="armor-icon">🕶</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+          <div class="armor-cell" data-slot="fiber"><div class="armor-icon">🦺</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+          <div class="armor-cell" data-slot="plate"><div class="armor-icon">🛡</div><div class="armor-bar"><i></i></div><div class="armor-lv">—</div></div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="bottom-right">
+      <div class="weapon-box">
+        <div class="wb-top">
+          <span class="weapon-name" id="weapon-name"></span>
+          <button class="fire-mode-btn" id="fire-mode-btn" title="切换开火模式" style="display:none">半自动</button>
+          <button class="fire-mode-btn" id="side-sight-btn" title="切换侧瞄（F4）" style="display:none;margin-left:3px">侧瞄</button>
+        </div>
+        <div class="next-ammo" id="next-ammo"></div>
+        <div class="ammo-text"><span id="ammo-mag">0</span> / <span id="ammo-reserve">0</span></div>
+        <div class="carry-line" id="ammo-spares" style="font-size:10px;color:#8fb0c8">备用弹匣 0</div>
+        <div class="carry-line" style="font-size:10px;color:var(--dim2)">携带 <span id="carry-value" style="color:var(--gold)">0</span> cp</div>
+      </div>
+    </div>
+
+     <div id="weapon-bar"></div>
+<div id="nearby-list"></div>
+<div id="squad-chat"></div>
+<button id="squad-advance-btn" style="display:none">前进建议 P</button>
+<button id="squad-retreat-btn" style="display:none">撤退建议 O</button>
+<div id="ally-care" style="display:none"></div>
+<div id="status-bar"></div>
+<div id="tactical-state"></div>
+<div id="skill-bar"></div>
+<div id="throwable-hint"></div>
+<button id="throwable-arm-btn" style="display:none;position:absolute;left:50%;bottom:226px;transform:translateX(-50%);z-index:28;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.82);border:1px solid rgba(255,120,120,.8);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">解除保险</button>
+<button id="nade-wheel-btn" style="display:none;position:absolute;right:16px;bottom:404px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(120,90,40,.82);border:1px solid rgba(255,200,90,.7);color:#ffe8b0;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">💣 投掷轮盘</button>
+<button id="med-wheel-btn" style="display:none;position:absolute;right:16px;bottom:436px;z-index:28;pointer-events:auto;padding:5px 12px;border-radius:6px;background:rgba(40,110,80,.82);border:1px solid rgba(120,240,180,.7);color:#d8ffe8;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">🩹 医疗轮盘</button>
+<button id="fiber-pull-btn" style="display:none;position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(150,40,40,.75);border:1px solid rgba(255,120,120,.7);color:#ffe0e0;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">拔除玻纤</button>
+<button id="extinguish-btn" style="display:none;position:absolute;left:50%;bottom:104px;transform:translateX(-50%);z-index:27;pointer-events:auto;padding:6px 16px;border-radius:6px;background:rgba(180,90,20,.8);border:1px solid rgba(255,170,80,.8);color:#fff0d8;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">灭火</button>
+<div id="alert-bar"></div>
+     
+    <div id="protect-group">
+      <button class="protect-btn l1" data-level="L1"><div>L1</div><div style="font-size:8px;font-weight:400">冷兵器</div></button>
+      <button class="protect-btn l2" data-level="L2"><div>L2</div><div style="font-size:8px;font-weight:400">+热兵器</div></button>
+      <button class="protect-btn l3" data-level="L3"><div>L3</div><div style="font-size:8px;font-weight:400">全防护</div></button>
+    </div>
+
+    <div id="extract-progress">
+      <div style="font-size:13px;letter-spacing:6px;color:#8fe8ff;margin-bottom:6px">撤 离 中</div>
+      <div style="width:260px;height:8px;background:rgba(0,0,0,.7);border-radius:4px;overflow:hidden;border:1px solid rgba(120,220,255,.4)"><div id="extract-fill"></div></div>
+    </div>
+
+     </div>  <!-- #hud 闭合 -->
+
+  <div id="action-progress">
+    <div id="action-progress-label" style="font-size:11px;color:#ffe8a8;margin-bottom:4px">换弹</div>
+    <div id="action-progress-bar"><div id="action-progress-fill"></div></div>
+    <div id="action-progress-time" style="font-size:10px;color:#cfe8ff;margin-top:3px">0.0s</div>
+    <button id="action-progress-cancel" style="margin-top:4px;padding:2px 10px;font-size:10px;border-radius:3px;border:1px solid rgba(255,150,150,.4);background:rgba(80,30,30,.6);color:#ffb0b0;cursor:pointer">取消</button>
+  </div>
+
+  <button id="btn-settings-game" style="position:absolute;right:64px;top:12px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.92);border:1px solid rgba(105,170,235,.5);color:#cfe8ff;font-size:15px;z-index:60;cursor:pointer;display:flex;align-items:center;justify-content:center" title="战局内设置（体验性）">⚙</button>
+  <button id="pause-btn" style="position:absolute;right:12px;top:12px;width:44px;height:44px;border-radius:50%;background:rgba(14,22,34,.92);border:1px solid rgba(105,170,235,.5);color:#cfe8ff;font-size:16px;z-index:60;cursor:pointer;display:flex;align-items:center;justify-content:center">❚❚</button>
+
+  <div class="overlay" id="pause-screen">
+    <h2>暂 停</h2>
+    <div class="stat" id="pause-stats"></div>
+    <div style="display:flex;gap:12px">
+      <button class="btn" id="btn-resume" style="padding:10px 30px">继续</button>
+      <button class="btn ghost" id="btn-quit" style="padding:10px 30px">放弃并返回</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="result-screen">
+    <h2 id="result-title">—</h2>
+    <div class="stat" id="result-stats"></div>
+    <div style="display:flex;gap:12px">
+      <button class="btn" id="btn-again" style="padding:10px 30px">再来一次</button>
+      <button class="btn primary" id="btn-menu" style="padding:10px 30px">返回菜单</button>
+    </div>
+  </div>
+
+  <!-- 剧情 UI · 由 story.js 控制 -->
+  <div id="story-ui">
+    <div class="story-cinema top"></div><div class="story-cinema bottom"></div>
+    <div class="story-head"><span id="story-title"></span><span class="story-no-save">剧情演出中 · 无法存档</span></div>
+    <div class="story-box">
+      <div class="story-speaker-row"><span id="story-speaker"></span><span id="story-knot" title="自动存档节点"></span></div>
+      <div id="story-text"></div>
+      <div id="story-choices"></div>
+      <div id="story-next">点击继续 <span>▾</span></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="training-modal" style="z-index:80">
+    <div style="width:min(520px,92vw);max-height:82vh;overflow-y:auto;padding:16px 20px;background:rgba(10,18,30,.98);border:1px solid rgba(110,180,255,.45);border-radius:12px;text-align:left">
+      <h2 style="font-size:18px;letter-spacing:4px;margin:0 0 12px;color:#a8d8ff">靶场设置</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;font-size:12px;color:#cfe4f8">
+        <label><input type="checkbox" id="tr-show-damage"> 显示伤害数字</label>
+        <label><input type="checkbox" id="tr-show-panel"> 显示攻击数据面板</label>
+        <label><input type="checkbox" id="tr-infinite-ammo"> 无限子弹</label>
+        <label><input type="checkbox" id="tr-infinite-nades"> 无限投掷物</label>
+        <label><input type="checkbox" id="tr-skills"> 启用技能</label>
+        <label><input type="checkbox" id="tr-nocd"> 技能无冷却</label>
+        <label>人偶移动
+          <select id="tr-dummy-move" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px">
+            <option value="still">静止</option>
+            <option value="patrol" selected>左右巡逻</option>
+            <option value="random">随机游走</option>
+          </select>
+        </label>
+        <label>人偶血量
+          <select id="tr-dummy-hp" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px">
+            <option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option>
+          </select>
+        </label>
+        <label>头盔壳
+          <select id="tr-dummy-shell" class="tr-armor-select" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px"></select>
+        </label>
+        <label>面罩
+          <select id="tr-dummy-visor" class="tr-armor-select" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px"></select>
+        </label>
+        <label>纤维内衬
+          <select id="tr-dummy-fiber" class="tr-armor-select" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px"></select>
+        </label>
+        <label>防弹插板
+          <select id="tr-dummy-plate" class="tr-armor-select" style="width:100%;margin-top:3px;background:#101c2c;color:#cfe8ff;border:1px solid rgba(110,180,255,.35);border-radius:4px;padding:3px"></select>
+        </label>
+        <label><input type="checkbox" id="tr-creative" checked> 创造模式（可发任意物品）</label>
+        <button class="btn ghost" id="tr-creative-inv" style="padding:4px 8px;font-size:11px">打开物品库</button>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn ghost" id="tr-refill" style="padding:8px 16px;font-size:12px">补满配装</button>
+        <button class="btn ghost" id="tr-restart" style="padding:8px 16px;font-size:12px">重开靶场</button>
+        <button class="btn primary" id="tr-apply" style="padding:8px 18px;font-size:12px">应用</button>
+        <button class="btn ghost" id="tr-close" style="padding:8px 16px;font-size:12px">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Dev Console -->
+<div id="dev-console" style="position:fixed;left:0;right:0;bottom:0;height:300px;background:rgba(4,8,14,.97);border-top:2px solid rgba(120,200,255,.55);z-index:1000;display:none;flex-direction:column;font-family:var(--mono);font-size:12px;color:#cfe8ff">
+  <div style="display:flex;justify-content:space-between;padding:6px 12px;background:rgba(20,40,65,.7);border-bottom:1px solid var(--line)">
+    <span>DEV CONSOLE</span><button id="dc-close" style="background:none;border:none;color:#fff;cursor:pointer">×</button>
+  </div>
+  <div class="dc-out" id="dc-out" style="flex:1;overflow-y:auto;padding:8px 12px"></div>
+  <div style="display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line)">
+    <span>›</span><input id="dc-input" type="text" style="flex:1;background:transparent;border:none;outline:none;color:#e8f4ff">
+  </div>
+</div>
+
+<div class="copyright-bar">LaiAsaka Engine · v3.3.0<br>© 2026 ZpycuA · Assets CC BY-NC 4.0 · Code GPL-3.0</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+// 简化的 Bootloader
+(async function boot() {
+  const statusEl = document.getElementById('boot-status');
+  const barEl = document.getElementById('boot-bar');
+  const errEl = document.getElementById('boot-error');
+  
+  try {
+    const { Engine } = await import('./src/engine.js');
+    const zhCN = (await import('./src/locale/zh-CN.js')).default;
+    // ★ 鲁棒性：en-US 缺失时不能导致整个游戏启动失败，回退到 zh-CN
+    let enUS = zhCN;
+    try {
+      const mod = await import('./src/locale/en-US.js');
+      if (mod && mod.default) enUS = mod.default;
+    } catch (e) {
+      console.warn('[Boot] locale.en-US.js 缺失，英文回退中文', e);
+    }
+    const { registerDefaultContent } = await import('./src/content.js');
+    const { registerModes } = await import('./src/modes.js');
+    const { GameApp } = await import('./src/game.js');
+
+    statusEl.textContent = '初始化引擎…'; barEl.style.width = '80%';
+    const engine = new Engine();
+    await engine.init({ canvas: document.getElementById('game-canvas'), locale: { 'zh-CN': zhCN, 'en-US': enUS }, defaultLocale: 'zh-CN' });
+    
+    registerDefaultContent(engine);
+    registerModes(engine);
+    
+    const app = new GameApp(engine);
+    engine.app = app;
+    
+    // 绑定启动按钮
+    document.getElementById('btn-start').onclick = () => app.startMatch('normal');
+    document.getElementById('btn-train').onclick = () => app.startMatch('training');
+    
+    app.boot();
+    app.showTitle();
+
+    setTimeout(() => {
+      document.getElementById('boot-screen').classList.remove('on');
+      document.getElementById('pause-btn').style.display = 'none';
+      engine.start();
+    }, 300);
+  } catch (err) {
+    statusEl.textContent = '启动失败';
+    errEl.style.display = 'block';
+    errEl.textContent = err.stack || err.message;
+  }
+})();
+</script>
+</body>
+</html>

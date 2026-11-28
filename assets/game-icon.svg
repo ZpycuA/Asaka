@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Asaka">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="78%">
+      <stop offset="0%" stop-color="#121a24"/>
+      <stop offset="58%" stop-color="#080b10"/>
+      <stop offset="100%" stop-color="#030405"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#6b4a16"/>
+      <stop offset="52%" stop-color="#d7a63f"/>
+      <stop offset="100%" stop-color="#ffe8a8"/>
+    </linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="46" fill="url(#bg)" stroke="#3a2c14" stroke-width="2"/>
+  <g filter="url(#glow)" stroke="url(#gold)" fill="none" stroke-linecap="round">
+    <path d="M128 212 V150" stroke-width="5"/>
+    <path d="M128 168 C128 142 108 136 96 118" stroke-width="3.4"/>
+    <path d="M128 168 C128 142 148 136 160 118" stroke-width="3.4"/>
+    <path d="M128 150 C128 122 128 108 128 88" stroke-width="3.4"/>
+    <path d="M96 118 C96 100 82 92 72 82" stroke-width="2.4"/>
+    <path d="M96 118 C96 100 110 92 120 82" stroke-width="2.4"/>
+    <path d="M160 118 C160 100 146 92 136 82" stroke-width="2.4"/>
+    <path d="M160 118 C160 100 174 92 184 82" stroke-width="2.4"/>
+  </g>
+  <g fill="#ffe8a8" filter="url(#glow)">
+    <circle cx="128" cy="212" r="7"/>
+    <circle cx="128" cy="88" r="5.4"/>
+    <circle cx="72" cy="82" r="4.4"/>
+    <circle cx="120" cy="82" r="4.4"/>
+    <circle cx="136" cy="82" r="4.4"/>
+    <circle cx="184" cy="82" r="4.4"/>
+    <circle cx="96" cy="118" r="4"/>
+    <circle cx="160" cy="118" r="4"/>
+  </g>
+  <path d="M62 218 H194" stroke="#5a431b" stroke-width="2"/>
+  <text x="128" y="242" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="11" letter-spacing="5" fill="#8a6a2c">ASAKA</text>
+</svg>

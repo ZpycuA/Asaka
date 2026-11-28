@@ -1,0 +1,259 @@
+{
+ "id": "training",
+ "size": 120,
+ "playerSpawn": {
+  "x": 0,
+  "z": 46,
+  "angle": 0.0
+ },
+ "obstacles": [
+  {
+   "x": 0,
+   "z": -52,
+   "w": 100,
+   "d": 1,
+   "yMin": 0,
+   "yMax": 3,
+   "type": "highWall"
+  },
+  {
+   "x": -50,
+   "z": 0,
+   "w": 1,
+   "d": 104,
+   "yMin": 0,
+   "yMax": 3,
+   "type": "highWall"
+  },
+  {
+   "x": 50,
+   "z": 0,
+   "w": 1,
+   "d": 104,
+   "yMin": 0,
+   "yMax": 3,
+   "type": "highWall"
+  },
+  {
+   "x": -30,
+   "z": -8,
+   "w": 1,
+   "d": 84,
+   "yMin": 0,
+   "yMax": 1.2,
+   "type": "lowWall"
+  },
+  {
+   "x": -18,
+   "z": -8,
+   "w": 1,
+   "d": 84,
+   "yMin": 0,
+   "yMax": 1.2,
+   "type": "lowWall"
+  },
+  {
+   "x": -6,
+   "z": -8,
+   "w": 1,
+   "d": 84,
+   "yMin": 0,
+   "yMax": 1.2,
+   "type": "lowWall"
+  },
+  {
+   "x": 6,
+   "z": -8,
+   "w": 1,
+   "d": 84,
+   "yMin": 0,
+   "yMax": 1.2,
+   "type": "lowWall"
+  },
+  {
+   "x": 18,
+   "z": -8,
+   "w": 1,
+   "d": 84,
+   "yMin": 0,
+   "yMax": 1.2,
+   "type": "lowWall"
+  },
+  {
+   "x": 30,
+   "z": -8,
+   "w": 1,
+   "d": 84,
+   "yMin": 0,
+   "yMax": 1.2,
+   "type": "lowWall"
+  },
+  {
+   "x": 0,
+   "z": 20,
+   "w": 64,
+   "d": 0.6,
+   "yMin": 0,
+   "yMax": 1.0,
+   "type": "lowWall"
+  },
+  {
+   "x": 0,
+   "z": 5,
+   "w": 64,
+   "d": 0.6,
+   "yMin": 0,
+   "yMax": 1.0,
+   "type": "lowWall"
+  },
+  {
+   "x": 0,
+   "z": -10,
+   "w": 64,
+   "d": 0.6,
+   "yMin": 0,
+   "yMax": 1.0,
+   "type": "lowWall"
+  },
+  {
+   "x": 0,
+   "z": -46,
+   "w": 70,
+   "d": 2,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -42,
+   "z": 34,
+   "w": 3,
+   "d": 3,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": -38,
+   "z": 34,
+   "w": 3,
+   "d": 3,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": 42,
+   "z": 34,
+   "w": 3,
+   "d": 3,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": 38,
+   "z": 34,
+   "w": 3,
+   "d": 3,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": -42,
+   "z": 20,
+   "w": 3,
+   "d": 3,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": 42,
+   "z": 20,
+   "w": 3,
+   "d": 3,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": -10,
+   "z": 42,
+   "w": 5,
+   "d": 2,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "crate"
+  },
+  {
+   "x": 10,
+   "z": 42,
+   "w": 5,
+   "d": 2,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "crate"
+  }
+ ],
+ "containers": [
+  {
+   "x": -10,
+   "z": 40
+  },
+  {
+   "x": 10,
+   "z": 40
+  },
+  {
+   "x": 0,
+   "z": 30
+  }
+ ],
+ "extracts": [],
+ "enemySpawns": [
+  {
+   "x": 0,
+   "z": 18,
+   "spec": "training_dummy",
+   "squad": "dummy",
+   "patrolRadius": 2
+  },
+  {
+   "x": -12,
+   "z": 3,
+   "spec": "training_dummy",
+   "squad": "dummy",
+   "patrolRadius": 2
+  },
+  {
+   "x": 12,
+   "z": 3,
+   "spec": "training_dummy",
+   "squad": "dummy",
+   "patrolRadius": 2
+  },
+  {
+   "x": 0,
+   "z": -12,
+   "spec": "training_dummy",
+   "squad": "dummy",
+   "patrolRadius": 2
+  },
+  {
+   "x": -12,
+   "z": -12,
+   "spec": "training_dummy",
+   "squad": "dummy",
+   "patrolRadius": 2
+  },
+  {
+   "x": 12,
+   "z": -12,
+   "spec": "training_dummy",
+   "squad": "dummy",
+   "patrolRadius": 2
+  }
+ ]
+}
