@@ -13,6 +13,11 @@
 | `src/content.js` | 数据 | 所有静态表：弹药/武器/护具/敌人/角色/地图/技能/任务/效果/预设；以及 `weaponRules`（枪械逻辑参数）、`aiRules`（AI 手感）、`bossProfiles`（Boss 行为档）、`dialogue`（台词） | 不含运行时逻辑，不改 `game.js` 状态 |
 | `src/game.js` | 应用 | `GameWorld`、`HUDSystem`、AI、战斗结算、背包运行时、靶场、回放、App 流程 | 不直接改 `engine.js` 内部私有状态 |
 | `src/inventory.js` | 数据层 | 二维网格、容器、装备、弹链辅助、序列化 | 不依赖 UI/Three.js |
+| `src/story.js` | 剧情机制 | 逐字/限时选择、条件、效果分发、总结算、语音接口 | 不写剧情文本、不改存档结构 |
+| `src/story/asaka.prologue.js` | 剧情数据 | 序章节点/选择/效果/条件/音游触发 | 不调用运行时函数 |
+| `src/story/rhythm.js` | 结算音游 | 四轨音游、氛围/默契、角色节奏偏好、结算框 | 不直接写存档 |
+| `src/home.js` | 据点 UI | 大厅/仓库入口/队伍角色面板/抚摸/装备建议/神庙/出战站位 | 只写 AsakaSave，不直接改世界战斗数据 |
+| `src/missions.js` | 任务 | 当前主线、阶段、任务页、小地图点位 | 只通过 AsakaSave 写任务状态 |
 | `src/bagUI.js` | UI | 背包/搜刮/详情/拖拽/装填扣弹/创造物品库入口 | 不直接改 `player.weapons` |
 | `src/combatlog.js` | UI | 战斗记录/结算页面 | 不参与伤害计算 |
 | `src/market.js` | 业务 | 市场价格/买卖 | 不直接改装备栏 |
@@ -157,7 +162,8 @@
 | 表 | 读取入口 | 说明 |
 |---|---|---|
 | `weaponRules` | `AISystem._weaponRule(world, def)` | 后坐力系数、AI 散布/点射/换弹、玩家换弹倍率；查找顺序 id → 类别 → default |
-| `aiRules.default` | `AISystem._aiRule(world)` | 间距、交火距离、反应、点射、侧移、包抄、掩体 |
+| `aiRules.default` | `AISystem._aiRule(world)` | 间距、交火距离、反应、点射、侧移、包抄、掩体；无人机仇恨权重与镜面反光参数 |
+| `aiLoadout.default` | `GameWorld._equipAIWeapon` | AI 枪械配装：按武器类别/口径尝试的瞄具、枪口、握把、枪托，以及精英安装概率 |
 | `bossProfiles` | `AISystem._bossProfile(world, enemy)` | 每名 Boss 的 range/phase/missile/summon/cover/dash |
 | `dialogue` | `GameWorld._dlg(key, params)` | 角色台词；数组随机、`{zh,en}` 双语、`{name}` 占位符 |
 | `enemies.*` Boss 字段 | `EntityStatus` / `GameWorld._spawnEnemy` | `bossPartScale/damageResist/headArmor/armorDurMul/headHpMul` |
@@ -195,7 +201,9 @@
 | 方法 | 作用 |
 |---|---|
 | `_spawnPlayer()` | 建玩家实体、武器组、护具、技能、状态 |
-| `_buildWeapon(id)` | 给 AI/临时武器建运行时（`loaded.queue` 初始满弹） |
+| `_equipNewGameStarterKit(inv)` | 新档初始武器/弹匣/护具/弹药/医疗；不再空手进图 |
+| `_buildWeapon(id)` | 给 AI/临时武器建基础运行时（`loaded.queue` 初始满弹） |
+| `_equipAIWeapon/_tryAIAttach` | 在 `lootInv` 里生成真实武器 item + 标准弹匣 + `aiLoadout` 配件，再从 item 重建运行时；没有弹匣的枪 AI 不允许开火 |
 | `_buildWeaponFromInventory(inv, slot)` | 从装备槽建运行时；`mag/reserve/loaded` 指向 item |
 | `_syncWeaponsFromInventory()` | 背包变化后同步 `player.weapons` |
 | `_syncArmorFromInventory()` | 背包/装备变化后从装备槽重建 `player.armor` |
@@ -247,7 +255,10 @@
 | `_toggleWeaponDevice / _syncWeaponDeviceAggregate` | 激光/战术灯按单件 `item.deviceOn` 独立开关；`p.laserOn` 只做兼容汇总 |
 | `_cycleFireMode()` / `_fireModeLabel(mode)` | 开火模式 |
 | `_toggleSideSight()` | 侧瞄切换：`sideSight` 配件存在时枪身侧倾、开镜保持 1x；F4/HUD/移动端按钮 |
-| `_spawnScopeGlint/_updateScopeGlints` | 敌方狙击镜反光：3D 高光 + 方向/距离提示，周期性出现 |
+| `_spawnScopeGlint/_updateScopeGlints` | 敌方狙击镜反光：白色点光源 + 添加混合光晕，周期性出现；无文字警告 |
+| `_momentDeescalate/_momentRadio` | Moments 收枪/脱离降级；战术电台报方向/距离/职责 |
+| `_updatePlayerScopeGlint` | 玩家开镜且倍镜无遮光罩时，视野锥内且有视线的 AI 会注意到反光 |
+| `_weaponGlintLevel` | 唯一反光判定：`mods.zoom >= 2` 且 `mods.glintMul > 0` 才会反光 |
 | `_startThrow/_doThrowNow/_selectThrowable` | 投掷物 |
 | `_pullThrowablePin/_updateThrowFuse/_detonateHeldThrowable` | 保险式拔销、手中引信、自爆 |
 | `_throwSpeed` / `_updateThrowPreview` | 蓄力速度与抛物线预览 |
@@ -661,7 +672,9 @@ _aiMoveTo(enemy, tx, tz, speed, dt)
 
 | 函数/字段 | 所在层 | 职责 | 禁止 |
 |---|---|---|---|
-| `WEAPON_ATTACH_SLOTS` | Inventory | 8 个硬点：muzzle/muzzlePatch/sight/sideSight/grip/stock/mag/sideTactical | 不要在 bagUI 另写槽位列表 |
+| `StoryPlayer.applyEffects/_checkRequires/_showSummary` | 剧情效果/条件/定性总结算；限时选择在 `_startTimer/_timeoutChoice` |
+| `MissionSystem` | 任务定义→当前主线→任务页/小地图点位；状态只在 AsakaSave |
+| `WEAPON_ATTACH_SLOTS` | Inventory | 9 个硬点：muzzle/muzzlePatch/sight/sideSight/grip/stock/mag/sideTactical/lensHood；遮光罩只在装 2 倍及以上倍镜时可装 | 不要在 bagUI 另写槽位列表 |
 | `_genericAttachAllowed` / `canAttach` | Inventory | 枪托/侧瞄/侧战术具/枪口贴片兼容校验 | 不要只靠 fits 白名单绕过硬点限制 |
 | `_syncMagLoaded` / `_copyLoaded` | Inventory | 弹匣独立存弹，换匣保留/读取子弹 | 不要只改 weapon.loaded 不写回弹匣 |
 | `addToContainer(...,{x,y,rotated})` / `transferItem(...,targetPos)` | Inventory | 指定格精确放置；被占用则失败 | 不要回退到自动补左上角 |

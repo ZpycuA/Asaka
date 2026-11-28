@@ -377,6 +377,8 @@
 - 感知半径：`maxDist = min(140, max(18 + perception*28, 武器射程*0.8))`，视野锥 `π/2 + perception*π/3`；被闪盲期间直接找不到目标。
 - 反应：进入战斗时 `reactionTimer = max(0.05, 1.5 - composure*1.2) + 0~0.3s`。镇定 0.99 的 Moments 反应约 0.3s，镇定 0.28 的执勤要 1.2s+。
 - `gear.armor` 只决定战斗护具；掉落物沿用同一套装备。
+- **AI 枪械配装**：可拆弹匣武器在 `lootInv` 里生成真实 `stdMag` 弹匣与 `aiLoadout` 配件，并从 item 重建运行时；没有弹匣的枪 AI 与玩家都不能开火。弹匣/瞄具/枪口/握把/枪托随尸体掉落。
+- **小兵狙击平衡**：非 Boss/Moments 的敌方狙击在 `weaponRules.sniper` 使用 `enemySpreadMul 3.4`；开火后 2.6s 内未架稳再 ×2；锁头率 1%；点射冷却 1.4~2.6s。Boss/Moments 不受此惩罚。倍镜反光与遮光罩见 [Code-Reference](Code-Reference.md) 的 `_weaponGlintLevel`。
 - AI 属性：`aggression` / `composure` / `perception` / `opportunism` / `keepDistance` / `meleeBias` / `switchBias` / `grenade`（0 表示不会扔投掷物）。
 - AI 移动手感：通用间距/反应/点射/侧移/包抄参数在 `content.js → aiRules.default`；交火时保持“双方碰撞半径 + spacingMargin”，贴脸先退出碰撞体，舒适距离内持续侧移，推进时按小队包抄，换弹/重伤找掩体。
 - 同阵营默认不主动互相开战；玩家与所有武装阵营敌对。

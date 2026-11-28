@@ -24,6 +24,7 @@
 - `table` 对应 `content.js` 的注册表：`weapons` / `ammo` / `melee` / `nade` / `helmetShell` / `helmetVisor` / `helmetEar` / `vestFiber` / `vestPlate` / `backpack` / `chestRig` / `valuables` / `medical`。
 - `w/h` 是二维网格尺寸。
 - `innerGrid` 只用于背包/胸挂，类型 `GridContainer`。
+- 武器 `attachments` 的硬点由 `WEAPON_ATTACH_SLOTS` 派生（9 个：枪口/枪口贴片/主瞄/侧瞄/握把/枪托/弹匣/侧战术/遮光罩）。`lensHood` 只有在已装 2 倍及以上倍镜时可装，`stats.glintMul=0` 表示消除镜片反光。
 
 ### 1.2 Inventory
 

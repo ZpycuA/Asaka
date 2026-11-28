@@ -14,13 +14,13 @@ export const ASAKA_PLAN = {
   // 关键节点：只有这些节点允许写入自动存档（与 asakaSave.js 的 AUTOSAVE_NODES 对应）
   nodes: [
     {
-      id: 'root', label: '沙尘中的旗', sub: '起点', x: 500, y: 598, parent: null,
-      desc: '你带着一套政治主张和一支还不存在的队伍，走进阿萨卡大陆的沙尘。计划树在这里生根。',
+      id: 'root', label: '沙尘里的第一间房', sub: '起点', x: 500, y: 598, parent: null,
+      desc: '你带着一套政治主张和一支还不存在的队伍，走进 Asaka 的沙尘。计划树在这里生根。',
     },
     {
-      id: 'prologue_start', label: '序章 · 沙尘中的旗', sub: '第一步', x: 500, y: 526, parent: 'root',
+      id: 'prologue_start', label: '序章 · 沙尘里的第一间房', sub: '第一步', x: 500, y: 526, parent: 'root',
       desc: '凯特与玲娜循着你的名字找来。她们认同你描绘的秩序，也想知道你究竟准备付出什么。',
-      chapter: 'asaka.prologue', autosave: true,
+      chapter: 'asaka.opening', autosave: true,
     },
     {
       id: 'prologue_end', label: '第一根枝', sub: '序章完成', x: 500, y: 492, parent: 'prologue_start',
@@ -29,7 +29,7 @@ export const ASAKA_PLAN = {
     },
     {
       id: 'base_purchased', label: '据点', sub: '立足', x: 500, y: 456, parent: 'prologue_end',
-      desc: '一支小队需要一个能回去的地方。买房、修缮、布置仓库，把名字挂上门口。',
+      desc: '一支小队需要一个能回去的地方。Asaka 土地管理部还认旧契——买下城北的旧仓库，把名字挂上门口。',
       autosave: true,
     },
     {

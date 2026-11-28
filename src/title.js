@@ -48,6 +48,7 @@ export class TitleScreen {
       <nav class="title-nav">
         ${item('title-new', '开始游戏', 'NEW GAME', '开启一份主模式新存档')}
         ${item('title-continue', '继续游戏', 'CONTINUE', '读取退出前的最新状态')}
+        ${item('title-home', '据点', 'HOME BASE', '队伍、仓库、神庙与出战准备')}
         ${item('title-plan', '计划树', 'PLAN TREE', '剧情轨迹与存档管理')}
         ${item('title-straight', 'Straight 模式', 'STRAIGHT', '硬核撤离 · 独立战斗模式')}
         ${item('title-about', '关于', 'ABOUT', '')}
@@ -64,6 +65,7 @@ export class TitleScreen {
     this._bound = true;
     this.root.querySelector('#title-new')?.addEventListener('click', () => this._startNew());
     this.root.querySelector('#title-continue')?.addEventListener('click', () => this._continue());
+    this.root.querySelector('#title-home')?.addEventListener('click', () => this._openHome());
     this.root.querySelector('#title-plan')?.addEventListener('click', () => this.planTree.show());
     this.root.querySelector('#title-straight')?.addEventListener('click', () => this.app.enterStraightLobby());
     this.root.querySelector('#title-about')?.addEventListener('click', () => this.app.openAbout());
@@ -90,6 +92,14 @@ export class TitleScreen {
       note.textContent = has
         ? (latest ? '最新状态 · ' + this._time(latest.at) : '读取最近的主模式进度')
         : '没有找到主模式存档';
+    }
+    const homeBtn = this.root.querySelector('#title-home');
+    if (homeBtn) {
+      const owned = !!(save && save.data && save.data.home && save.data.home.purchased);
+      homeBtn.disabled = !owned;
+      homeBtn.classList.toggle('locked', !owned);
+      const noteEl = homeBtn.querySelector('.ti-note');
+      if (noteEl) noteEl.textContent = owned ? '队伍、仓库、神庙与出战准备' : '完成序章买房后开放';
     }
     const hint = this.root.querySelector('#title-save-hint');
     if (hint) {
@@ -122,12 +132,77 @@ export class TitleScreen {
     if (save && save.hasSave()) {
       if (!confirm('开始新游戏会覆盖当前主模式进度、关键节点与最新状态。\n确定重新开始？')) return;
     }
-    this.app.startAsakaNewGame();
+    this._openNewGameSetup();
+  }
+
+  // ★ 新档第一次进入主模式：先让玩家确认 4 种玩法模板与设置，再开始剧情。
+  //   模板写入存档 profileLocked；之后仍可在设置里手动改，但新档会记录最初选择。
+  _openNewGameSetup(){
+    let el = document.getElementById('newgame-setup');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'newgame-setup';
+      el.className = 'screen';
+      el.style.cssText = 'position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(3,5,9,.9);backdrop-filter:blur(8px);color:#e8eef6;font-family:inherit';
+      el.innerHTML = `
+        <div style="width:min(760px,94vw);max-height:88vh;overflow-y:auto;padding:24px 26px;border:1px solid rgba(216,170,80,.35);border-radius:14px;background:linear-gradient(180deg,rgba(24,20,14,.98),rgba(7,9,12,.98));box-shadow:0 30px 100px rgba(0,0,0,.75)">
+          <div style="font-size:9px;letter-spacing:5px;color:#a78a56;font-family:ui-monospace,monospace">NEW GAME · ASAKA</div>
+          <h2 style="margin:4px 0 6px;font-size:22px;letter-spacing:5px;color:#ffe0a0">出发前</h2>
+          <p style="margin:0 0 16px;font-size:12px;line-height:1.8;color:#b9c7d6">先确认你想要的游戏性模板。主模式会记住这次选择；进入后仍可在设置里手动调整。\n开局配发一套基础装备与 4200 信用点，不会从空手开始。</p>
+          <div id="newgame-profiles" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;gap:10px">
+            <span style="font-size:9px;color:#7f8d9c;line-height:1.6">模板只影响初始游戏性设置；剧情/好感/任务不因模板改变。</span>
+            <span style="display:flex;gap:8px">
+              <button type="button" id="newgame-cancel" style="padding:9px 18px;border-radius:6px;border:1px solid rgba(160,180,200,.3);background:rgba(30,40,50,.5);color:#cfdae6;font-family:inherit;cursor:pointer">取消</button>
+              <button type="button" id="newgame-start" style="padding:9px 22px;border-radius:6px;border:1px solid rgba(255,204,120,.5);background:rgba(120,80,30,.4);color:#ffe8c0;font-family:inherit;letter-spacing:2px;cursor:pointer">开始</button>
+            </span>
+          </div>
+        </div>`;
+      document.body.appendChild(el);
+      const closeSetup = () => { el.classList.remove('on'); el.style.display = 'none'; };
+      el.querySelector('#newgame-cancel')?.addEventListener('click', closeSetup);
+      el.addEventListener('pointerdown', (ev) => { if (ev.target === el) closeSetup(); });
+    }
+    const box = el.querySelector('#newgame-profiles');
+    const profiles = (this.app.engine.content.all('profiles') || []);
+    const current = this.app.engine.profile.currentProfileId || 'tactical';
+    this._newGameProfile = current;
+    box.innerHTML = profiles.map(p => {
+      const name = this.app.engine.i18n.t(p.name);
+      const desc = this.app.engine.i18n.t(p.desc);
+      return `<button type="button" class="ng-profile" data-pid="${p.id}" style="text-align:left;padding:11px 13px;border-radius:8px;border:1px solid ${p.id === current ? 'rgba(255,204,120,.55)' : 'rgba(150,180,210,.18)'};background:${p.id === current ? 'rgba(216,170,80,.12)' : 'rgba(255,255,255,.025)'};color:#dfe8f2;font-family:inherit;cursor:pointer">
+        <div style="font-size:13px;letter-spacing:2px;color:#ffe0a0">${this._esc(name)}</div>
+        <div style="font-size:10px;line-height:1.6;color:#93a4b5;margin-top:3px">${this._esc(desc)}</div>
+      </button>`;
+    }).join('');
+    box.querySelectorAll('.ng-profile').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._newGameProfile = btn.dataset.pid;
+        box.querySelectorAll('.ng-profile').forEach(b => {
+          const on = b === btn;
+          b.style.borderColor = on ? 'rgba(255,204,120,.55)' : 'rgba(150,180,210,.18)';
+          b.style.background = on ? 'rgba(216,170,80,.12)' : 'rgba(255,255,255,.025)';
+        });
+      });
+    });
+    el.querySelector('#newgame-start').onclick = () => {
+      el.classList.remove('on');
+      el.style.display = 'none';
+      this.app.startAsakaNewGame(this._newGameProfile);
+    };
+    el.classList.add('on');
+    el.style.display = 'flex';
   }
 
   _continue(){
     if (!this.app.asakaSave || !this.app.asakaSave.hasSave()) return;
     this.app.continueAsaka();
+  }
+
+  _openHome(){
+    const save = this.app.asakaSave;
+    if (!save || !save.data.home || !save.data.home.purchased) return;
+    this.app.openHome({ tab: 'hall' });
   }
 
   // 关于页：引擎、游戏、世界观入口、制作者与授权。

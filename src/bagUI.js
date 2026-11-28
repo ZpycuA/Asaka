@@ -1567,7 +1567,7 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
       html += '<div class="bagui-attach-title">配件槽 · 与背包同构（拖出即拆下）</div><div class="bagui-attach-grid">';
       const SLOT_LABEL = {
         muzzle: '枪口', muzzlePatch: '枪口贴片', sight: '主瞄具', sideSight: '侧瞄',
-        grip: '握把', stock: '枪托', mag: '弹匣', sideTactical: '侧战术',
+        grip: '握把', stock: '枪托', mag: '弹匣', sideTactical: '侧战术', lensHood: '遮光罩',
       };
       // ★ 硬点列表从 Inventory.WEAPON_ATTACH_SLOTS 单一真相源派生：
       //   旧版这里写死 4 个槽，导致枪托/侧瞄/侧面战术具在详情里根本看不到。
@@ -1575,6 +1575,14 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         const aUid = item.attachments[slot];
         const aItem = aUid ? inv.items.get(aUid) : null;
         const aDef = aItem ? inv.getDef(aItem) : null;
+        // ★ 遮光罩是倍镜的附属件：只有装 2 倍及以上瞄具时才出现这个槽。
+        //   已经装有遮光罩的旧枪即使之后拆了倍镜也保留槽位，否则玩家无法把遮光罩取下来。
+        if (slot === 'lensHood' && !aUid) {
+          const sightUid = item.attachments.sight;
+          const sightItem = sightUid ? inv.items.get(sightUid) : null;
+          const sightDef = sightItem ? inv.getDef(sightItem) : null;
+          if (!sightDef || !sightDef.stats || !(sightDef.stats.zoom >= 2)) continue;
+        }
         // ★ 硬点固定为单格：配件在背包里可以占 2×2，但装进枪只显示一个格子，
         //   8 个部位也不用把详情页撑成一张大网格。
         html += `<div class="bagui-attach-slot" data-weapon-uid="${uid}" data-attach-slot="${slot}">`;
@@ -1613,6 +1621,7 @@ else if (item.table === 'helmetShell') targetSlot = 'helmetShell';
         if (mods.magMul !== 1) lines.push('弹匣 +' + Math.round((mods.magMul - 1) * 100) + '%');
         if (mods.reloadMul !== 1) lines.push('换弹 ' + (pct(mods.reloadMul) > 0 ? '+' : '') + pct(mods.reloadMul) + '%');
         if (mods.zoom > 1) lines.push('开镜 ' + mods.zoom.toFixed(1) + 'x');
+        if (mods.glintMul < 1) lines.push('镜片反光消除');
         if (mods.laser) lines.push('激光指示');
         html += `<div style="font-size:10px;color:#9fe0b0;margin-top:4px">配件汇总：${this._esc(lines.join(' · ') || '无')}</div>`;
       }

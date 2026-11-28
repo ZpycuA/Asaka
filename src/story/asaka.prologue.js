@@ -1,154 +1,216 @@
 /* ============================================================
-   LaiAsaka · 主模式剧情 · 序章
+   LaiAsaka · 主模式剧情 · 序章「沙尘里的第一间房」
    ------------------------------------------------------------
-   剧情文件只描述“谁说了什么、给玩家什么选择”，不含任何运行逻辑。
-   每个节点支持：
-     text      正文（点击推进）
-     speaker   说话人；省略时按旁白处理
-     next      下一节点 id
-     choices   [{ text, next, flags, affection }]
-     end       true 表示章节结束
-     autoSave  章节开始前由 GameApp 写入关键节点（本文件不直接调用）
-   扩展方式：新建 asaka.chapter1.js，保持同样的对象结构，再在 story.js 注册。
+   剧情文件只描述“谁说了什么、给玩家什么选择、产生什么长期效果”，
+   不包含运行逻辑。支持字段见 story.js：
+     text / speaker / next / choices / end
+     timeLimit + timeoutNext + timeoutEffects   → 限时问答/沉默分支
+     effects: flags / affection / stats / items / abilities / party /
+              credits / home / planNode / mission / command / rhythm
+     requires: flags / notFlags / affectionMin / affectionMax / party / items
+     rhythm: { character, title, duration, requires }
+     summary / summaryText → 章节结算框的回览文字
+   语音：node.voice = { audio, tts:'browser', rate, pitch }；也可直接 node.audio。
+   本文件不写任何存档、不改世界状态，所有效果由 StoryPlayer → GameApp 落地。
    ============================================================ */
 
 export const STORY_CHAPTERS = {
-  'asaka.prologue': {
-    id: 'asaka.prologue',
-    title: '序章 · 沙尘中的旗',
-    start: 'n01',
-    // 章节开始时由主模式写入的唯一自动存档节点
+  'asaka.opening': {
+    id: 'asaka.opening',
+    title: '序章 · 沙尘里的第一间房',
+    start: 'p01',
     autoSaveNode: 'prologue_start',
+    summary: {
+      title: '第一根枝',
+      text: '三个人在一张没有盖章的购房契上写下名字。Asaka 的土地管理部已经破败，但这间房是你们的。计划树长出了第一根枝；从今天开始，每次活着回来，都要回到这里。',
+    },
     nodes: {
-      n01: {
-        text: '阿萨卡大陆的黄昏总是很长。太阳沉进沙丘以后，天边还会亮很久，像一块没烧完的炭。',
-        next: 'n02',
+      p01: {
+        speaker: '队长',
+        text: '有些人把旗子插在城里，告诉别人这里归谁。我不信旗子。\nAsaka 的问题从来不是旗子太少，而是人太多、规矩太少，而每一条规矩最后都只保护写规矩的人。\n我想做的很简单：让愿意守规矩的人有一块能站住的地，让不守规矩的人付出代价。哪怕这片土地只剩下一条街。',
+        effects: { mission: 'opening_meet', flags: { opening_started: true } },
+        next: 'p02',
       },
-      n02: {
-        text: '你把车停在一段废弃公路的尽头。前方是尼珀斯尔设下的检查线，再往前，就是你还买不起的地盘。',
-        next: 'n03',
+      p02: {
+        text: '沙尘从旧公路尽头压过来。检查线的探照灯扫过废弃收费站，又慢慢转开。远处有两个影子，一大一小，正在朝你走来。',
+        next: 'p03',
       },
-      n03: {
+      p03: {
         speaker: '玲娜',
-        text: '队长，后面有辆车，跟了我们十七分钟。',
-        next: 'n04',
+        text: '队长？你比照片上矮一点。\n……别误会，这不是贬低。矮一点的人，目标小。',
+        next: 'p04',
       },
-      n04: {
-        text: '车灯在沙尘里切开两道昏黄的光。一辆旧越野车停在三十米外，车门打开，先下来的是尾巴。',
-        next: 'n05',
-      },
-      n05: {
+      p04: {
         speaker: '凯特',
-        text: '别掏枪！我们是来找你的。你是那个说要把尼珀斯尔从地图上抹掉的队长，对吧？',
-        next: 'n06',
+        text: '玲娜，别一见面就说人家矮。\n——不过她说得对，目标小是好事。我们看过你写的那几页东西。不是全部同意，但至少不是那种只会喊口号的疯子。',
+        next: 'p05',
       },
-      n06: {
-        speaker: '玲娜',
-        text: '她把话说得太满了。我们只是……想先听听你打算怎么做。',
-        next: 'c01',
+      p05: {
+        speaker: '队长',
+        text: '那你们来找我，是想听我继续喊，还是想看看我能不能做？',
+        next: 'q01',
       },
-      c01: {
-        prompt: '沙尘里站着两个 Prazer。你决定——',
+      q01: {
+        speaker: '凯特',
+        text: '先回答一个问题。你为什么想改变 Asaka？说快点——我不喜欢想太久的人。',
+        timeLimit: 9,
+        timeoutNext: 'q01_silent',
+        timeoutEffects: { flags: { opening_hesitated: true }, affection: { kate: -1, lingna: 0 } },
         choices: [
           {
-            text: '让她们进来，把水壶递过去。',
-            next: 'n07_open',
-            flags: { prologue_trust: 'open' },
-            affection: { kate: 1, lingna: 1 },
+            text: '因为现在的规矩只保护写规矩的人。',
+            next: 'q01_a',
+            effects: { flags: { opening_answer: 'rule' }, affection: { kate: 2, lingna: 1 } },
+            tone: '坚定',
           },
           {
-            text: '先问清楚：她们凭什么相信一个陌生人。',
-            next: 'n07_careful',
-            flags: { prologue_trust: 'careful' },
+            text: '因为我想让跟着我的人活着回来。',
+            next: 'q01_b',
+            effects: { flags: { opening_answer: 'survive' }, affection: { kate: 1, lingna: 2 } },
+            tone: '护短',
+          },
+          {
+            text: '因为总得有人先把第一间房买下来。',
+            next: 'q01_c',
+            effects: { flags: { opening_answer: 'home' }, affection: { kate: 1, lingna: 1 }, credits: 0 },
+            tone: '务实',
           },
         ],
       },
-      n07_open: {
+      q01_silent: {
         speaker: '凯特',
-        text: '……你连我们叫什么都没问，就先给水。队长，你这样在阿萨卡活不长的。',
-        next: 'n08_open',
+        text: '……想了九秒，一个字都没说。行，我记住你了。',
+        next: 'q02',
       },
-      n08_open: {
+      q01_a: {
         speaker: '玲娜',
-        text: '但至少比那些先摸枪的人强。凯特，把地图拿出来。',
-        next: 'n09',
+        text: '这句话写在纸上很好看。写在尸体旁边就不太好看了。\n不过，至少你知道问题在哪。',
+        next: 'q02',
       },
-      n07_careful: {
+      q01_b: {
         speaker: '凯特',
-        text: '信任？我们不信任你。我们只是没有别的路可以走了。',
-        next: 'n08_careful',
+        text: '活着回来。说得轻巧。\n但如果你真能做到，我不介意替你挡第一轮子弹。',
+        next: 'q02',
       },
-      n08_careful: {
+      q01_c: {
+        speaker: '凯特',
+        text: '买房子？我还以为你要先买枪。\n……不过也对，子弹总得有个地方放。',
+        next: 'q02',
+      },
+      q02: {
         speaker: '玲娜',
-        text: '她没说谎，但也没说全。我们看过你写的那些东西——关于 Prazer 和人类不该再互相防着活。',
-        next: 'n09',
+        text: '我们两个能打。凯特负责远距离，我负责把靠近你的人按进土里。\n问题是，你有地方让我们睡吗？还是说，我们得跟你一起睡桥洞？',
+        next: 'q03',
       },
-      n09: {
-        text: '她们把一张折过很多次的地图铺在引擎盖上。上面用铅笔圈着三处尼珀斯尔的补给点，旁边是两行小字：Kate，Lingna。',
-        next: 'n10',
+      q03: {
+        speaker: '队长',
+        text: '没有桥洞。我们去 Asaka 土地管理部。那里还认旧契，也还收旧钱。',
+        effects: { party: ['kate', 'lingna'], flags: { recruited_kate: true, recruited_lingna: true }, planNode: 'prologue_end', affection: { kate: 1, lingna: 1 }, mission: { complete: 'opening_meet', start: 'opening_home' } },
+        next: 'p06',
       },
-      n10: {
-        speaker: '凯特',
-        text: '我们两个能打。我负责远距离，玲娜负责把他们的头按下去。问题是，你有地方让我们睡吗？',
-        next: 'c02',
+      p06: {
+        text: '你们穿过半座空城。街角有卖热食的小贩，有孩子在拆一辆废弃的运输车，也有穿着旧制服的人坐在门口，谁也不看谁。\nAsaka 土地管理部在一栋掉漆的三层楼里。柜台后面的人抬头看了你们一眼，又低下去。',
+        next: 'p07',
       },
-      c02: {
-        prompt: '你要给她们的第一个答案——',
+      p07: {
+        speaker: '土地管理部办事员',
+        text: '买房？行。城北还有几处没人要的。一栋两层，带院子，旧仓库改的。\n价钱不便宜，而且不赊账。你们确定？',
+        next: 'q04',
+      },
+      q04: {
+        prompt: '房契上要写名字。你准备怎么付？',
         choices: [
           {
-            text: '先拿下第一块地盘。有地盘才有据点。',
-            next: 'n11_push',
-            flags: { prologue_plan: 'push' },
-            affection: { kate: 1 },
+            text: '按市价付清，契上写三个人的名字。',
+            next: 'p08_paid',
+            requires: { party: ['kate', 'lingna'] },
+            effects: { credits: -2600, home: { purchased: true, price: 2600, node: 'base_purchased' }, flags: { base_purchased: true }, affection: { kate: 1, lingna: 1 }, mission: { complete: 'opening_home', start: 'first_deployment' } },
+            tone: '公平',
           },
           {
-            text: '先让小队活着。地盘可以慢慢来。',
-            next: 'n11_hold',
-            flags: { prologue_plan: 'hold' },
-            affection: { lingna: 1 },
+            text: '先付一半，剩下的用接下来的活抵。',
+            next: 'p08_debt',
+            effects: { credits: -1300, home: { purchased: true, price: 2600, debt: 1300, node: 'base_purchased' }, flags: { base_purchased: true, home_debt: 1300 }, affection: { kate: 1 }, mission: { complete: 'opening_home', start: 'first_deployment' } },
+            tone: '务实',
           },
         ],
       },
-      n11_push: {
-        speaker: '凯特',
-        text: '我喜欢这个答案。真的。不过下次说这种话之前，先确认我们有两个弹匣。',
-        next: 'n12',
-      },
-      n11_hold: {
+      p08_paid: {
         speaker: '玲娜',
-        text: '……谢谢。很多人招我们的时候，第一句话就是让我们去死。',
-        next: 'n12',
+        text: '三个人的名字……你就不怕我们哪天把房子卷走？',
+        next: 'p09',
       },
-      n12: {
-        text: '沙尘慢慢落下来。远处检查线的探照灯扫过公路，又一次扫回来，没有照到这三个人。',
-        next: 'n13',
-      },
-      n13: {
+      p08_debt: {
         speaker: '凯特',
-        text: '那就说定了。队长，明天开始，你负责想清楚要打哪里。我们负责让你活到能打那里。',
-        next: 'n14',
+        text: '欠着钱买房子。胆子不小。\n行，那接下来的活就不能挑轻松的了。',
+        next: 'p09',
       },
-      n14: {
+      p09: {
+        speaker: '队长',
+        text: '钥匙给我。今天开始，这里叫据点。\n大厅放仓库，电脑放流动信用点。门是出战口——谁想进来，得先问过我们。',
+        effects: { flags: { base_ready: true }, planNode: 'base_purchased' },
+        next: 'p10',
+      },
+      p10: {
+        text: '房子比想象中空。大厅里有一只旧木箱，桌上有台落满灰的终端，窗外是城北的围墙。\n凯特把枪靠在门边，玲娜已经蹲在仓库的箱子上，像一只占好位置的猫。',
+        next: 'q05',
+      },
+      q05: {
+        prompt: '第一晚怎么过？',
+        choices: [
+          {
+            text: '把收音机打开，和玲娜听一会儿。',
+            next: 'p11_radio',
+            requires: { party: ['lingna'], affectionMin: { lingna: 1 } },
+            tone: '靠近',
+          },
+          {
+            text: '陪凯特检查门窗。',
+            next: 'p11_kate',
+            effects: { affection: { kate: 1 } },
+            tone: '稳妥',
+          },
+          {
+            text: '先一个人把终端点亮。',
+            next: 'p11_alone',
+            effects: { flags: { opening_alone: true } },
+            tone: '独处',
+          },
+        ],
+      },
+      p11_radio: {
         speaker: '玲娜',
-        text: '还有一件事。计划树……你听说过吗？传说每个人的选择都会在某个地方长成一根枝。',
-        next: 'n15',
+        text: '这台的旋钮都松了。来，你按这个节奏，别掉队。',
+        rhythm: { character: 'lingna', title: '结算阶段 · 电台里的第一拍', duration: 28, requires: { affectionMin: { lingna: 1 } } },
+        next: 'p12',
       },
-      n15: {
+      p11_kate: {
         speaker: '凯特',
-        text: '别听她吓人。枝不枝的我不知道，我只知道——现在我们有三个人的名字可以写在同一张纸上了。',
+        text: '门框变形了，得换。窗子从里面钉死，留一条缝。\n这些事看起来小，但真到半夜有人砸门的时候，就是这些小事让你能活下来。',
+        next: 'p12',
+      },
+      p11_alone: {
+        text: '终端亮起来，屏幕上只有一行跳动的数字：当前流动信用点。\n你把它记在纸上，又把纸折好放进内袋。明天开始，每一次出击都要让这个数字变大。',
+        next: 'p12',
+      },
+      p12: {
+        text: '凌晨，城市安静下来。你站在据点的门口，背后是刚刚开始有人的房间，前面是还亮着灯的街。\n计划树在某个地方长出第一根枝。',
         next: 'end',
       },
       end: {
-        text: '序章结束。计划树亮起第一根枝。',
+        speaker: '队长',
+        text: '明天开始，我们为这间房而战。',
         end: true,
-        // 只推进进度，不额外写入自动存档：本节点的自动存档在章节开始前已经写入。
-        nextNode: 'prologue_end',
-        flags: { prologue_done: true },
-        markStorySeen: true,
+        nextNode: 'base_purchased',
+        effects: { flags: { opening_done: true }, planNode: 'base_purchased' },
+        summaryText: '你们在 Asaka 的城北买下了一间旧仓库改成的房子。门关上以后，凯特和玲娜没有走。\n第一根枝已经长出来；下一次出门，要记得回到这里。',
       },
     },
   },
 };
+
+// 兼容旧存档/旧触发点：旧 id 永远指向同一章，不再维护两份剧情文本。
+STORY_CHAPTERS['asaka.prologue'] = STORY_CHAPTERS['asaka.opening'];
 
 export function getStoryChapter(id){
   return STORY_CHAPTERS[id] || null;

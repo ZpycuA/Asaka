@@ -26,7 +26,11 @@
 | 表 | 内容 | 读取方 |
 |---|---|---|
 | `weaponRules` | 枪械**逻辑参数**：后坐力系数 `recoilK`、开镜/蹲下后坐倍率、回正比例、水平抖动、AI 散布倍率、AI 点射发数/冷却、AI 换弹秒数、玩家真实/快速换弹倍率、榴弹初速/重力/抬升 | `AISystem._weaponRule()` → `_fireWeapon` / `_updateSpeedFeedback` / `_combat` / `_startReload` / `_fireLauncher` |
-| `aiRules.default` | 通用 AI 手感：近身距离、间距余量、交火距离、推进/后撤/侧移、反应时间、点射、包抄间距、掩体 | `AISystem._aiRule()` → `_combat` / `_combatMove` / `_meleeCombat` |
+| `aiRules.default` | 通用 AI 手感：近身距离、间距余量、交火距离、推进/后撤/侧移、反应时间、点射、包抄间距、掩体；无人机仇恨权重（`drone*`）与镜面反光（`scopeGlint`） | `AISystem._aiRule()` → `_combat` / `_combatMove` / `_meleeCombat` / `_considerDrone`；`GameWorld._updatePlayerScopeGlint` |
+| `aiLoadout.default` | AI 枪械配装：按武器类别的瞄具/握把/枪托候选、按口径的枪口候选、普通/精英安装概率与精英抑制器概率 | `GameWorld._equipAIWeapon()` |
+| `movement.default` | 玩家行走/疾跑倍率、加速度、地面摩擦、冲刺 FOV | `GameWorld._updatePlayer/_updateSpeedFeedback` |
+| `missions` | 主线/支线：标题、所在章、描述、阶段、点位 | `MissionSystem` |
+| `prazing` | 神庙供奉献词匹配的 Prazing 技巧名/别名/说明 | `HomeScreen._resolvePrayer` |
 | `bossProfiles` | 每名 Boss 的交战距离、侧移、血量阶段、导弹 CD、召唤增援、冲刺、掩体行为 | `AISystem._bossProfile()` → `_bossMove` / `_bossAbilities`；`GameWorld._bossSummon` / `_fireBossMissiles` |
 | `asce.default` | Assee 异常容器：概率、延迟、破坏倒计时、感知半径、奖励、Moments 职责列表、警告/破坏台词 | `GameWorld._scheduleAsce/_spawnAsce/_updateAsce/_breachAsce/_spawnMomentSquad` |
 | `enemies.moment_*` | Moments『初等』六职责：`partScale` / `damageResist` / `headArmor` / `armorDurMul` / `headHpMul` / `weapons` / `melee` / `ai` / `momentRole` | `EntityStatus` / `_spawnEnemy` / `_spawnMomentSquad` |

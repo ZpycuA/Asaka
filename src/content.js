@@ -1106,6 +1106,16 @@ const ATTACH = {
     w: 1, h: 1, weight: 0.09, value: 140, rarity: 'L0', stackLimit: 1, icon: '🩹',
     stats: { recoilMul: 0.94, spreadMul: 0.99 },
   },
+
+  // ---------- 遮光罩：只安装在倍镜上 ----------
+  // ★ 倍镜镜片在阳光下会反光，敌人（以及 AI）能据此发现射手；
+  //   遮光罩把 glintMul 压到 0，消除反光，但增加一点重量。
+  //   是否可装有硬条件：必须已装倍率 ≥ 2 的瞄具，见 Inventory.canAttach。
+  lens_hood: {
+    slot: 'lensHood', name: '遮光罩', desc: '套在倍镜前端的遮光筒。把镜片反光压到几乎看不见，代价是一点点重量和更慢的收枪动作。只适配 2 倍及以上倍镜。',
+    w: 1, h: 1, weight: 0.06, value: 260, rarity: 'L1', stackLimit: 1, icon: '🕶',
+    stats: { glintMul: 0 },
+  },
 };
 c.registerAll('attach', ATTACH);
 
@@ -1457,6 +1467,17 @@ c.registerAll('attach', ATTACH);
     prazer: true, A: 2800,
     gear: { armor: { shell: { defId: 'lv5', lv: 5 }, visor: { defId: 'lv5', lv: 5 }, fiber: { defId: 'lv5', lv: 5 }, plate: { defId: 'lv5', lv: 5 } }, nades: ['frag', 'stun'] },
   },
+  // ★ 城市平民：没有武器，不参与阵营敌对，听到枪声/看到玩家靠近只会逃。
+  civilian: {
+    name: '平民',
+    faction: 'civilian', group: 'civilian', rank: 'dummy',
+    hp: 50, speed: 5.2, acc: 0,
+    color: 0xb9a88f, radius: 0.45,
+    ai: { aggression: 0, composure: 0.2, perception: 0.6, opportunism: 0, keepDistance: 20, meleeBias: 0, switchBias: 0, grenade: 0 },
+    prazer: false, A: 0,
+    melee: '__none__',
+    gear: { armor: {} },
+  },
   training_dummy: {
     name: 'content.enemy.training_dummy.name',
     faction: 'training', group: 'training', rank: 'dummy',
@@ -1509,9 +1530,92 @@ c.registerAll('attach', ATTACH);
       // 小队包抄：推进目标点向侧翼偏移，避免全队排成一条线
       flankOffset: 5.5,
       flankSpacing: 2.4,
+      // ★ 无人机仇恨：不能“站在敌人脸上还在打飞机”。
+      //   interest 权重越低越不爱抬头；玩家在近处且可见时按 threatMul 继续压低。
+      droneInterestBase: 0.10,
+      droneInterestPerception: 0.28,
+      droneInterestComposure: 0.12,
+      droneInterestAggro: 0.18,
+      droneMaxDistBase: 20,
+      droneMaxDistPerception: 18,
+      droneThreatRange: 22,
+      droneThreatMul: 0.18,
+      droneBreakRange: 13,
+      droneMaxFocus: 3.2,
+      // ★ 我方狙击镜反光：AI 能看见的间隔、距离与视野锥（弧度）。
+      scopeGlint: { interval: 1.7, range: 140, minZoom: 2, cone: 1.15, awareness: 0.7 },
     },
   };
   c.registerAll('aiRules', AI_RULES);
+
+  /* ==========================================================
+     4.05 玩家移动手感（软编码）
+     ----------------------------------------------------------
+     把“走路/疾跑倍率、加速度、地面摩擦、冲刺 FOV”集中成一张表，
+     避免以后调手感又要在 _updatePlayer 里到处改魔法数字。
+     ========================================================== */
+  const MOVEMENT = {
+    default: {
+      walkSpeedMul: 1.20,
+      sprintMul: 1.80,
+      prazerSprintMul: 1.85,
+      groundFriction: 4.6,
+      accelWalk: 64,
+      accelSprint: 48,
+      decel: 58,
+      sprintFov: 16,
+    },
+  };
+  c.registerAll('movement', MOVEMENT);
+
+  /* ==========================================================
+     4.51 AI 枪械配装（软编码）
+     ----------------------------------------------------------
+     敌人不再“凭空发射裸枪子弹”：每把可拆弹匣的枪都会生成真实弹匣，
+     并按类别/兵种生成瞄具、枪口、握把、枪托等实体配件；这些配件和
+     弹匣都会随尸体一起被玩家搜到。
+       sight:    按武器类别的主瞄具候选（按顺序尝试，口径/适配不符就换下一个）
+       muzzle:   按弹药口径的枪口候选
+       grip / stock: 按武器类别
+       chances / eliteChances: 普通兵/精英兵安装概率
+     ========================================================== */
+  const AI_LOADOUT = {
+    default: {
+      sight: {
+        sniper: ['sight_6x', 'sight_4x'],
+        rifle: ['sight_2x', 'sight_1x'],
+        smg: ['sight_1x'],
+        lmg: ['sight_2x', 'sight_3x'],
+        pistol: [],
+        shotgun: [],
+      },
+      muzzle: {
+        '5.56': ['comp_556', 'flash_556'],
+        '7.62': ['comp_762'],
+        '762x54': ['comp_762x54'],
+        '12ga': ['comp_12ga', 'choke_12ga'],
+        '9mm': [],
+        '.45acp': [],
+        '12.7mm': [],
+      },
+      grip: {
+        sniper: ['bipod'],
+        rifle: ['grip_angled', 'grip_vertical'],
+        smg: ['grip_stubby', 'grip_handstop'],
+        lmg: ['grip_vertical'],
+      },
+      stock: { rifle: ['stock_light'], lmg: ['stock_light'] },
+      chances: { muzzle: 0.45, grip: 0.30, stock: 0.20 },
+      eliteChances: { muzzle: 0.85, grip: 0.70, stock: 0.55 },
+      // 消音器只给精英少量装备：普通兵装抑制器会让玩家完全失去枪声线索。
+      suppressor: { '5.56': 'supp_556', '7.62': 'supp_762', '762x54': 'supp_762x54', '9mm': 'supp_9mm' },
+      suppressorEliteChance: 0.25,
+      // ★ 遮光罩：按用户要求，当前小兵不配发，敌方狙击的反光仍然可见。
+      //   以后要恢复“精英狙击带遮光罩”，在这里加 lensHoodChance 并在 _equipAIWeapon 读取即可。
+      lensHoodChance: 0,
+    },
+  };
+  c.registerAll('aiLoadout', AI_LOADOUT);
 
   /* ==========================================================
      4.55 Assee 异常容器（软编码）
@@ -1528,7 +1632,10 @@ c.registerAll('attach', ATTACH);
       chance: 0.22, delay: 14, breachTime: 180, alertRadius: 120,
       // 警告阶段的“贴脸也先不开火”保护：召唤后至少 8 秒只警告，
       // 避免玩家正蹲在容器边搜刮时，Moments 一出场就因距离过近立刻仇恨。
-      warnGrace: 8, proximityRange: 2.8, armedLinger: 7,
+      warnGrace: 14, proximityRange: 3.2, armedLinger: 13,
+      // ★ 降级/脱离：玩家收起武器或跑出接触距离后，Moments 会暂时回到警告/搜索，
+      //   不再“仇恨一旦点亮就追到天涯海角”。
+      deescalate: { stowTime: 8, breakDistance: 45, breakTime: 12, forgetTime: 25 },
       // 频谱对消阵：与容器分开刷新。核心是“电源”，玩家必须按相位顺序
       // 站到三根锚柱旁完成对消，而不是站在中央读秒。
       // anchorTime 是总对消秒数，平均分给三根锚柱；完成后失稳计时停止。
@@ -1546,9 +1653,12 @@ c.registerAll('attach', ATTACH);
         '有东西落下来了。去确认。',
       ],
       warningLines: [
-        'Moments：离开容器。',
-        'Moments：最后警告。',
-        'Moments：交出核心。',
+        'Moments：这里是 Moments 处置组。平民，停止接近容器。',
+        'Moments：你已进入管制区。放下武器，双手可见，退到黄线以外。',
+        'Moments：最后警告。我们不针对平民，但会清除任何携带核心的人。',
+        'Moments：注意，目标身上可能有 P 空间残留。先控制距离。',
+        'Moments：别开枪。让他退。队长，我压左翼。',
+        'Moments：重复一次，放下武器、慢慢后退，你不在我们的清除名单上。',
       ],
       warn30Lines: [
         '读数还在升。三十秒。',
@@ -1591,12 +1701,36 @@ c.registerAll('attach', ATTACH);
         scout_medic: '已标记。',
       },
       momentCombatLines: [
-        '保持交叉火力。',
-        '换弹，掩护。',
-        '目标移动。',
-        '压上去。',
+        '保持交叉火力，别一起探头。',
+        '换弹，掩护我。',
+        '目标移动，东侧。',
+        '压上去，别让他摸到核心。',
         '别打碎核心。',
         '他们撑不住了。',
+        '盾兵上前，其他人跟半拍。',
+        '我数三下，一起推。',
+        '右翼有动静，确认是不是同一个人。',
+        '他把枪收了……先别停火，继续观察。',
+        '补给口开了，携带员去拿弹。',
+        '队长，目标在往撤离方向跑。',
+      ],
+      // ★ 战术小队电台：彼此报位置、报动作，而不是只对玩家喊一句。
+      //   {dir} 方向，{dist} 距离档位，{role} 队员职责。
+      momentRadioLines: [
+        '{role}：目标在{dir}，{dist}。',
+        '{role}：我压{dir}侧，别打到我。',
+        '{role}：看到他了，在{dir}那排掩体后面。',
+        '{role}：他没开枪，保持观察。',
+        '{role}：弹药还剩一半，队长。',
+        '{role}：携带员往后站，别把核心带进枪线。',
+        '{role}：确认，{dir}侧交给我。',
+        '{role}：平民已清空，可以推进。',
+      ],
+      momentDeescalateLines: [
+        '目标收枪了。保持警戒，别开枪。',
+        '他退出了管制区。先回容器，任务优先。',
+        '解除接触。各位置报数，继续搜索核心。',
+        '不是威胁，别浪费弹药。回去。',
       ],
     },
   };
@@ -1671,7 +1805,7 @@ c.registerAll('attach', ATTACH);
     rifle: { recoilK: 0.00032, aiSpreadMul: 1.0, aiBurstBase: 3, aiBurstAggro: 5, aiBurstCdMin: 0.45, aiBurstCdMax: 1.1, aiReload: 2.6, reloadRealMul: 1.5, reloadFastMul: 0.8 },
     smg: { recoilK: 0.00023, aiSpreadMul: 0.9, aiBurstBase: 4, aiBurstAggro: 7, aiBurstCdMin: 0.5, aiBurstCdMax: 1.2, aiReload: 2.2, reloadRealMul: 1.5, reloadFastMul: 0.8 },
     pistol: { recoilK: 0.00020, aiSpreadMul: 1.05, aiBurstBase: 2, aiBurstAggro: 2, aiBurstCdMin: 0.5, aiBurstCdMax: 1.0, aiReload: 1.8, reloadRealMul: 1.4, reloadFastMul: 0.85 },
-    sniper: { recoilK: 0.00060, aiSpreadMul: 0.7, aiBurstBase: 1, aiBurstAggro: 1, aiBurstCdMin: 1.0, aiBurstCdMax: 2.0, aiReload: 3.4, reloadRealMul: 1.6, reloadFastMul: 0.9 },
+    sniper: { recoilK: 0.00060, aiSpreadMul: 0.7, aiBurstBase: 1, aiBurstAggro: 1, aiBurstCdMin: 1.4, aiBurstCdMax: 2.6, aiReload: 3.6, reloadRealMul: 1.6, reloadFastMul: 0.9, enemySpreadMul: 3.4, enemySettleTime: 2.6, enemySettleSpreadMul: 2.0, enemyHeadChance: 0.01 },
     shotgun: { recoilK: 0.00050, aiSpreadMul: 1.0, aiBurstBase: 1, aiBurstAggro: 2, aiBurstCdMin: 0.8, aiBurstCdMax: 1.5, aiReload: 3.2, reloadRealMul: 1.5, reloadFastMul: 0.85 },
     lmg: { recoilK: 0.00022, aiSpreadMul: 1.15, aiBurstBase: 6, aiBurstAggro: 10, aiBurstCdMin: 0.9, aiBurstCdMax: 1.8, aiReload: 4.0, reloadRealMul: 1.6, reloadFastMul: 0.9 },
     launcher: { recoilK: 0.00055, aiSpreadMul: 1.0, aiBurstBase: 1, aiBurstAggro: 1, aiBurstCdMin: 2.0, aiBurstCdMax: 3.0, aiReload: 4.6, reloadRealMul: 1.3, reloadFastMul: 0.85, launchSpeed: 44, launchGravity: 14, launchLift: 3.5 },
@@ -1894,6 +2028,14 @@ c.registerAll('attach', ATTACH);
     layoutUrl: 'maps/void.json',
     storyOnly: true,
   },
+  // ★ 主模式第一次出战用的城北战区：先复用工厂大布局，等大地图完成后再替换 layoutUrl。
+  //   剧情/任务/据点仍按 asaka 模式结算；这张图只负责“有街道、有掩体、有敌人”的战斗空间。
+  asaka_city: {
+    name: 'Asaka 城北战区',
+    desc: '城北旧工业区与居民区交界。街道、仓库和检查线把地图切成几块。',
+    size: 320, obstacleCount: 0, enemyCount: 0, civilianCount: 14,
+    layoutUrl: 'maps/asaka_city.json',
+  },
 };
   c.registerAll('maps', MAPS);
 
@@ -1985,6 +2127,36 @@ c.registerAll('attach', ATTACH);
   c.registerAll('skills', SKILLS);
 
   /* ==========================================================
+     6.0 Prazing 技巧（神庙供奉）
+     ----------------------------------------------------------
+     · 不在 UI 里直接列出“正确答案”的提示；玩家/角色只能通过祷词猜。
+     · aliases 用于祷词匹配，name 是最终显示名。
+     ========================================================== */
+  const PRAZING = {
+    cat_step: {
+      name: '猫步', aliases: ['猫步', '无声落步', '踏影'],
+      desc: '把体重分散到脚掌与尾尖，短距离移动几乎不发出声音。',
+    },
+    ear_listen: {
+      name: '听羽', aliases: ['听羽', '覆耳羽聆听', '风里听'],
+      desc: '用覆耳羽感受气流振动，短暂强化对脚步与枪声的方向判断。',
+    },
+    tail_guard: {
+      name: '尾守', aliases: ['尾守', '绕尾', '尾巴护住'],
+      desc: '尾巴在身后形成一个短促的防护弧，降低背后近战与破片的伤害。',
+    },
+    pspace_breathe: {
+      name: '空间呼吸', aliases: ['空间呼吸', 'P空间呼吸', '在裂缝里呼吸'],
+      desc: '在 P 空间波动中维持呼吸节律，减少恶心与耳鸣的影响。',
+    },
+    blood_echo: {
+      name: '血回声', aliases: ['血回声', '血里的回声', '听见血'],
+      desc: '通过血液振动感知附近受伤者的位置；对失血目标尤其清晰。',
+    },
+  };
+  c.registerAll('prazing', PRAZING);
+
+  /* ==========================================================
      8. 任务（DSL 结构）
      ----------------------------------------------------------
      trigger.kind: 'kill' | 'loot' | 'survive' | 'extract' | 'boss'
@@ -2027,6 +2199,51 @@ c.registerAll('attach', ATTACH);
     },
   };
   c.registerAll('tasks', TASKS);
+
+  /* ==========================================================
+     6.1 主线任务 / 计划
+     ----------------------------------------------------------
+     任务不是二游奖励，只推动剧情与计划树。
+       chapter: 左上角显示的“所在章”
+       stages:  [{ text }] 按顺序推进
+       waypoint: 可选，小地图任务标记
+     ========================================================== */
+  const MISSIONS = {
+    opening_meet: {
+      title: '接头',
+      chapter: '序章 · 沙尘里的第一间房',
+      category: 'main',
+      desc: '在旧公路检查线附近与凯特、玲娜会合。她们看过你写的东西，但还没有决定要不要把命交给你。',
+      stages: [
+        { text: '前往旧公路检查线' },
+        { text: '与凯特、玲娜会合' },
+      ],
+      waypoint: { x: 0, z: 44 },
+    },
+    opening_home: {
+      title: '城北的房子',
+      chapter: '序章 · 沙尘里的第一间房',
+      category: 'main',
+      desc: 'Asaka 土地管理部还认旧契。买下一处偏僻的旧仓库住所，把仓库、终端和出战门安置进去。',
+      stages: [
+        { text: '前往 Asaka 土地管理部' },
+        { text: '买下城北的据点' },
+        { text: '在据点里安顿下来' },
+      ],
+      waypoint: { x: 18, z: -18 },
+    },
+    first_deployment: {
+      title: '第一次出战准备',
+      chapter: '第一章 · 把名字挂上门口',
+      category: 'main',
+      desc: '回到据点大门，召集凯特与玲娜，确认装备与路线。下一次出门就不是散步了。',
+      stages: [
+        { text: '在据点里完成出战准备' },
+        { text: '从大门离开据点' },
+      ],
+    },
+  };
+  c.registerAll('missions', MISSIONS);
 
    const EFFECTS = {
   bleeding:      { name: '流血',     icon: '🩸', positive: false, awareness: 0 },
@@ -2182,12 +2399,14 @@ c.registerAll('effects', EFFECTS);
       'ammo=' + c.count('ammo') + ' ' +
       'enemies=' + c.count('enemies') + ' ' +
       'aiRules=' + c.count('aiRules') + ' ' +
+      'aiLoadout=' + c.count('aiLoadout') + ' ' +
       'bossProfiles=' + c.count('bossProfiles') + ' ' +
       'weaponRules=' + c.count('weaponRules') + ' ' +
       'dialogue=' + c.count('dialogue') + ' ' +
       'characters=' + c.count('characters') + ' ' +
       'maps=' + c.count('maps') + ' ' +
       'skills=' + c.count('skills') + ' ' +
+      'missions=' + c.count('missions') + ' ' +
       'tasks=' + c.count('tasks')
     );
   }

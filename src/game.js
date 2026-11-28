@@ -12,6 +12,8 @@ import { Inventory, GridContainer } from './inventory.js';
 import { BagUI } from './bagUI.js';
 import { TitleScreen } from './title.js';
 import { StoryPlayer } from './story.js';
+import { MissionSystem } from './missions.js';
+import { HomeScreen } from './home.js';
 import { AsakaSave } from './asakaSave.js';
 import { ModeSettings } from './settings.js';
 import { getPlanNode } from './story/asaka-plan.js';
@@ -1494,12 +1496,36 @@ const AISystem = {
     }
     // 友方 AI 不会把自家无人机当目标（以后敌方无人机只要换 owner/faction 就会被当作目标）
     if (enemy.isAlly && d.owner && (d.owner === world.player || d.owner.faction === 'player')) return;
+    const rule = this._aiRule(world);
+    // ★ 玩家威胁权重：站在敌人面前的活人永远优先于高空无人机。
+    //   旧版只要无人机在 16m 内就能把 AI 从 combat 拉走，导致“贴脸还在打飞机”。
+    const p = world.player;
+    let playerDist = Infinity;
+    let playerVisible = false;
+    if (p && p.alive && p.body) {
+      playerDist = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
+      // 只在玩家可能构成近距威胁时才做视线检测，避免每帧对所有敌人打射线。
+      if (playerDist < (rule.droneThreatRange || 22) + 6) {
+        playerVisible = this._checkLOS(world, enemy, p);
+      }
+    }
+    const recentlyShotByPlayer = !!(enemy._lastDamageByPlayer && world.time - (enemy._lastDamageAt || 0) < 6);
+    const playerThreat = (playerVisible && playerDist < (rule.droneThreatRange || 22)) || recentlyShotByPlayer;
+    if (playerThreat && playerVisible && playerDist < (rule.droneBreakRange || 13)) {
+      if (enemy.state === 'drone') { enemy.state = 'combat'; enemy.stateT = 0; enemy.targetEntity = p; }
+      enemy.droneTarget = null;
+      enemy._wantsDrone = false;
+      return;
+    }
     const dx = d.mesh.position.x - enemy.body.position.x;
     const dy = d.mesh.position.y - (enemy.body.position.y + (enemy.body.halfH || 1.2) * 0.75);
     const dz = d.mesh.position.z - enemy.body.position.z;
     const dist = Math.hypot(dx, dy, dz);
-    if (dist > 24 + (ai.perception || 0.5) * 22) {
-      if (enemy.state === 'drone') { enemy.state = 'patrol'; enemy.stateT = 0; }
+    const maxDist = (rule.droneMaxDistBase || 20) + (ai.perception || 0.5) * (rule.droneMaxDistPerception || 18);
+    if (dist > maxDist || playerThreat) {
+      if (enemy.state === 'drone') { enemy.state = 'combat'; enemy.stateT = 0; }
+      enemy.droneTarget = null;
+      if (playerThreat) enemy._wantsDrone = false;
       return;
     }
     // 视线被墙体挡住时不会隔墙锁无人机
@@ -1511,11 +1537,16 @@ const AISystem = {
 
     if (!enemy._droneThink || world.time > enemy._droneThink) {
       enemy._droneThink = world.time + 3.0;
-      // 感知高、侵略性低的单位更愿意先处理空中目标
-      const interest = 0.28 + (ai.perception || 0.5) * 0.45 + (ai.composure || 0.5) * 0.2 - (ai.aggression || 0.5) * 0.18;
-      enemy._wantsDrone = Math.random() < interest;
+      // 感知高、侵略性低的单位更愿意先处理空中目标；玩家在近处时兴趣再压一档。
+      let interest = (rule.droneInterestBase || 0.10)
+        + (ai.perception || 0.5) * (rule.droneInterestPerception || 0.28)
+        + (ai.composure || 0.5) * (rule.droneInterestComposure || 0.12)
+        - (ai.aggression || 0.5) * (rule.droneInterestAggro || 0.18);
+      if (playerVisible && playerDist < (rule.droneThreatRange || 22)) interest *= (rule.droneThreatMul || 0.18);
+      enemy._wantsDrone = Math.random() < Math.max(0.02, interest);
     }
-    if (enemy._wantsDrone && enemy.state !== 'flee' && (enemy.state !== 'combat' || dist < 16)) {
+    if (enemy._wantsDrone && enemy.state !== 'flee' && enemy.state !== 'combat') {
+      // ★ 交战中不再为无人机中断当前目标；只有确实空闲/调查时才抬头。
       enemy.droneTarget = d;
       enemy.state = 'drone';
       enemy.stateT = 0;
@@ -1525,6 +1556,31 @@ const AISystem = {
   _attackDrone(world, enemy, dt, ai) {
     const d = enemy.droneTarget;
     if (!d || !d.alive) { enemy.state = 'patrol'; enemy.droneTarget = null; return; }
+    const rule = this._aiRule(world);
+    const p = world.player;
+    // ★ 玩家近身/刚被玩家击中：立刻放弃无人机转火活人。
+    if (p && p.alive && p.body) {
+      const pd = Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z);
+      const recent = !!(enemy._lastDamageByPlayer && world.time - (enemy._lastDamageAt || 0) < 6);
+      if (recent || (pd < (rule.droneBreakRange || 13) && this._checkLOS(world, enemy, p))) {
+        enemy.targetEntity = p;
+        enemy.state = 'combat';
+        enemy.stateT = 0;
+        enemy.droneTarget = null;
+        enemy._wantsDrone = false;
+        return;
+      }
+    }
+    const w = enemy.weapon;
+    const feed = w && w.def ? (w.def.launcher ? 'internal' : (w.def.feed || 'mag')) : 'mag';
+    const noMag = !!(w && w.item && feed === 'mag' && !(w.item.attachments && w.item.attachments.mag));
+    // ★ 打无人机也必须消耗真实弹匣：不能绕过供弹具/弹量凭空生成曳光弹。
+    if (!w || !w.loaded || w.loaded.qty <= 0 || noMag) {
+      enemy.droneTarget = null;
+      if (p && p.alive && enemy._checkLOS(world, enemy, p)) { enemy.targetEntity = p; enemy.state = 'combat'; }
+      else { enemy.state = 'patrol'; }
+      return;
+    }
     const dx = d.mesh.position.x - enemy.body.position.x;
     const dz = d.mesh.position.z - enemy.body.position.z;
     const dy = d.mesh.position.y - (enemy.body.position.y + 1.2);
@@ -1548,6 +1604,12 @@ const AISystem = {
     const tx = d.mesh.position.x + (Math.random() - 0.5) * missSpread * 2;
     const ty = d.mesh.position.y + (Math.random() - 0.5) * missSpread;
     const tz = d.mesh.position.z + (Math.random() - 0.5) * missSpread * 2;
+    // ★ 消耗一发真实子弹
+    w.loaded.qty = Math.max(0, w.loaded.qty - 1);
+    if (Array.isArray(w.loaded.queue) && w.loaded.queue.length > 0) w.loaded.queue.shift();
+    if (w.item && w.item.attachments && w.item.attachments.mag && w._inv && w._inv._syncMagLoaded) {
+      w._inv._syncMagLoaded(w.item, w.item.attachments.mag);
+    }
     world._spawnTracer(ox, oy, oz, tx, ty, tz, 0xffb070);
     if (Math.random() < hitChance) {
       d.durability = Math.max(0, d.durability - (4 + Math.random() * 5));
@@ -1563,7 +1625,13 @@ const AISystem = {
     }
     enemy.fireCd = 0.95 + Math.random() * 1.1;
     // 打一会儿无人机后重新评估，避免所有 AI 一直抬头
-    if (enemy.stateT > 4.5) { enemy.state = 'patrol'; enemy.droneTarget = null; enemy.stateT = 0; }
+    if (enemy.stateT > (rule.droneMaxFocus || 3.2)) {
+      enemy.state = 'patrol';
+      enemy.droneTarget = null;
+      enemy.stateT = 0;
+      enemy._wantsDrone = false;
+      enemy._droneThink = world.time + 2.5 + Math.random() * 2;
+    }
   },
 
   // AI 武器切换：按距离、目标护甲、弹匣/备弹、武器类别综合评分，而不是只看距离。
@@ -2473,14 +2541,21 @@ const AISystem = {
     //   同时在没有遮光罩的情况下周期性出现镜片反光，给玩家反制线索。
     const _sniperCls = this._weaponClass(enemy.weapon && enemy.weapon.def);
     if (!enemy.isAlly && _sniperCls === 'sniper' && canSee) {
+      // ★ 换目标必须重新架枪：旧版只记“第一次看见”，切目标后第一发仍然满精度。
+      if (enemy._sniperTarget !== enemy.targetEntity) {
+        enemy._sniperTarget = enemy.targetEntity;
+        enemy._sniperAimStart = world.time;
+      }
       if (!enemy._sniperAimStart) enemy._sniperAimStart = world.time;
       const aimingFor = world.time - enemy._sniperAimStart;
-      if (aimingFor > 1.2 && world.time > (enemy._glintAt || 0)) {
-        enemy._glintAt = world.time + 2.8 + Math.random() * 2.2;
+      // 只有装了倍镜且没有遮光罩的枪才会反光。
+      if (aimingFor > 1.2 && world._weaponGlintLevel(enemy.weapon) > 0 && world.time > (enemy._glintAt || 0)) {
+        enemy._glintAt = world.time + 2.2 + Math.random() * 1.4;
         world._spawnScopeGlint(enemy);
       }
     } else if (!enemy.isAlly) {
       enemy._sniperAimStart = 0;
+      enemy._sniperTarget = null;
     }
     // ★ 远程精确射手在远距离趴下据枪；近战/近距离自动起身。
     const wRangeNow = enemy.weapon && enemy.weapon.def ? (enemy.weapon.def.range || 0) : 0;
@@ -2600,6 +2675,10 @@ const AISystem = {
           w.loaded.qty = w.loaded.queue.length;
         } else {
           w.loaded.qty += take;
+        }
+        // ★ AI 的弹匣也是实体：换弹后回写弹匣内容，尸体上不会出现“枪里满弹、弹匣却是空的”。
+        if (w.item && w.item.attachments && w.item.attachments.mag && w._inv && w._inv._syncMagLoaded) {
+          w._inv._syncMagLoaded(w.item, w.item.attachments.mag);
         }
         enemy._reloadTimer = aiReload;
       }
@@ -3779,7 +3858,8 @@ const AISystem = {
       } else {
         w.loaded.qty += need;
       }
-      w.reserve = Math.max(0, (w.reserve || 0) - need);
+      if (typeof w.consumeReserve === 'function') w.consumeReserve(need);
+      else w.reserve = Math.max(0, (w.reserve || 0) - need);
     }
     const yaw = p.angle || 0;
     const side = (ally.allyIndex % 2 === 0 ? -1 : 1);
@@ -4162,8 +4242,10 @@ class TaskSystem {
   }
 
   initFromRegistry(){
-    const tasks = this.engine.content.all('tasks');
     const modeId = this.world.modeId;
+    // ★ 主模式只显示主线任务，不把 Straight 的击杀/搜刮任务塞进左上角。
+    if (modeId === 'asaka') { this.render(); return; }
+    const tasks = this.engine.content.all('tasks');
     for (const t of tasks) {
       if (t.mode && t.mode !== modeId) continue;
       if (t.source && !['default', 'daily', 'challenge'].includes(t.source)) continue;
@@ -4233,6 +4315,11 @@ class TaskSystem {
   }
 
   render(){
+    // 主模式左上角由 MissionSystem 接管：只显示当前主线任务与阶段。
+    if (this.world.modeId === 'asaka' && this.world.missions) {
+      this.world.missions.renderTracker();
+      return;
+    }
     const el = document.getElementById('task-list');
     if (!el) return;
     let html = '';
@@ -4802,6 +4889,22 @@ ctx.fillRect(0, 0, w, h);
       // 画个小方块代表容器
       ctx.fillStyle = poi.color;
       ctx.fillRect(sx - 2, sy - 2, 4, 4);
+    } else if (poi.type === 'mission') {
+      // 主线任务点：金色菱形 + 呼吸圈，和容器/Assee 明确区分
+      const pulse = 0.65 + 0.35 * Math.sin(this.world.time * 3.2);
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = 'rgba(255,211,107,' + pulse + ')';
+      ctx.fillRect(-4, -4, 8, 8);
+      ctx.strokeStyle = 'rgba(255,240,190,.95)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-4, -4, 8, 8);
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(sx, sy, 8 + pulse * 3, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,211,107,.35)';
+      ctx.stroke();
     } else if (poi.type === 'asce') {
       // Assee 容器：紫色菱形 + 呼吸光晕
       const pulse = 0.6 + 0.4 * Math.sin(this.world.time * 4);
@@ -5685,6 +5788,11 @@ this._navGrid = null;
   try { localStorage.removeItem('LaiAsaka_AsceDebug'); } catch (_) {}
   this._momentAggro = false;
   this._momentWarned = false;
+  // ★ Moments 降级计时：收枪/拉开距离后不再永久仇恨。
+  this._momentStowSince = 0;
+  this._momentFarSince = 0;
+  this._momentRadioAt = 0;
+  this._momentLastAggroAt = 0;
   // ★ P空间波及/撕裂的表现层：扩张环、裂缝、HUD、语音字幕都在本世界内创建与销毁
   this._pspaceWaves = [];
   this._asceHudEl = null;
@@ -5726,6 +5834,7 @@ this._navGrid = null;
   this._protectionStartTime = 0;
 
     this.tasks = new TaskSystem(this);
+  this.missions = new MissionSystem(this.engine.app, this);
   this.hud = new HUDSystem(this);
   this.combatLog = new CombatLog();
   this.actionProcess = new ActionProcess(this);
@@ -6692,6 +6801,49 @@ _updateAsce(dt) {
     //   使用 Prazing 或无视警告时限时才会转入清除。
   }
 
+  // ★ Moments 的仇恨不是永久的：收起武器保持距离，或直接拉开到脱战距离，
+  //   都会让小队回到“警戒/搜索容器”而不是无限追杀。
+  if (a.breached && this._momentAggro && !this._momentHunt && p && p.alive && !holderIsPlayer) {
+    const _deCfg = this.engine.content.get('asce', 'default') || {};
+    const de = _deCfg.deescalate || {};
+    let nearestMoment = Infinity;
+    let recentMomentDamage = false;
+    for (const e of this.enemies) {
+      if (!e || !e.alive || !e.isMoment || !e.body) continue;
+      nearestMoment = Math.min(nearestMoment, Math.hypot(e.body.position.x - p.body.position.x, e.body.position.z - p.body.position.z));
+      if (e._lastDamageByPlayer && this.time - (e._lastDamageAt || 0) < 15) recentMomentDamage = true;
+    }
+    const wNow = p.activeWeapon;
+    const stowed = !wNow || !wNow.def || wNow.def.melee || wNow.isFist || wNow.isMelee;
+    if (!recentMomentDamage && stowed && nearestMoment > 6) {
+      if (!this._momentStowSince) this._momentStowSince = this.time;
+    } else {
+      this._momentStowSince = 0;
+    }
+    if (!recentMomentDamage && nearestMoment > (de.breakDistance || 45)) {
+      if (!this._momentFarSince) this._momentFarSince = this.time;
+    } else {
+      this._momentFarSince = 0;
+    }
+    const stowedLongEnough = this._momentStowSince && this.time - this._momentStowSince > (de.stowTime || 8);
+    const farLongEnough = this._momentFarSince && this.time - this._momentFarSince > (de.breakTime || 12);
+    if (stowedLongEnough || farLongEnough) {
+      this._momentDeescalate(stowedLongEnough ? '目标收起武器并保持距离' : '目标脱离接触');
+    }
+  } else {
+    this._momentStowSince = 0;
+    this._momentFarSince = 0;
+  }
+
+  // ★ 战术小队电台：彼此报方向、距离与动作；不是只对玩家喊一句。
+  if (a.breached && p && p.alive && this.time > (this._momentRadioAt || 0)) {
+    const squad = this.enemies.filter(e => e && e.alive && e.isMoment && e.body);
+    if (squad.length) {
+      this._momentRadioAt = this.time + 9 + Math.random() * 7;
+      this._momentRadio(a, squad);
+    }
+  }
+
   // Moment 辅助兵：同级侦察标记，被标记者会收到“位置暴露”警告
   if (a.breached && p && p.alive && this.time > (this._momentDroneAt || 0)) {
     const support = this.enemies.find(e => e.alive && e.isMoment && e.momentRole === 'scout_medic');
@@ -7422,7 +7574,17 @@ _refillMomentFromPspace(e) {
   if (w) {
     const ammoId = (w.def && w.def.ammoType) || '5.56';
     const cap = w.magCap || (w.loaded && w.loaded.queue ? w.loaded.queue.length : 0) || 30;
-    w.reserve = Math.max(w.reserve || 0, 180);
+    // ★ 从 P 空间补充：AI 的 reserve 现在是从 lootInv 实时统计的 getter，
+    //   不能直接赋值；改为把弹药实物塞回胸挂。
+    if (typeof w.consumeReserve === 'function') {
+      if (e.lootInv && w.def && w.def.ammoType !== '40mm') {
+        const suppId = w.specialAmmoId || w.def.ammoType;
+        const auid = e.lootInv.createItem('ammo', suppId, { qty: 90 });
+        if (auid && !e.lootInv.addToContainer('chest', auid).ok) e.lootInv.destroyItem(auid);
+      }
+    } else {
+      w.reserve = Math.max(w.reserve || 0, 180);
+    }
     if (w.loaded) {
       w.loaded.queue = [];
       for (let i = 0; i < cap; i++) w.loaded.queue.push(ammoId);
@@ -8040,6 +8202,7 @@ _breachAsce(forceAnchored = false) {
   a.momentEscalateAt = this.time + 25.0;
   a.nextRiftWave = this.time + 6.0;
   this._momentWarn([]);
+  this._momentRadioAt = this.time + 6;
   // 距离提示：告诉玩家裂口在哪个方向，而不是只看到“位置暴露”
   if (this.player && this.player.alive) {
     const d = Math.round(Math.hypot(this.player.body.position.x - a.riftX, this.player.body.position.z - a.riftZ));
@@ -8208,6 +8371,8 @@ _momentWarn(squad) {
 _momentProvoke(reason) {
   if (this._momentAggro) return;
   this._momentAggro = true;
+  this._momentStowSince = 0;
+  this._momentFarSince = 0;
   for (const e of this.enemies) {
     if (!e || !e.alive || !e.isMoment) continue;
     e.passiveMoment = false;
@@ -8223,10 +8388,72 @@ _momentProvoke(reason) {
   this._asceVoice('Moments『初等』', line, { pitch: 0.52, rate: 0.88, speak: true, subtitle: false });
   this.addAlert(0, 'Moments『初等』转入战斗状态', 6);
   this._log('Moments『初等』开始猎杀：' + (reason || '威胁判定'), 'r');
+  this._momentLastAggroAt = this.time;
   if (this.asce) {
     this.asce.aggroAt = this.time;
     this.asce.momentEscalateAt = this.time + 9999;
   }
+}
+
+// ★ Moment 降级：收起武器/拉开距离后回到警告与容器任务。
+//   这不是“永久和解”：再持械靠近、开火或拿核心会重新升级。
+_momentDeescalate(reason) {
+  if (!this._momentAggro || this._momentHunt) return false;
+  const a = this.asce;
+  if (!a || a.resolved) return false;
+  const p = this.player;
+  // 玩家还拿着核心时绝不降级：核心是 Moments 的第一目标。
+  if (p && p.alive && this._findCarriedAsceCore(a)) return false;
+  const cfg = this.engine.content.get('asce', 'default') || {};
+  this._momentAggro = false;
+  this._momentWarned = true;
+  this._momentWarnAt = this.time;
+  this._momentStowSince = 0;
+  this._momentFarSince = 0;
+  for (const e of this.enemies) {
+    if (!e || !e.alive || !e.isMoment) continue;
+    e.passiveMoment = true;
+    e.targetEntity = null;
+    e.awareness = Math.max(0.45, Math.min(0.7, e.awareness || 0.5));
+    e.reactionTimer = 0.35;
+    const dCore = e.body ? Math.hypot(e.body.position.x - a.x, e.body.position.z - a.z) : 99;
+    e.state = dCore < 12 ? 'rest' : 'investigate';
+    e.targetPos = { x: a.x, z: a.z };
+  }
+  a.aggroAt = 0;
+  a.momentEscalateAt = this.time + 30;
+  const lines = cfg.momentDeescalateLines || ['解除接触。回到警戒位置。'];
+  const line = lines[Math.floor(Math.random() * lines.length)];
+  this._asceVoice('Moments 队长', line, { pitch: 0.55, rate: 0.88, speak: true, subtitle: true });
+  this.addAlert(1, 'Moments 暂时解除接触：他们回到容器警戒', 5);
+  this._log('Moments 降级：' + (reason || '目标不再构成即时威胁'), 'y');
+  return true;
+}
+
+// 战术电台：报方向/距离/职责，让 Moments 像一支会互相交流的小队。
+_momentRadio(a, squad) {
+  const p = this.player;
+  if (!p || !p.alive || !squad || !squad.length) return;
+  const cfg = this.engine.content.get('asce', 'default') || {};
+  const templates = cfg.momentRadioLines || [];
+  if (!templates.length) return;
+  let cx = 0, cz = 0;
+  for (const e of squad) { cx += e.body.position.x; cz += e.body.position.z; }
+  cx /= squad.length; cz /= squad.length;
+  const dx = p.body.position.x - cx;
+  const dz = p.body.position.z - cz;
+  const dist = Math.hypot(dx, dz);
+  if (dist > 95) return;
+  const dir = Math.abs(dx) >= Math.abs(dz) ? (dx >= 0 ? '东' : '西') : (dz >= 0 ? '南' : '北');
+  const distWord = dist < 12 ? '很近' : (dist < 32 ? '中距离' : '远处');
+  const speaker = squad[Math.floor(Math.random() * squad.length)];
+  const role = speaker.momentRole || 'assault';
+  const roleName = ({ leader: '队长', shield: '盾兵', breacher: '破障手', assault: '突击手', carrier: '携带员', scout_medic: '侦察兵' })[role] || '队员';
+  const line = templates[Math.floor(Math.random() * templates.length)]
+    .replace(/\{role\}/g, roleName)
+    .replace(/\{dir\}/g, dir)
+    .replace(/\{dist\}/g, distWord);
+  this._asceVoice('Moments · ' + roleName, line, { pitch: role === 'leader' ? 0.5 : 0.58, rate: 0.9, speak: true, subtitle: true });
 }
 
 // Cat Cat Catch：Moments 的狩猎本能状态。
@@ -8449,7 +8676,11 @@ _momentRest(world, enemy, dt) {
       } else {
         w.loaded.qty += take;
       }
-      w.reserve -= take;
+      if (typeof w.consumeReserve === 'function') w.consumeReserve(take);
+      else w.reserve -= take;
+      if (w.item && w.item.attachments && w.item.attachments.mag && w._inv && w._inv._syncMagLoaded) {
+        w._inv._syncMagLoaded(w.item, w.item.attachments.mag);
+      }
       enemy._reloadTimer = 2.4;
     }
   }
@@ -8781,7 +9012,9 @@ const body = this.physics.add(new Body({
   radius: 0.5,
   mass: 70,
   restitution: 0.1,
-  friction: 6,
+  // ★ 玩家地面摩擦略低于 AI：配合 content.movement 的加速度，急停仍然快，
+  //   但不会每帧吃掉约 10% 位移，走路/疾跑的手感不再“黏在地上”。
+  friction: (this.engine.content.get('movement', 'default') || {}).groundFriction || 4.6,
   userData: { type: 'player' },
 }));
 
@@ -8998,6 +9231,7 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
     const sideSightMod = mods.find(m => m.slot === 'sideSight') || null;
     const sideTacticalMod = mods.find(m => m.slot === 'sideTactical') || null;
     const patchMod = mods.find(m => m.slot === 'muzzlePatch') || null;
+    const hoodMod = mods.find(m => m.slot === 'lensHood') || null;
     const laserMod = mods.find(m => m.def && m.def.stats && m.def.stats.laser) || null;
     const lightMod = mods.find(m => m.def && m.def.stats && m.def.stats.light) || null;
 
@@ -9076,6 +9310,10 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
       addCyl(dark, 0.044, 0.044, 0.03, 0, cfg.bodyH / 2 + 0.075, bodyCenter - 0.02 - scopeLen / 2, 12, true);
       addCyl(lensMat, 0.031, 0.031, 0.006, 0, cfg.bodyH / 2 + 0.075, bodyCenter - 0.02 - scopeLen / 2 - 0.017, 12);
       addBox(dark, 0.022, 0.045, 0.035, 0, cfg.bodyH / 2 + 0.04, bodyCenter - 0.02 - scopeLen / 2 + 0.05);
+      // ★ 遮光罩：套在倍镜物镜端的一小段开口圆筒，外观上直接可见
+      if (hoodMod && sight.def.stats && sight.def.stats.zoom >= 2) {
+        addCyl(dark, 0.050, 0.050, 0.10, 0, cfg.bodyH / 2 + 0.075, bodyCenter - 0.02 - scopeLen / 2 - 0.045, 12, true);
+      }
     } else {
       addBox(dark, 0.012, 0.03, 0.02, 0, cfg.bodyH / 2 + 0.025, bodyFront + 0.06);
       addBox(dark, 0.026, 0.024, 0.02, 0, cfg.bodyH / 2 + 0.022, bodyBack - 0.02);
@@ -9134,6 +9372,89 @@ if (!this.engine.renderer.scene.children.includes(this.engine.renderer.camera)) 
   }
 
 
+  /* ===== AI 枪械配装（真实弹匣 + 实体配件） ===== */
+  // ★ 敌人不再“裸枪凭空开火”：每把可拆弹匣的枪都会生成真实弹匣 item，
+  //   并按兵种/类别安装实体瞄具、枪口、握把、枪托。弹药、弹匣、配件都会随尸体掉落。
+  _tryAIAttach(inv, weaponUid, slot, attachId) {
+    if (!inv || !weaponUid || !attachId) return false;
+    const aUid = inv.createItem('attach', attachId);
+    if (!aUid) return false;
+    const r = inv.attachTo(weaponUid, slot, aUid);
+    if (!r.ok) { inv.destroyItem(aUid); return false; }
+    return true;
+  }
+
+  _equipAIWeapon(inv, pair, spec) {
+    if (!inv || !pair || !pair.w) return;
+    const w = pair.w;
+    const def = w.def;
+    if (!def) return;
+    // 先把基础弹链写进真实武器 item；弹匣 item 再从同一份弹链初始化，保证两者一致。
+    const baseQueue = w.loaded && Array.isArray(w.loaded.queue) ? [...w.loaded.queue] : [];
+    const itemUid = inv.createItem('weapons', pair.id, {
+      loadedQty: w.magCap || 0,
+      loadedQueue: baseQueue,
+    });
+    if (!itemUid) return;
+    pair.uid = itemUid;
+
+    // ★ 可拆弹匣武器必须有实体弹匣：没有弹匣的枪只是一块铁，AI 也不允许开火。
+    //   榴弹炮/转轮/管式/内置弹仓/弹链不适用可拆弹匣。
+    const feed = def.launcher ? 'internal' : (def.feed || 'mag');
+    if (feed === 'mag' && def.stdMag) {
+      const magUid = inv.createItem('attach', def.stdMag, { loadedQueue: baseQueue });
+      if (magUid) {
+        const r = inv.attachTo(itemUid, 'mag', magUid);
+        if (!r.ok) inv.destroyItem(magUid);
+      }
+    }
+
+    const table = this.engine.content.get('aiLoadout', 'default') || {};
+    const cls = AISystem._weaponClass(def);
+    const elite = !!(spec.boss || spec.moment || spec.rank === 'elite' || spec.rank === 'leader');
+    const chances = (elite ? table.eliteChances : table.chances) || {};
+    // 主瞄具：狙击手一定装倍镜，普通步枪按概率装中低倍镜。
+    const sightIds = (table.sight && table.sight[cls]) || [];
+    for (const id of sightIds) {
+      if (this._tryAIAttach(inv, itemUid, 'sight', id)) break;
+    }
+    if (Math.random() < (chances.muzzle || 0)) {
+      // 精英有概率直接上抑制器；普通兵用制退器/消焰器，保留枪声线索。
+      const suppId = elite && table.suppressor ? table.suppressor[def.ammoType] : null;
+      if (suppId && Math.random() < (table.suppressorEliteChance || 0)
+          && this._tryAIAttach(inv, itemUid, 'muzzle', suppId)) {
+        // 已装抑制器
+      } else {
+        const ids = (table.muzzle && table.muzzle[def.ammoType]) || [];
+        for (const id of ids) {
+          if (this._tryAIAttach(inv, itemUid, 'muzzle', id)) break;
+        }
+      }
+    }
+    if (Math.random() < (chances.grip || 0)) {
+      const ids = (table.grip && table.grip[cls]) || [];
+      for (const id of ids) {
+        if (this._tryAIAttach(inv, itemUid, 'grip', id)) break;
+      }
+    }
+    if (Math.random() < (chances.stock || 0)) {
+      const ids = (table.stock && table.stock[cls]) || [];
+      for (const id of ids) {
+        if (this._tryAIAttach(inv, itemUid, 'stock', id)) break;
+      }
+    }
+
+    // ★ 运行时从真实 item 重建：弹匣容量、配件修正与尸体掉落从此共用同一份数据。
+    const rt = this._buildWeaponRuntime(inv, inv.items.get(itemUid));
+    if (rt) {
+      rt.specialAmmoId = w.specialAmmoId;
+      pair.w = rt;
+    } else {
+      inv.destroyItem(itemUid);
+      pair.uid = null;
+    }
+  }
+
   _buildWeapon(id){
   const def = this.engine.content.get('weapons', id);
   if (!def) return null;
@@ -9185,11 +9506,15 @@ if (!item.loaded) item.loaded = { ammoType: def.ammoType, qty: 0, queue: [] };
 return {
   item,
   def,
+  defId: def.id,
   ammoDef,
   mods,
   magCap,
   fireCd: 0,
   reloading: 0,
+  // ★ 运行时记住它属于哪个 Inventory：AI 的弹匣同步、备弹统计都在自己的 lootInv 里，
+  //   不能回退到 engine.app.inventory（那是玩家的背包）。
+  _inv: inv,
   fireModes: modes,
   fireMode: savedMode || modes[0] || 'semi',
   // ★ 修复：正确指向 item.loaded.qty，并暴露 loaded 供开火取队列子弹
@@ -9676,7 +10001,6 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   // 先配对 id 与运行时，避免某个武器定义缺失时 built 下标错位、把 A 枪的弹链装到 B 枪上
   const builtPairs = weaponIds.map(id => ({ id, w: this._buildWeapon(id) })).filter(p => p.w);
   const built = builtPairs.map(p => p.w);
-  const builtIds = builtPairs.map(p => p.id);
   // ★ 特种弹药：抽中 special 时把弹链整体换成对应口径的特殊弹（龙息/玻纤等），
   //   这样 AI 从第一发开始就真的在使用特殊弹药，而不是只在尸体上塞一盒。
   if (special && special.ammo) {
@@ -9691,6 +10015,11 @@ _consumeAmmoInInventory(inv, ammoType, count) {
       w.specialAmmoId = ammoId;
     }
   }
+  // ★ AI 库存必须早于敌人对象创建：武器 item、弹匣、配件都要先落进 lootInv，
+  //   再从这里重建运行时，保证“AI 手里那把枪”和“尸体上那把枪”是同一件物品。
+  const lootInv = new Inventory(this.engine.content);
+  for (const pair of builtPairs) this._equipAIWeapon(lootInv, pair, spec);
+  for (let i = 0; i < builtPairs.length; i++) built[i] = builtPairs[i].w;
   const primary = built[0] || null;
   const secondary = built[1] || null;
   const meleeDef = this.engine.content.get('melee', spec.melee || 'knife');
@@ -9740,7 +10069,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     speedMul: 1,
     charSpec: { prazer: isPrazer, A: spec.A || 0, hp: spec.hp },
     status: new EntityStatus(spec, isPrazer),
-    lootInv: new Inventory(this.engine.content)
+    lootInv
   };
   // ★ Boss 外骨骼：与玩家同规则的能量抵消层（每点 50J，最多吸收 78%）。
   if (spec.exo) {
@@ -9761,6 +10090,11 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     enemy.bossTitle = spec.name;
     enemy._missileAt = this.time + 4 + Math.random() * 4;
   }
+  if (spec.civilian) {
+    enemy.isCivilian = true;
+    enemy.state = 'patrol';
+    enemy.awareness = 0;
+  }
   if (spec.moment) {
     enemy.isMoment = true;
     enemy.passiveMoment = spec.passiveMoment !== false;
@@ -9776,22 +10110,16 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   body.userData.ref = enemy;
 
   // ★ 初始化敌人库存：主武器、备用武器、护甲、胸挂背包、备弹
-  const lootInv = enemy.lootInv;
+  //   武器 item 已在生成运行时前创建好（含弹匣与配件），这里只负责装备/收纳。
   enemy._wUids = { extra: [] };
-  builtIds.forEach((id, idx) => {
-    const w = built[idx];
-    if (!w) return;
-    const uid = lootInv.createItem('weapons', id, {
-      loadedQty: w.magCap || 0,
-      loadedQueue: w.loaded && w.loaded.queue ? [...w.loaded.queue] : undefined,
-    });
-    if (!uid) return;
+  builtPairs.forEach((pair, idx) => {
+    if (!pair.uid) return;
     if (idx === 0) {
-      lootInv.equip('main', uid);
-      enemy._wUids.primary = uid;
+      lootInv.equip('main', pair.uid);
+      enemy._wUids.primary = pair.uid;
     } else {
-      if (idx === 1) enemy._wUids.secondary = uid;
-      enemy._wUids.extra.push(uid);
+      if (idx === 1) enemy._wUids.secondary = pair.uid;
+      enemy._wUids.extra.push(pair.uid);
     }
   });
 
@@ -9848,6 +10176,15 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   // 往他包里塞点备弹：普通兵 90 发；特种兵塞 60 发对应特殊弹，玩家可以缴获
   for (const w of [primary, secondary]) {
     if (!w || !w.def) continue;
+    // ★ 榴弹炮不使用 ammo 表，备弹是真实投掷物；没有实物就无法换弹。
+    if (w.def.launcher) {
+      for (let i = 0; i < 8; i++) {
+        const nadeUid = lootInv.createItem('nade', 'gl_he');
+        if (nadeUid && !lootInv.addToContainer('chest', nadeUid).ok
+            && !lootInv.addToContainer('bag', nadeUid).ok) lootInv.destroyItem(nadeUid);
+      }
+      continue;
+    }
     const ammoId = w.specialAmmoId || w.def.ammoType;
     const ammoUid = lootInv.createItem('ammo', ammoId, { qty: w.specialAmmoId ? 60 : 90 });
     if (ammoUid && !lootInv.addToContainer('chest', ammoUid).ok
@@ -9961,6 +10298,7 @@ _consumeAmmoInInventory(inv, ammoType, count) {
   }
 
   _spawnAllies() {
+    this._alliesSpawned = true;
     const p = this.player;
     if (!p || !p.body) return;
     const inv = this.engine.app && this.engine.app.inventory;
@@ -9973,8 +10311,10 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     const mainId = mainItem && mainItem.table === 'weapons' ? mainItem.defId : null;
     const sideId = sideItem && sideItem.table === 'weapons' ? sideItem.defId : null;
     const armor = this._allyArmorFromPlayer(inv);
-    // ★ 队友随机：凯特/玲娜/布雯，且尽量不与玩家本人重复；每次开局重新洗牌
-    const allyPool = ['kate', 'lingna', 'buwen'].filter(id => id !== this.charId);
+    // ★ 主模式：优先使用存档里已经入队的角色；Straight/未入队时才随机。
+    const rosterIds = this.engine.app && typeof this.engine.app.getPartyRoster === 'function'
+      ? this.engine.app.getPartyRoster().map(r => r.id) : [];
+    const allyPool = (rosterIds.length ? rosterIds : ['kate', 'lingna', 'buwen']).filter(id => id !== this.charId);
     for (let i = allyPool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const t = allyPool[i]; allyPool[i] = allyPool[j]; allyPool[j] = t;
@@ -9984,8 +10324,11 @@ _consumeAmmoInInventory(inv, ammoType, count) {
     for (let i = 0; i < charIds.length; i++) {
       const char = content.get('characters', charIds[i]);
       if (!char) continue;
-      const weaponId = mainId || char.weapon;
-      const sidearmId = sideId || char.sidearm;
+      const useRosterGear = rosterIds.length > 0;
+      const _pg = useRosterGear && this.engine.app && this.engine.app.asakaSave
+        ? ((this.engine.app.asakaSave.data.partyGear || {})[charIds[i]] || {}) : {};
+      const weaponId = useRosterGear ? (_pg.main || char.weapon) : (mainId || char.weapon);
+      const sidearmId = useRosterGear ? (_pg.side || char.sidearm) : (sideId || char.sidearm);
       const spec = {
         name: char.name, tag: char.tag,
         faction: 'player', group: 'player', rank: 'ally',
@@ -10010,9 +10353,18 @@ _consumeAmmoInInventory(inv, ammoType, count) {
         skills: char.skills || [],
         prazer: !!char.prazer, A: char.A || 0,
       };
+      // ★ 神庙获得的 Prazing 技巧按角色读取，并在队友身上实际生效一部分。
+      const _attrs = this.engine.app && this.engine.app.asakaSave
+        ? ((this.engine.app.asakaSave.data.attributes || {})[charIds[i]] || {}) : {};
+      const _praz = Array.isArray(_attrs.prazing) ? _attrs.prazing : [];
+      if (_praz.includes('cat_step')) spec.speed = (spec.speed || 5) * 1.06;
+      if (_praz.includes('ear_listen')) spec.ai.perception = Math.min(1, (spec.ai.perception || 0.8) + 0.12);
+      if (_praz.includes('pspace_breathe')) spec.statusResist = 0.15;
       const ang = (p.angle || 0) + (i === 0 ? 2.35 : -2.35);
-      const px = p.body.position.x + Math.cos(ang) * 3.4;
-      const pz = p.body.position.z + Math.sin(ang) * 3.4;
+      const plan = this.engine.app && this.engine.app._deploymentOffsets;
+      const off = plan && plan[charIds[i]];
+      const px = p.body.position.x + (off ? Number(off.x) || 0 : Math.cos(ang) * 3.4);
+      const pz = p.body.position.z + (off ? Number(off.z) || 0 : Math.sin(ang) * 3.4);
       this._spawnEnemy(spec, px, pz, 1, {
         faction: 'player', squad: 'ally', angle: p.angle || 0, patrolRadius: 800,
       });
@@ -10542,6 +10894,7 @@ this._updateNearbyList();
   this._updateFireFields(dt);
   this._updateSmokeFields(dt);
   this._updateScopeGlints(dt);
+  this._updatePlayerScopeGlint(dt);
   this._updateThermoFields(dt);
   this._updateThrowPreview();
   this._updateDrones(dt);
@@ -10591,6 +10944,22 @@ _updateThrowFuse(dt){
   if (p._throwFuse === undefined) return;
   p._throwFuse = Math.max(0, p._throwFuse - dt);
   if (p._throwFuse <= 0) this._detonateHeldThrowable(p);
+}
+
+// ★ 体力恢复的唯一入口。玩家正常移动与“操控无人机时本体静止”都走这里，
+//   避免无人机分支提前 return 后体力永远不回（旧版 bug）。
+_regenPlayerStamina(p, dt, isMoving = false){
+  if (!p || p.stamina === undefined) return;
+  if (this.training) { p.stamina = p.maxStamina; return; }
+  const spec = p.charSpec || {};
+  const baseIdleRegen = spec.staminaRegen && spec.staminaRegen.idle !== undefined ? spec.staminaRegen.idle : 6;
+  const baseMoveRegen = spec.staminaRegen && spec.staminaRegen.move !== undefined ? spec.staminaRegen.move : 1.5;
+  const ratio = Math.max(0, Math.min(1, p.stamina / Math.max(1, p.maxStamina || 100)));
+  // 越累恢复越慢：与冲刺消耗的 fatigueMul 成对，不能只惩罚消耗不惩罚恢复。
+  const recoveryMul = 0.55 + ratio * 0.9;
+  const pspaceRegen = (p.status && p.status.hasEffect && p.status.hasEffect('pspace_echo')) ? 1.35 : 1;
+  const regen = isMoving ? baseMoveRegen : baseIdleRegen;
+  p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen * recoveryMul * pspaceRegen);
 }
 
 _updatePlayer(dt){
@@ -10681,6 +11050,12 @@ _updatePlayer(dt){
     //   否则一进无人机就被前面的 return 吃掉按键，队友完全不听指挥。
     if (this._edge.squadAdvance) this._issueSquadOrder('advance');
     if (this._edge.squadRetreat) this._issueSquadOrder('retreat');
+    // ★ 操控无人机时本体枪模必须隐藏：无人机分支在视口更新前 return，
+    //   旧版只靠后面的 weaponGroup.visible 判断，结果人已经上天了枪还挂在屏幕上。
+    if (p.weaponGroup) p.weaponGroup.visible = false;
+    // ★ 操控无人机时本体站在原地：按静止速率恢复体力。
+    //   旧版在这里直接 return，体力永远不回，退出无人机后还是空体力。
+    this._regenPlayerStamina(p, dt, false);
     return;
   }
 
@@ -10744,8 +11119,6 @@ const wantsAds = e.input.isActive('ads') || !!p._adsToggled;
 
 const spec = p.charSpec || {};
 const baseCost        = spec.sprintCost !== undefined ? spec.sprintCost : 3.0;
-const baseIdleRegen   = spec.staminaRegen && spec.staminaRegen.idle !== undefined ? spec.staminaRegen.idle : 6;
-const baseMoveRegen   = spec.staminaRegen && spec.staminaRegen.move !== undefined ? spec.staminaRegen.move : 1.5;
 
 const staminaRatio = p.stamina / p.maxStamina;
 const downedNow = !!(p.status && p.status.isDowned());
@@ -10753,7 +11126,6 @@ const downedNow = !!(p.status && p.status.isDowned());
 this._updateStability(p, dt);
 // 越累消耗越快；恢复反而变慢（旧版写成“越累恢复越快”，等于跑不死）
 const fatigueMul   = 1 + (1 - staminaRatio) * 1.2;   // 1~2.2
-const recoveryMul  = 0.55 + staminaRatio * 0.9;      // 0.55~1.45
 const loadFactor   = (1 + Math.min(0.8, (p.carryWeight || 0) / Math.max(1, p.carryLimit || 34)) * 0.55)
   * (1 + Math.max(0, (p.heldWeight || 0) - 2.4) * 0.035);
 
@@ -10765,10 +11137,8 @@ if (canSprint) {
   isSprinting = true;
   p.stamina = Math.max(0, p.stamina - dt * baseCost * fatigueMul * loadFactor);
 } else {
-  const regen = isMoving ? baseMoveRegen : baseIdleRegen;
-  // P空间共鸣期间恢复更快；代价是 nausea 会同时压操控和视野
-  const pspaceRegen = (p.status && p.status.hasEffect && p.status.hasEffect('pspace_echo')) ? 1.35 : 1;
-  p.stamina = Math.min(p.maxStamina, p.stamina + dt * regen * recoveryMul * pspaceRegen);
+  // ★ 恢复统一走 _regenPlayerStamina，避免这里和无人机分支各写一套公式。
+  this._regenPlayerStamina(p, dt, isMoving);
 }
 // 外骨骼喷气冲刺：只有头显在线（系统激活）时才提供加速与耗电；
 // 不戴头显时外骨骼视为离线，不消耗电量。
@@ -10782,8 +11152,10 @@ const sp = this._sprintProgress;
 
 // 移速加成统一走 status.effects.pspace_echo（单一真相源），
 // 旧 _pspaceBoostUntil 字段保留只做兼容，不再叠加第二套速度乘算。
-const baseSpeed = p.charSpec.speed * (p.speedMul !== undefined ? p.speedMul : 1);
-const sprintMul = spec.prazer ? 1.6 : 1.55;
+// ★ 行走/疾跑手感来自 content.movement：走路不再慢得像负重爬行，Shift 疾跑有明显速度差。
+const moveCfg = this.engine.content.get('movement', 'default') || {};
+const baseSpeed = p.charSpec.speed * (moveCfg.walkSpeedMul || 1.2) * (p.speedMul !== undefined ? p.speedMul : 1);
+const sprintMul = spec.prazer ? (moveCfg.prazerSprintMul || 1.85) : (moveCfg.sprintMul || 1.8);
 const speedMul = 1 + sp * (sprintMul - 1);
 const speed = baseSpeed * speedMul;
 
@@ -10829,10 +11201,10 @@ if (!dashing) {
   const targetVZ = moveZ * finalSpeed;
   const grounded = !!p.body.grounded;
   const loadNorm = Math.min(1.5, (p.carryWeight || 0) / Math.max(1, p.carryLimit || 34));
-  const accelBase = p.prone ? 16 : (p.isCrouching ? 24 : (isSprinting ? 38 : 52));
+  const accelBase = p.prone ? 16 : (p.isCrouching ? 24 : (isSprinting ? (moveCfg.accelSprint || 48) : (moveCfg.accelWalk || 64)));
   // ★ 空中控制很弱：起跳后主要靠惯性飞行，不能像地面一样瞬间改方向。
   const accel = (grounded ? accelBase : 3.6) * (1 - Math.min(0.32, loadNorm * 0.2));
-  const decel = grounded ? (p.prone ? 34 : (p.isCrouching ? 30 : 52)) : 0.45;
+  const decel = grounded ? (p.prone ? 34 : (p.isCrouching ? 30 : (moveCfg.decel || 58))) : 0.45;
   const rate = (isMoving && !this._searching) ? accel : decel;
   const maxDelta = rate * dt;
   const dvx = targetVX - p.body.velocity.x;
@@ -11358,6 +11730,7 @@ _updateSpeedFeedback(dt, isMoving) {
   // ★ FOV 唯一来源：开镜倍率 > 蹲下 > 冲刺。旧版 _updateSpeedFeedback 与
   //   _updateAimFovAndLaser 同时写 FOV，4 倍镜会被 45° 反复覆盖，看起来“拉不近”。
   const cw = this.currentWeapon;
+  const moveCfg = this.engine.content.get('movement', 'default') || {};
   let zoom = 1.2; // 机瞄也有轻微放大
   if (cw && cw.mods && cw.mods.zoom > 1) zoom = cw.mods.zoom;
   // ★ 侧瞄没有倍率：开镜保持 1x，靠侧倾枪身快速瞄准。
@@ -11366,7 +11739,7 @@ _updateSpeedFeedback(dt, isMoving) {
   if (p._inspectT !== undefined) targetFov = 54; // 检视时轻微聚焦，避免枪占满屏幕
   else if (p.ads)            targetFov = Math.max(12, 60 / zoom);
   else if (p.isCrouching) targetFov = 55;
-  else                  targetFov = 60 + sp * 8;
+  else                  targetFov = 60 + sp * (moveCfg.sprintFov || 16);
   const fovDiff = targetFov - cam.fov;
   if (Math.abs(fovDiff) > 0.05) {
     cam.fov += fovDiff * Math.min(1, dt * 6);
@@ -14133,11 +14506,19 @@ _meleeAttack(owner, weapon) {
   const def = weapon.def;
   // ★ 只有可拆弹匣武器才要求弹匣：转轮（cylinder）、管式霰弹（tube）、
   //   内置弹仓（internal）和弹链武器（belt）没有可拆弹匣，不能因为“没装弹匣”被拦。
+  //   这条对玩家和 AI 一视同仁：敌人也不能凭空发射没有弹匣的枪。
   const feed = def.feed || 'mag';
-  if (isPlayer && weapon.item && feed === 'mag' && !(weapon.item.attachments && weapon.item.attachments.mag)) {
-    if (!this._noMagHintAt || this.time - this._noMagHintAt > 1.5) {
-      this._noMagHintAt = this.time;
-      this._hint('没有安装弹匣：先在背包里装上适配口径的弹匣', 'y');
+  const missingMag = !!(weapon.item && feed === 'mag' && !(weapon.item.attachments && weapon.item.attachments.mag));
+  if (missingMag) {
+    if (isPlayer) {
+      if (!this._noMagHintAt || this.time - this._noMagHintAt > 1.5) {
+        this._noMagHintAt = this.time;
+        this._hint('没有安装弹匣：先在背包里装上适配口径的弹匣', 'y');
+      }
+    } else if (owner && owner.weapons && owner.weapons.melee && owner.weapon !== owner.weapons.melee) {
+      // AI 的枪没有供弹具：拔刀而不是继续“空气弹匣”。
+      owner.weapon = owner.weapons.melee;
+      owner.currentSlot = 'melee';
     }
     return;
   }
@@ -14198,8 +14579,9 @@ if (weapon.loaded) {
     }
   }
   // ★ 弹匣独立存弹：每打一发就把枪内镜像写回弹匣，否则下一局会“满弹复活”。
-  if (isPlayer && weapon.item && weapon.item.attachments && weapon.item.attachments.mag) {
-    const inv2 = this.engine.app && this.engine.app.inventory;
+  //   AI 的枪同样有实体弹匣（在 lootInv 里），必须一起同步，尸体上的弹匣才不是满的。
+  if (weapon.item && weapon.item.attachments && weapon.item.attachments.mag) {
+    const inv2 = weapon._inv || (this.engine.app && this.engine.app.inventory);
     if (inv2 && inv2._syncMagLoaded) inv2._syncMagLoaded(weapon.item, weapon.item.attachments.mag);
   }
 } else if (typeof weapon.mag === 'number') {
@@ -14265,10 +14647,13 @@ if (isPlayer) {
   // ★ 敌方狙击 AI 不再是激光自瞄：需要架枪时间，远距离散布更大；
   //   队友不受此惩罚（他们是精锐，但也不该无脑秒杀）。
   const shooterCls = AISystem._weaponClass(def);
-  if (!owner.isAlly && shooterCls === 'sniper') {
-    spread *= 2.6;
+  // 只削“小兵的狙击”：Boss/Moments 的精准射手仍保持原有威胁。
+  const gruntSniper = !owner.isAlly && shooterCls === 'sniper' && !owner.spec.boss && !owner.spec.moment;
+  if (gruntSniper) {
+    const sniperRule = AISystem._weaponRule(this, def);
+    spread *= sniperRule.enemySpreadMul || 3.4;
     const aimFor = owner._sniperAimStart ? this.time - owner._sniperAimStart : 0;
-    if (aimFor < 1.8) spread *= 2.0;
+    if (aimFor < (sniperRule.enemySettleTime || 2.6)) spread *= sniperRule.enemySettleSpreadMul || 2.0;
   }
   // ★ 仿真命中率：距离越远越不准；目标高速移动更难命中；连发后坐扩散
   let tdist = 25;
@@ -14388,8 +14773,10 @@ if (isPlayer) {
     const hh = tgtBody ? (tgtBody.halfH || 0.9) : 0.9;
 
     const roll = Math.random();
-    // ★ 狙击 AI 不再高概率锁头：基础 5%，敌方狙击 2%。
-    const headChance = (!owner.isAlly && AISystem._weaponClass(def) === 'sniper') ? 0.02 : 0.05;
+    // ★ 狙击 AI 不再高概率锁头：基础 5%；敌方小兵狙击的锁头率来自 weaponRules（默认 1%）。
+    const _sniperRule = (!owner.isAlly && !owner.spec.boss && !owner.spec.moment
+      && AISystem._weaponClass(def) === 'sniper') ? AISystem._weaponRule(this, def) : null;
+    const headChance = _sniperRule ? (_sniperRule.enemyHeadChance !== undefined ? _sniperRule.enemyHeadChance : 0.01) : 0.05;
     let aimYOffset = 0;
     if (roll < headChance) aimYOffset = hh * 0.75;
     else if (roll < 0.45) aimYOffset = hh * 0.25;
@@ -16706,10 +17093,35 @@ _updateDeathCamera(dt) {
     if (btn) btn.onclick = () => this._endReplay();
   }
 
+  _updateCivilian(e, dt){
+    const p = this.player;
+    if (!p || !p.alive || !p.body) return;
+    const dx = e.body.position.x - p.body.position.x;
+    const dz = e.body.position.z - p.body.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    // 平民不战斗：远时发呆，近时逃跑；听到枪声/被撞也会跑。
+    if (d < 24 || (e.awareness || 0) > 0.35) {
+      const fleeX = e.body.position.x + (dx / d) * 14 + (Math.random() - 0.5) * 3;
+      const fleeZ = e.body.position.z + (dz / d) * 14 + (Math.random() - 0.5) * 3;
+      this._aiMoveTo(e, fleeX, fleeZ, (e.spec.speed || 5) * 1.2, dt);
+      e.angle = Math.atan2(fleeZ - e.body.position.z, fleeX - e.body.position.x);
+      e.state = 'flee';
+    } else {
+      e.angle += Math.sin(this.time * 0.4 + (e.body.position.x || 0)) * dt * 0.2;
+      e.body.velocity.x *= 0.7;
+      e.body.velocity.z *= 0.7;
+      e.state = 'patrol';
+    }
+  }
+
   _updateEnemies(dt){
     for (const e of this.enemies) {
       if (!e.alive) continue;
       this._updateStability(e, dt);
+      if (e.isCivilian) {
+        this._updateCivilian(e, dt);
+        continue;
+      }
       // 单个 AI 状态异常不应让整张地图的 AI 停止更新；只记录一次堆栈。
       try {
         AISystem.update(this, e, dt);
@@ -20117,26 +20529,62 @@ _trySearchContainer(){
     }
   }
 
-  // ★ 狙击镜反光：没有遮光罩的狙击镜在阳光下会反光。只在敌方狙击 AI 已获得
-  //   射界并进入“瞄准”状态时短暂出现，作为玩家寻找/反制的线索。
+  // ★ 狙击镜反光：没有遮光罩的倍镜在阳光下会反光。敌方狙击 AI 获得射界后
+  //   周期性出现一个明显的白色光源，作为玩家寻找/反制的线索。
+  //   ——只保留“看得见的光”，不再弹“狙击镜反光：约 xx m”的文字警告。
+  _weaponGlintLevel(w) {
+    const mods = w && w.mods;
+    if (!mods || !(mods.zoom >= 2)) return 0;
+    if (mods.glintMul !== undefined && mods.glintMul <= 0) return 0;
+    return mods.zoom;
+  }
+
+  _glintTexture() {
+    if (this._glintTex) return this._glintTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.25, 'rgba(255,252,235,0.95)');
+    grd.addColorStop(0.55, 'rgba(255,240,190,0.45)');
+    grd.addColorStop(1, 'rgba(255,235,180,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    this._glintTex = new THREE.CanvasTexture(c);
+    this._glintTex.needsUpdate = true;
+    return this._glintTex;
+  }
+
   _spawnScopeGlint(enemy) {
     if (!enemy || !enemy.body) return;
-    const p = this.player;
     const eyeY = enemy.body.position.y + (enemy.body.halfH || 1.2) * 0.78;
-    const geo = new THREE.SphereGeometry(0.075, 6, 4);
+    const group = new THREE.Group();
+    group.position.set(enemy.body.position.x, eyeY, enemy.body.position.z);
+    // 核心：小而极亮的白点
+    const geo = new THREE.SphereGeometry(0.10, 8, 6);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0xfff4cc, transparent: true, opacity: 0.95,
+      color: 0xffffff, transparent: true, opacity: 1,
       blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
     });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(enemy.body.position.x, eyeY, enemy.body.position.z);
-    this.engine.renderer.scene.add(mesh);
-    this._scopeGlints.push({ mesh, geo, mat, ttl: 0.55, max: 0.55 });
+    const core = new THREE.Mesh(geo, mat);
+    group.add(core);
+    // 光晕：添加混合的 Sprite，远距离也明显可见
+    const sprMat = new THREE.SpriteMaterial({
+      map: this._glintTexture(), color: 0xffffff,
+      transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending,
+      depthWrite: false, depthTest: true, toneMapped: false,
+    });
+    const sprite = new THREE.Sprite(sprMat);
+    // 近距离不至于糊满屏幕，远距离仍然是一个明显光点。
+    const p = this.player;
+    const dToPlayer = p && p.body ? Math.hypot(p.body.position.x - enemy.body.position.x, p.body.position.z - enemy.body.position.z) : 100;
+    const baseScale = Math.max(0.7, Math.min(2.6, dToPlayer * 0.02));
+    sprite.scale.setScalar(baseScale);
+    group.add(sprite);
+    this.engine.renderer.scene.add(group);
+    this._scopeGlints.push({ group, core, sprite, geo, mat, sprMat, baseScale, ttl: 1.1, max: 1.1 });
     this._spawnSpark(enemy.body.position.x, eyeY, enemy.body.position.z);
-    if (p && p.alive) {
-      const d = Math.hypot(enemy.body.position.x - p.body.position.x, enemy.body.position.z - p.body.position.z);
-      if (d < 160) this.addAlert(2, '狙击镜反光：约 ' + Math.round(d) + 'm', 2.2);
-    }
   }
 
   _updateScopeGlints(dt) {
@@ -20144,17 +20592,59 @@ _trySearchContainer(){
     for (let i = this._scopeGlints.length - 1; i >= 0; i--) {
       const g = this._scopeGlints[i];
       g.ttl -= dt;
-      if (g.mesh) {
-        const u = Math.max(0, g.ttl / g.max);
-        g.mesh.material.opacity = 0.95 * u;
-        g.mesh.scale.setScalar(1 + (1 - u) * 2.6);
+      const u = Math.max(0, g.ttl / g.max);
+      if (g.core) g.core.material.opacity = Math.min(1, u * 1.6);
+      if (g.sprite) {
+        g.sprite.material.opacity = 0.95 * u;
+        // 先亮后收：闪光有“炸开”感，但不会一直糊在屏幕上
+        g.sprite.scale.setScalar((g.baseScale || 1) * (1 + (1 - u) * 0.7));
       }
       if (g.ttl <= 0) {
-        if (g.mesh) this.engine.renderer.scene.remove(g.mesh);
+        if (g.group) this.engine.renderer.scene.remove(g.group);
         if (g.geo) g.geo.dispose();
         if (g.mat) g.mat.dispose();
+        if (g.sprMat) g.sprMat.dispose();
         this._scopeGlints.splice(i, 1);
       }
+    }
+  }
+
+  // ★ 我方开镜时镜片同样会反光：AI 在视野锥内、有视线时会注意到白光。
+  //   装了遮光罩（glintMul=0）就没有这个暴露渠道。
+  _updatePlayerScopeGlint(dt) {
+    const p = this.player;
+    if (!p || !p.alive || p._controllingDrone) return;
+    const w = p.weapon || (p.activeWeapon);
+    const mods = w && w.mods;
+    const cfg = (this.engine.content.get('aiRules', 'default') || {}).scopeGlint || {};
+    const minZoom = cfg.minZoom || 2;
+    const glinty = !!(mods && mods.zoom >= minZoom && !(mods.glintMul !== undefined && mods.glintMul <= 0));
+    if (!p.ads || !glinty) { p._scopeGlintAcc = 0; return; }
+    p._scopeGlintAcc = (p._scopeGlintAcc || 0) + dt;
+    if (p._scopeGlintAcc < (cfg.interval || 1.7)) return;
+    p._scopeGlintAcc = 0;
+    const range = cfg.range || 140;
+    const cone = cfg.cone || 1.15;
+    let spotted = false;
+    for (const e of this.enemies) {
+      if (!e || !e.alive || e.isAlly || !e.body) continue;
+      const d = Math.hypot(e.body.position.x - p.body.position.x, e.body.position.z - p.body.position.z);
+      if (d > range) continue;
+      if (!AISystem._checkLOS(this, e, p)) continue;
+      // 只有正对玩家的敌人会被白光晃到；背对/侧对的不会凭空转头。
+      const toP = Math.atan2(p.body.position.z - e.body.position.z, p.body.position.x - e.body.position.x);
+      let diff = Math.abs(((toP - (e.angle || 0) + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      if (diff > cone) continue;
+      spotted = true;
+      e.awareness = Math.max(e.awareness || 0, cfg.awareness || 0.7);
+      if (!e.targetEntity || !e.targetEntity.alive) {
+        e.targetPos = { x: p.body.position.x, z: p.body.position.z };
+        if (e.state === 'patrol') { e.state = 'investigate'; e.stateT = 0; }
+      }
+    }
+    if (spotted && !p._glintHintShown) {
+      p._glintHintShown = true;
+      this._hint('狙击镜反光暴露了位置：安装遮光罩可以消除', 'y');
     }
   }
 
@@ -21331,6 +21821,8 @@ _updateGlowState(entity, dt) {
 isHostile(factionA, factionB) {
   if (!factionA || !factionB) return true;
   if (factionA === factionB) return false;
+  // ★ 平民不参与敌对：AI 不会把平民当目标，玩家仍可误伤，但不会触发阵营战。
+  if (factionA === 'civilian' || factionB === 'civilian') return false;
   // Moments『初等』对所有人敌对：他们只为容器而来，挡路者一律清除
   if (factionA === 'moment' || factionB === 'moment') return true;
   // 玩家与所有武装阵营敌对；不同 AI 阵营之间默认不主动开战。
@@ -22152,6 +22644,111 @@ _updateSoundSystem(dt) {
       '<div style="height:100%;width:' + hp + '%;background:linear-gradient(90deg,#8a1414,#ff4a3a);box-shadow:0 0 10px rgba(255,60,40,.6)"></div></div>';
   }
 
+// ★ 敌人手里的枪按“实际武器 + 实际配件”生成外观，替换 engine 里的占位方盒。
+//   这样狙击手有倍镜、步枪兵有制退器/握把、机枪有弹箱，而不是全员裸枪。
+_refreshEnemyWeaponVisual(enemy) {
+  const w = enemy && enemy.weapon;
+  const def = w && w.def;
+  if (enemy._gunVis && (!def || def.melee)) {
+    enemy._gunVis.visible = false;
+    enemy._gunVisSig = null;
+    return;
+  }
+  if (!def) {
+    // 平民/空手单位：把 engine 的占位枪藏起来，只保留人形。
+    if (enemy.mesh) enemy.mesh.traverse(o => { if (o.name === '__default_gun__' || o.name === '__default_barrel__') o.visible = false; });
+    return;
+  }
+  if (def.melee || !enemy.mesh) {
+    if (enemy.mesh) enemy.mesh.traverse(o => { if (o.name === '__default_gun__' || o.name === '__default_barrel__') o.visible = false; });
+    return;
+  }
+  const modIds = (w.mods && Array.isArray(w.mods.list)) ? w.mods.list.map(m => (m.def && m.def.id) || '').join(',') : '';
+  const sig = (w.defId || def.id || '') + '|' + modIds;
+  if (enemy._gunVisSig === sig) return;
+  enemy._gunVisSig = sig;
+  // 占位枪/旧狙击长管只隐藏一次
+  enemy.mesh.traverse(o => {
+    if (o.name === '__default_gun__' || o.name === '__default_barrel__') o.visible = false;
+  });
+  if (enemy._gunVis) {
+    if (enemy._gunVis.parent) enemy._gunVis.parent.remove(enemy._gunVis);
+    enemy._gunVis.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material && !Array.isArray(o.material)) o.material.dispose();
+    });
+  }
+  const cls = AISystem._weaponClass(def);
+  const dims = {
+    pistol:  { len: 0.30, bw: 0.075, bh: 0.09 },
+    smg:     { len: 0.42, bw: 0.082, bh: 0.10 },
+    rifle:   { len: 0.56, bw: 0.088, bh: 0.11 },
+    lmg:     { len: 0.62, bw: 0.105, bh: 0.14 },
+    sniper:  { len: 0.68, bw: 0.086, bh: 0.105 },
+    shotgun: { len: 0.60, bw: 0.09,  bh: 0.115 },
+    launcher:{ len: 0.58, bw: 0.11,  bh: 0.15 },
+  }[cls] || { len: 0.56, bw: 0.088, bh: 0.11 };
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: def.color || 0x2b3542, roughness: 0.5, metalness: 0.5 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x1c2328, roughness: 0.45, metalness: 0.6 });
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x6fd8ff, emissive: 0x2a7ea0, emissiveIntensity: 0.7, metalness: 0.8, roughness: 0.15 });
+  const addBox = (mat, sx, sy, sz, x, y, z, rx = 0) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+    m.position.set(x, y, z);
+    if (rx) m.rotation.x = rx;
+    group.add(m);
+    return m;
+  };
+  const addCyl = (mat, r, len, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 10), mat);
+    m.rotation.x = Math.PI / 2;
+    m.position.set(x, y, z);
+    group.add(m);
+    return m;
+  };
+  // 机匣 / 枪管 / 护木
+  addBox(bodyMat, dims.bw, dims.bh, dims.len, 0, 0, 0);
+  addCyl(darkMat, 0.018, Math.max(0.18, dims.len * 0.55), 0, 0.02, dims.len * 0.68);
+  addBox(darkMat, dims.bw * 0.9, dims.bh * 0.5, dims.len * 0.32, 0, -0.005, dims.len * 0.12);
+  // 握把
+  addBox(darkMat, 0.045, 0.14, 0.06, 0, -dims.bh * 0.9, -dims.len * 0.18, -0.2);
+  // 弹匣：实际装了弹匣才显示；弹鼓/弹箱更大
+  if (w.item && w.item.attachments && w.item.attachments.mag) {
+    const magItem = w._inv && w._inv.items.get(w.item.attachments.mag);
+    const magDef = magItem && w._inv.getDef(magItem);
+    const big = !!(magDef && (magDef.capacity || 0) >= 40);
+    addBox(darkMat, dims.bw * (big ? 0.95 : 0.62), big ? 0.24 : 0.16, big ? 0.16 : 0.09, 0, -dims.bh * 0.8, dims.len * 0.08);
+  }
+  // 瞄具：装了就画镜筒，倍镜更长
+  const sight = w.mods && w.mods.list ? w.mods.list.find(m => m.slot === 'sight') : null;
+  if (sight) {
+    const zoom = sight.def && sight.def.stats ? (sight.def.stats.zoom || 1) : 1;
+    const scopeLen = zoom >= 4 ? 0.22 : 0.15;
+    addCyl(darkMat, 0.035, scopeLen, 0, dims.bh * 0.75, -0.02);
+    addCyl(lensMat, 0.031, 0.008, 0, dims.bh * 0.75, -0.02 + scopeLen / 2 + 0.004);
+    addBox(darkMat, 0.02, 0.04, 0.03, 0, dims.bh * 0.5, -0.02);
+    const hood = w.mods.list.find(m => m.slot === 'lensHood');
+    if (hood) addCyl(darkMat, 0.048, 0.09, 0, dims.bh * 0.75, -0.02 + scopeLen / 2 + 0.05);
+  }
+  // 枪口：抑制器 / 制退器
+  const muzzle = w.mods && w.mods.list ? w.mods.list.find(m => m.slot === 'muzzle') : null;
+  if (muzzle) {
+    const silent = !!(muzzle.def && muzzle.def.stats && muzzle.def.stats.soundMul < 0.8);
+    addCyl(darkMat, silent ? 0.036 : 0.03, silent ? 0.18 : 0.07, 0, 0.02, dims.len * 0.68 + dims.len * 0.27 + 0.04);
+  }
+  // 枪托 / 前握把
+  if (w.mods && w.mods.list && w.mods.list.some(m => m.slot === 'stock')) {
+    addBox(darkMat, dims.bw * 0.9, dims.bh * 0.75, 0.20, 0, -0.01, -dims.len * 0.62);
+  }
+  if (w.mods && w.mods.list && w.mods.list.some(m => m.slot === 'grip')) {
+    addBox(darkMat, 0.04, 0.09, 0.05, 0, -dims.bh * 0.85, dims.len * 0.16);
+  }
+  group.position.set(0.25, 1.55, 0.40);
+  group.name = '__enemy_weapon__';
+  enemy.mesh.add(group);
+  enemy._gunVis = group;
+}
+
 _syncMeshes(dt){
   const p = this.player;
   if (p && p.mesh) {
@@ -22186,6 +22783,7 @@ _syncMeshes(dt){
 
     // ★ 视觉平滑：碰撞体换高度（蹲/起身/翻越）与朝向突变（绕障/转身）时，
     //   模型不再逐帧瞬移或像陀螺一样旋转；逻辑朝向 enemy.angle 仍即时生效。
+    this._refreshEnemyWeaponVisual(e);
     if (e._visY === undefined || Math.abs(e._visY - e.body.footY) > 2.5) e._visY = e.body.footY;
     if (e._visYaw === undefined) e._visYaw = Math.PI / 2 - e.angle;
     e._visY += (e.body.footY - e._visY) * Math.min(1, dt * 16);
@@ -22436,11 +23034,14 @@ if (this.engine.app && this.engine.app.bagUI && this.engine.app.bagUI.open) {
     }
     this.smokeFields = [];
     for (const g of this._scopeGlints || []) {
+      if (g.group) this.engine.renderer.scene.remove(g.group);
       if (g.mesh) this.engine.renderer.scene.remove(g.mesh);
       if (g.geo) g.geo.dispose();
       if (g.mat) g.mat.dispose();
+      if (g.sprMat) g.sprMat.dispose();
     }
     this._scopeGlints = [];
+    if (this._glintTex) { this._glintTex.dispose(); this._glintTex = null; }
     for (const f of this.thermoFields || []) {
       if (!f.mesh) continue;
       this.engine.renderer.scene.remove(f.mesh);
@@ -22498,6 +23099,8 @@ export class GameApp {
     this._settingsModalContext = null;
     this.title = null;
     this.story = null;
+    this.home = null;
+    this._deploymentOffsets = {};
   }
 
   boot(){
@@ -22532,6 +23135,20 @@ export class GameApp {
     }
   }
   this.story = new StoryPlayer(this);
+  // ★ 固定存档槽的视觉反馈：自动保存时在右上角亮一下，不提供导入/导出按钮。
+  if (!document.getElementById('save-indicator')) {
+    const el = document.createElement('div');
+    el.id = 'save-indicator';
+    el.style.cssText = 'position:fixed;right:18px;top:16px;z-index:210;padding:5px 10px;border-radius:5px;background:rgba(8,12,18,.86);border:1px solid rgba(216,170,80,.4);color:#ffd98a;font-size:9px;letter-spacing:2px;opacity:0;transition:opacity .2s;pointer-events:none;font-family:ui-monospace,monospace';
+    el.textContent = '✦ 已自动保存';
+    document.body.appendChild(el);
+    let hideTimer = null;
+    window.addEventListener('asaka-saved', () => {
+      el.style.opacity = '1';
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => { el.style.opacity = '0'; }, 900);
+    });
+  }
   this._setupMenu();
   this._bindGlobalHandlers();
   this._registerDevCommands();
@@ -22575,6 +23192,7 @@ export class GameApp {
   this.inventory = this.asakaInventory;
   this.bagUI = new BagUI(this.engine, this.inventory);
   this.bagUI.mode = 'asaka';
+  this.home = new HomeScreen(this);
   
   // ★ 初始化市场
   import('./market.js').then(({ MarketSystem }) => {
@@ -24505,14 +25123,22 @@ save.save();
       if (againBtn2) againBtn2.style.display = 'none';
       const menuBtn2 = document.getElementById('btn-menu');
       if (menuBtn2) {
-        menuBtn2.textContent = '返回主大厅';
+        const canHome = !!(this.asakaSave && this.asakaSave.data.home && this.asakaSave.data.home.purchased);
+        menuBtn2.textContent = canHome ? '回据点' : '返回主大厅';
         menuBtn2.onclick = () => {
           document.getElementById('result-screen')?.classList.remove('on');
-          this._quitToMenu();
+          if (canHome) this.openHome({ tab: 'hall', debrief: this._postBattleDebrief(success, stats) });
+          else this._quitToMenu();
         };
       }
       document.getElementById('btn-view-report')?.remove();
       document.getElementById('btn-death-replay')?.remove();
+      this._awardSkillExp(stats, success);
+      if (success && this.asakaSave && this.asakaSave.data.missions
+          && this.asakaSave.data.missions.active && this.asakaSave.data.missions.active.first_deployment) {
+        this.completeMission('first_deployment');
+      }
+      this._lastDebrief = this._postBattleDebrief(success, stats);
       if (this.asakaSave) this.asakaSave.saveLatest({ label: '行动结束' });
       document.getElementById('result-screen')?.classList.add('on');
       e.bus.emit('matchEnded', { success, stats, reward: finalReward, assessment });
@@ -25250,25 +25876,361 @@ _bindCameraControls() {
     }
   }
 
+  // ===================== 主模式 · 剧情/队伍/长期属性接口 =====================
+  // 剧情只能通过这里改长期数据；story.js 不直接碰存档结构。
+  canStartStory(chapter){
+    const p = this.world && this.world.player;
+    if (!p || !p.status) return { ok: true };
+    if (p.status.isDowned && p.status.isDowned()) {
+      return { ok: false, reason: '你现在处于倒地/重伤状态，先把人救起来再继续。处理好后回到这个入口，剧情会继续等你。' };
+    }
+    const bad = [];
+    try {
+      for (const [id, eff] of (p.status.effects || new Map())) {
+        if (!eff) continue;
+        if (eff.remaining !== undefined && eff.remaining <= 0) continue;
+        const def = this.engine.content.get('effects', id);
+        if (def && def.positive === false) bad.push(def.name || id);
+      }
+    } catch (_) {}
+    if (bad.length) {
+      return { ok: false, reason: '先处理身上的负面状态：' + bad.join('、') + '。\n这些状态可能在剧情中途打断任务或必需演出。处理好后再回来，入口会继续开着。' };
+    }
+    return { ok: true };
+  }
+
+  getPartyRoster(){
+    const save = this.asakaSave;
+    const ids = save && save.data && Array.isArray(save.data.partyRoster) ? save.data.partyRoster : [];
+    return ids.map(id => {
+      const c = this.engine.content.get('characters', id);
+      return { id, name: c ? this.engine.i18n.t(c.name) : id };
+    });
+  }
+
+  _addPartyMember(id){
+    if (!this.asakaSave || !id) return;
+    const data = this.asakaSave.data;
+    if (!Array.isArray(data.partyRoster)) data.partyRoster = [];
+    if (!data.partyRoster.includes(id)) data.partyRoster.push(id);
+    if (data.affection[id] === undefined) data.affection[id] = 0;
+    if (!data.attributes[id]) data.attributes[id] = { aselevel: 1, skillExp: 0, compatibility: 0 };
+    this.asakaSave.save();
+  }
+
+  _removePartyMember(id){
+    if (!this.asakaSave || !id) return;
+    const data = this.asakaSave.data;
+    data.partyRoster = (data.partyRoster || []).filter(x => x !== id);
+    this.asakaSave.save();
+  }
+
+  giveStoryItems(items){
+    if (!Array.isArray(items) || !this.asakaInventory) return;
+    for (const it of items) {
+      if (!it) continue;
+      const table = it.table || 'weapons';
+      const defId = it.id || it.defId;
+      if (!defId) continue;
+      const uid = this.asakaInventory.createItem(table, defId, {
+        qty: it.qty || 1,
+        loadedQty: it.loadedQty,
+        loadedQueue: it.loadedQueue,
+      });
+      if (!uid) continue;
+      let placed = false;
+      for (const cName of ['bag', 'chest', 'pocket', 'safe', 'stash']) {
+        if (this.asakaInventory.addToContainer(cName, uid).ok) { placed = true; break; }
+      }
+      if (!placed) {
+        // 装备槽兜底：初始长枪/护甲直接穿上，避免新档物品因为空背包丢失。
+        const eq = { weapons: 'main', melee: 'melee', helmetShell: 'helmetShell', helmetVisor: 'helmetVisor', vestFiber: 'vestFiber', backpack: 'backpack', chestRig: 'chestRig' }[table];
+        if (eq && this.asakaInventory.equip(eq, uid).ok) placed = true;
+      }
+      if (!placed) this.asakaInventory.destroyItem(uid);
+    }
+    this._syncAsakaInventory();
+  }
+
+  applyStoryEffects(effects, state, chapter, world){
+    if (!effects || !this.asakaSave) return;
+    const data = this.asakaSave.data;
+    if (!data.attributes) data.attributes = {};
+    if (!data.compatibility) data.compatibility = {};
+    if (effects.party || effects.partyAdd) {
+      const ids = Array.isArray(effects.party || effects.partyAdd) ? (effects.party || effects.partyAdd) : [effects.party || effects.partyAdd];
+      for (const id of ids) if (id) this._addPartyMember(id);
+    }
+    if (effects.leaveParty) this._removePartyMember(effects.leaveParty);
+    if (effects.credits) data.credits = (data.credits || 0) + Number(effects.credits || 0);
+    if (effects.planNode) this.asakaSave.setNode(effects.planNode);
+    if (effects.home) {
+      data.home = Object.assign({ purchased: false, node: null }, data.home || {}, effects.home);
+      if (effects.home.purchased) this.asakaSave.setNode('base_purchased');
+    }
+    if (effects.stats) {
+      for (const [k, v] of Object.entries(effects.stats)) {
+        if (k === 'aselevel') data.attributes.aselevel = Number(v || 0);
+        else if (!data.attributes[k]) data.attributes[k] = Number(v || 0);
+        else data.attributes[k] = Number(data.attributes[k] || 0) + Number(v || 0);
+      }
+    }
+    if (effects.compatibility) {
+      for (const [k, v] of Object.entries(effects.compatibility)) {
+        data.compatibility[k] = (data.compatibility[k] || 0) + Number(v || 0);
+        if (!data.attributes[k]) data.attributes[k] = { aselevel: 1, skillExp: 0, compatibility: 0 };
+        data.attributes[k].compatibility = (data.attributes[k].compatibility || 0) + Number(v || 0);
+      }
+    }
+    if (Array.isArray(effects.abilities)) {
+      data.abilities = data.abilities || [];
+      for (const a of effects.abilities) if (!data.abilities.includes(a)) data.abilities.push(a);
+    }
+    if (Array.isArray(effects.items)) this.giveStoryItems(effects.items);
+    if (effects.mission) {
+      if (typeof effects.mission === 'string') {
+        if (typeof this.startMission === 'function') this.startMission(effects.mission);
+      } else if (typeof effects.mission === 'object') {
+        const m = effects.mission;
+        if (m.complete) this.completeMission(m.complete);
+        if (m.start) this.startMission(m.start);
+        if (m.advance) this.advanceMission(m.advance, m.stage);
+      }
+    }
+    this.asakaSave.save();
+  }
+
+  applyRhythmResult(result){
+    if (!result || !this.asakaSave) return;
+    const data = this.asakaSave.data;
+    const id = result.character || 'unknown';
+    if (!data.compatibility) data.compatibility = {};
+    data.compatibility[id] = (data.compatibility[id] || 0) + Number(result.compatibilityDelta || 0);
+    if (!data.attributes[id]) data.attributes[id] = { aselevel: 1, skillExp: 0, compatibility: 0 };
+    data.attributes[id].compatibility = data.compatibility[id];
+    this.asakaSave.save();
+    if (this.world && this.world._log) {
+      const word = result.interrupted ? '中断' : (result.compatibilityDelta >= 8 ? '很合拍' : (result.compatibilityDelta >= 3 ? '渐渐合拍' : '还需要磨合'));
+      this.world._log('结算阶段：' + word + '（' + (result.grade || '—') + '）', result.compatibilityDelta >= 0 ? 'g' : 'y');
+    }
+  }
+
+  storyCommand(name, args = [], state, world, chapter){
+    if (!name) return;
+    const argsList = Array.isArray(args) ? args : [args];
+    // 允许剧情调用 GameApp / GameWorld 的显式函数；数据文件决定调用哪些，
+    // 但永远走函数白名单式判断，不 eval 字符串。
+    const allow = ['setPlanNode', 'addCredits', 'startMission', 'advanceMission', 'giveStoryItems', 'setStoryFlag', 'openHome', 'startMatch'];
+    if (!allow.includes(name)) console.warn('[Story] 未授权的剧情命令：' + name);
+    if (world && typeof world[name] === 'function') return world[name](...argsList);
+    if (typeof this[name] === 'function') return this[name](...argsList);
+  }
+
+  setStoryFlag(key, value){
+    if (!this.asakaSave || !key) return;
+    this.asakaSave.data.flags = this.asakaSave.data.flags || {};
+    this.asakaSave.data.flags[key] = value;
+    this.asakaSave.save();
+  }
+
+  setPlanNode(nodeId){
+    if (this.asakaSave) this.asakaSave.setNode(nodeId);
+  }
+
+  addCredits(amount){
+    if (!this.asakaSave) return;
+    this.asakaSave.data.credits = (this.asakaSave.data.credits || 0) + Number(amount || 0);
+    this.asakaSave.save();
+  }
+
+  startMission(id){
+    if (!this.asakaSave || !id) return;
+    const data = this.asakaSave.data;
+    data.missions = data.missions || { current: null, active: {}, done: {} };
+    data.missions.active = data.missions.active || {};
+    data.missions.active[id] = data.missions.active[id] || { stage: 0, startedAt: Date.now() };
+    data.missions.current = id;
+    this.asakaSave.save();
+    if (this.world && this.world.missions) this.world.missions.start(id);
+    if (this.world && this.world._log) {
+      const def = this.engine.content.get('missions', id);
+      if (def) this.world._log('新任务：' + this.engine.i18n.t(def.title || id), 'p');
+    }
+  }
+
+  advanceMission(id, stage){
+    if (!this.asakaSave || !id) return;
+    const data = this.asakaSave.data;
+    data.missions = data.missions || { current: null, active: {}, done: {} };
+    data.missions.active = data.missions.active || {};
+    const inst = data.missions.active[id] || (data.missions.active[id] = { stage: 0, startedAt: Date.now() });
+    inst.stage = stage !== undefined ? Number(stage) : (inst.stage || 0) + 1;
+    this.asakaSave.save();
+    if (this.world && this.world.missions) this.world.missions.advance(id, inst.stage);
+  }
+
+  completeMission(id){
+    if (!this.asakaSave || !id) return;
+    const data = this.asakaSave.data;
+    data.missions = data.missions || { current: null, active: {}, done: {} };
+    if (this.world && this.world.missions) this.world.missions.complete(id);
+    else {
+      data.missions.done = data.missions.done || {};
+      data.missions.done[id] = { at: Date.now() };
+      if (data.missions.active) delete data.missions.active[id];
+      if (data.missions.current === id) data.missions.current = null;
+      this.asakaSave.save();
+    }
+    if (this.world && this.world._log) {
+      const def = this.engine.content.get('missions', id);
+      if (def) this.world._log('任务完成：' + this.engine.i18n.t(def.title || id), 'g');
+    }
+  }
+
+  _equipNewGameStarterKit(inv){
+    if (!inv) return;
+    const make = (table, id, extras = {}) => inv.createItem(table, id, Object.assign({ lockValue: true }, extras));
+    // 主武器：AR-556 + 标准弹匣；副武器 P9 + 弹匣。这里不是“制式券”，只是开局自持装备。
+    const ar = make('weapons', 'ar556', { loadedQty: 0 });
+    const arMag = make('attach', 'mag_std_556', { loadedQueue: new Array(30).fill('5.56') });
+    if (ar && arMag) inv.attachTo(ar, 'mag', arMag);
+    const ar2 = make('weapons', 'p9');
+    const p9Mag = make('attach', 'mag_std_9mm', { loadedQueue: new Array(15).fill('9mm') });
+    if (ar2 && p9Mag) inv.attachTo(ar2, 'mag', p9Mag);
+    const kit = [
+      ['helmetShell', 'lv3'], ['helmetVisor', 'lv3'], ['vestFiber', 'lv3'], ['vestPlate', 'lv3'],
+      ['chestRig', 'large'], ['backpack', 'medium'], ['melee', 'combat_knife'],
+    ];
+    const uids = { weapons: ar, melee: null };
+    for (const [table, id] of kit) {
+      const uid = make(table, id);
+      if (!uid) continue;
+      if (table === 'melee') uids.melee = uid;
+      else uids[table] = uid;
+    }
+    const ammo5 = make('ammo', '5.56', { qty: 120 });
+    const ammo9 = make('ammo', '9mm', { qty: 60 });
+    const meds = make('medical', 'bandage', { qty: 2 });
+    inv.equip('main', ar); inv.equip('side', ar2); inv.equip('melee', uids.melee);
+    inv.equip('helmetShell', uids.helmetShell); inv.equip('helmetVisor', uids.helmetVisor);
+    inv.equip('vestFiber', uids.vestFiber);
+    if (uids.vestPlate) inv.installPlate(uids.vestFiber, uids.vestPlate);
+    inv.equip('chestRig', uids.chestRig); inv.equip('backpack', uids.backpack);
+    for (const uid of [ammo5, ammo9, meds]) {
+      if (!uid) continue;
+      if (!inv.addToContainer('chest', uid).ok && !inv.addToContainer('bag', uid).ok) inv.destroyItem(uid);
+    }
+  }
+
+  // ===================== 据点 / 出战 / 战后 =====================
+  openHome(opts = {}){
+    if (!this.asakaSave) return false;
+    const data = this.asakaSave.data;
+    if (!data.home || !data.home.purchased) {
+      if (this.world && this.world._hint) this.world._hint('还没有据点。先完成序章的买房任务。', 'y');
+      return false;
+    }
+    if (!this.home) this.home = new HomeScreen(this);
+    this._setActiveInventory('asaka');
+    this._syncAsakaInventory();
+    this.home.open(opts);
+    return true;
+  }
+
+  startAsakaDeployment(){
+    this._deployingFromHome = true;
+    if (this.home) this.home.close();
+    this._deployingFromHome = false;
+    this.menuState.mode = 'asaka';
+    this.menuState.map = 'asaka_city';
+    this.menuState.char = 'captain';
+    const roster = this.asakaSave && this.asakaSave.data.partyRoster ? this.asakaSave.data.partyRoster : [];
+    this.menuState.matchAllies = roster.length > 0;
+    if (this.asakaSave && this.asakaSave.data.missions && this.asakaSave.data.missions.active
+        && this.asakaSave.data.missions.active.first_deployment) {
+      this.advanceMission('first_deployment', 1);
+    }
+    this._showScreen('game');
+    this.startMatch('normal');
+  }
+
+  onStorySummaryClosed(chapterId){
+    // 序章结束后把玩家带回据点，而不是丢在空图里。
+    if (this.asakaSave && this.asakaSave.data.home && this.asakaSave.data.home.purchased) {
+      const debrief = chapterId === 'asaka.opening'
+        ? '你们在城北的旧仓库里坐下。门关上了，凯特把枪靠在墙边，玲娜已经去翻那只大箱子。'
+        : '';
+      this.openHome({ tab: 'hall', debrief });
+    }
+  }
+
+  _awardSkillExp(stats, success){
+    if (!this.asakaSave) return;
+    const d = this.asakaSave.data;
+    if (!d.home || !d.home.purchased) return;
+    if (!this.engine.profile.get('skills.enabled', true)) return;
+    const roster = d.partyRoster || [];
+    if (!roster.length) return;
+    const xp = Math.max(1, Math.round((stats.kills || 0) * 2 + (success ? 6 : 2) + (stats.time || 0) / 90));
+    d.attributes = d.attributes || {};
+    for (const id of roster) {
+      const attr = d.attributes[id] || (d.attributes[id] = { aselevel: 1, skillExp: 0, compatibility: d.compatibility[id] || 0 });
+      attr.skillExp = (attr.skillExp || 0) + xp;
+      // 技能经验只做小幅成长：每 100 点提升一个小级，不滚雪球。
+      const lv = 1 + Math.floor(attr.skillExp / 100);
+      if (lv > (attr.skillLevel || 1)) {
+        attr.skillLevel = lv;
+        if (this.world && this.world._log) this.world._log(this._charDisplayName(id) + ' 的技能熟练度提升（Lv.' + lv + '）', 'p');
+      }
+      // 好感只做战后小幅回温，给用户看到的仍是定性。
+      d.affection[id] = (d.affection[id] || 0) + (success ? 1 : 0);
+    }
+    this.asakaSave.save();
+  }
+
+  _charDisplayName(id){
+    const c = this.engine.content.get('characters', id);
+    return c ? this.engine.i18n.t(c.name) : id;
+  }
+
+  _postBattleDebrief(success, stats){
+    const name = (this.asakaSave && this.asakaSave.data.partyRoster && this.asakaSave.data.partyRoster[0]) || null;
+    if (!name) return success ? '你回到了据点。大厅里只有你自己的脚步声。' : '你回到了据点。没有人说话。';
+    const who = this._charDisplayName(name);
+    if (success) {
+      return who + '把装备放下，先检查了你的伤。\n“回来了就好。下一次别把后背交给无人机。”';
+    }
+    return who + '在门口等你。看到你活着回来，她没有先问战利品。\n“先坐下。剩下的待会儿再说。”';
+  }
+
   // 开主模式新档：只重置主模式进度，Straight 的仓库/设置不受影响。
-  startAsakaNewGame(){
+  startAsakaNewGame(profileId){
     if (!this.asakaSave) this.asakaSave = new AsakaSave();
     this.asakaSave.newGame();
+    this.asakaSave.data.profileLocked = profileId || this.engine.profile.currentProfileId || 'tactical';
     // 序章开始前写唯一自动存档：演出途中不能再存，读档只能回到这里。
     this.asakaSave.autosave('prologue_start', {
-      chapter: 'asaka.prologue',
-      label: '序章 · 沙尘中的旗',
+      chapter: 'asaka.opening',
+      label: '序章 · 沙尘里的第一间房',
     });
     // 新主模式存档 = 新的主模式库存；不碰 Straight 仓库。
     this.asakaSave.data.inventory = null;
     this.asakaSave.data.party = {};
     this.asakaSave.save();
     this.asakaInventory = new Inventory(this.engine.content);
+    // ★ 新档必须有初始装备与初始财产：之前主模式新档是空手进图的，连房都买不了。
+    this._equipNewGameStarterKit(this.asakaInventory);
+    this.asakaSave.data.credits = this.asakaSave.data.credits || 4200;
+    this.asakaSave.save();
     this._setActiveInventory('asaka');
     if (this.bagUI && this.bagUI.open) { try { this.bagUI.close(); } catch (_) {} }
     this._persistActiveSettings();
     this.settingsContext = 'asaka';
     this._applyModeSettings('asaka');
+    if (profileId && this.engine.profile.has(profileId)) {
+      this.engine.profile.setProfile(profileId);
+      this._persistActiveSettings();
+    }
     this.menuState.mode = 'asaka';
     this.menuState.map = 'asaka_void';
     this.menuState.char = 'captain';
@@ -25294,9 +26256,10 @@ _bindCameraControls() {
     this.settingsContext = 'asaka';
     this._applyModeSettings('asaka');
     this.menuState.mode = 'asaka';
-    this.menuState.map = 'asaka_void';
+    const _homeOwned = !!(this.asakaSave.data.home && this.asakaSave.data.home.purchased);
+    this.menuState.map = _homeOwned ? 'asaka_city' : 'asaka_void';
     this.menuState.char = 'captain';
-    this.menuState.matchAllies = false;
+    this.menuState.matchAllies = _homeOwned && (this.asakaSave.data.partyRoster || []).length > 0;
     this._showScreen('game');
     this.startMatch('normal').then(() => {
       if (!this.world) return;
@@ -25324,6 +26287,8 @@ _bindCameraControls() {
     this._syncAsakaInventory();
     this._syncAsakaParty();
     this.asakaSave.markStorySeen(chapterId);
+    // 兼容旧触发点 id：旧地图/旧存档可能仍引用 asaka.prologue。
+    if (chapterId === 'asaka.opening') this.asakaSave.markStorySeen('asaka.prologue');
     const nextNode = (endNode && endNode.nextNode) || this.asakaSave.data.node;
     // 结局节点自己的 flags 也要写入（例如 prologue_done），不能只记选择支的 flags。
     const flags = Object.assign({}, (state && state.flags) || {}, (endNode && endNode.flags) || {});
@@ -25350,6 +26315,15 @@ _bindCameraControls() {
         for (const [k, v] of Object.entries(affection)) {
           if (v) this.world.affection.modify(k, v);
         }
+      }
+      // ★ 入队后在本局直接生成队友，不用等到下一次战局。
+      const roster = this.asakaSave.data.partyRoster || [];
+      if (this.world.modeId === 'asaka' && roster.length && !this.world._alliesSpawned) {
+        this.menuState.matchAllies = true;
+        this.world.matchAllies = true;
+        try { this.world._spawnAllies(); } catch (e) { console.warn('[Asaka] 队友生成失败', e); }
+        this.world._log('已入队：凯特、玲娜。下一次出战他们会在你身边。', 'p');
+        this.world._hint('队友已入队 · 左上角任务栏可查看下一步', 'y');
       }
     }
     if (this.world && this.world._log) {

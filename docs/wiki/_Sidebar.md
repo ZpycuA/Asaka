@@ -4,6 +4,7 @@
 - [总览](Game-Design)
 - [战斗与健康](Combat-And-Health)
 - [背包与弹药](Inventory-And-Ammo)
+- [剧情 / 任务 / 结算阶段](Story-And-Missions)
 - [HUD / 靶场 / 回放](UI-Training-Replay)
 - [难度评测：谁挨最毒的打](Difficulty-Review)
 

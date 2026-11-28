@@ -62,9 +62,9 @@ const CONTAINER_DEFAULTS = {
   loot:   { w: 8,  h: 6 },   // 搜索时的临时容器（冗余 48 格）
 };
 
-// ★ 枪械硬点：枪口 / 主瞄 / 侧瞄 / 握把 / 枪托 / 弹匣 / 侧面战术具 / 枪口贴片
+// ★ 枪械硬点：枪口 / 主瞄 / 侧瞄 / 握把 / 枪托 / 弹匣 / 侧面战术具 / 枪口贴片 / 遮光罩
 //   UI 与运行时都必须从这里派生，禁止再各自硬编码 4 个槽。
-export const WEAPON_ATTACH_SLOTS = ['muzzle', 'muzzlePatch', 'sight', 'sideSight', 'grip', 'stock', 'mag', 'sideTactical'];
+export const WEAPON_ATTACH_SLOTS = ['muzzle', 'muzzlePatch', 'sight', 'sideSight', 'grip', 'stock', 'mag', 'sideTactical', 'lensHood'];
 
 // 未显式配置重量时的兜底（单位：kg；弹药为单发重量）
 const DEFAULT_ITEM_WEIGHT = {
@@ -1517,6 +1517,8 @@ _rollbackTransferredTree(targetInv, newUid, srcUid) {
     }
     // 弹匣：硬点兼容只看口径，具体口径由 canAttach 的 caliber 检查。
     if (slot === 'mag') return true;
+    // ★ 遮光罩：必须已装倍率 ≥2 的倍镜；这里只放行，具体倍率条件由 canAttach 做硬校验。
+    if (slot === 'lensHood') return true;
     return false;
   }
 
@@ -1530,6 +1532,16 @@ _rollbackTransferredTree(targetInv, newUid, srcUid) {
     if (!aDef || !wDef) return { ok: false, reason: 'no_def' };
     if (!(slot in weaponItem.attachments)) return { ok: false, reason: 'bad_slot' };
     if (aDef.slot && aDef.slot !== slot) return { ok: false, reason: 'wrong_slot' };
+    // ★ 遮光罩只存在于“已装倍镜”的枪上：2 倍及以上瞄具才提供可套的镜筒。
+    //   旧存档/拖拽/代码生成都必须走这条唯一判定。
+    if (slot === 'lensHood') {
+      const sightUid = weaponItem.attachments.sight;
+      const sightItem = sightUid ? this.items.get(sightUid) : null;
+      const sightDef = sightItem ? this.getDef(sightItem) : null;
+      if (!sightDef || !sightDef.stats || !(sightDef.stats.zoom >= 2)) {
+        return { ok: false, reason: 'need_magnified_sight' };
+      }
+    }
     // ★ 即使配件没写 fits，也要过通用硬点兼容：枪托不能装手枪、
     //   侧面战术具/枪口件也不能无视武器类型乱塞。
     const explicitFit = Array.isArray(aDef.fits) && aDef.fits.length && aDef.fits.includes(weaponItem.defId);
@@ -1542,7 +1554,7 @@ _rollbackTransferredTree(targetInv, newUid, srcUid) {
 
   // 汇总一件武器全部配件的乘算修正；调用方只读，不要缓存成武器 def 的平行字段。
   getAttachmentStats(weaponItem) {
-    const out = { spreadMul: 1, recoilMul: 1, adsSpreadMul: 1, rangeMul: 1, soundMul: 1, magMul: 1, reloadMul: 1, zoom: 1, laser: false, light: false, magCapacity: 0, count: 0, list: [] };
+    const out = { spreadMul: 1, recoilMul: 1, adsSpreadMul: 1, rangeMul: 1, soundMul: 1, magMul: 1, reloadMul: 1, zoom: 1, glintMul: 1, laser: false, light: false, magCapacity: 0, count: 0, list: [] };
     if (!weaponItem || !weaponItem.attachments) return out;
     for (const slot in weaponItem.attachments) {
       const uid = weaponItem.attachments[slot];
@@ -1553,7 +1565,7 @@ _rollbackTransferredTree(targetInv, newUid, srcUid) {
       if (!def || !def.stats) continue;
       out.count++;
       out.list.push({ slot, item: a, def });
-      for (const k of ['spreadMul', 'recoilMul', 'adsSpreadMul', 'rangeMul', 'soundMul', 'magMul', 'reloadMul']) {
+      for (const k of ['spreadMul', 'recoilMul', 'adsSpreadMul', 'rangeMul', 'soundMul', 'magMul', 'reloadMul', 'glintMul']) {
         if (typeof def.stats[k] === 'number') out[k] *= def.stats[k];
       }
       // 倍镜取最大倍率而不是叠乘；激光只标记是否安装

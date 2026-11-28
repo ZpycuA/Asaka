@@ -7,6 +7,8 @@
    剧情演出途中不写盘；只有章节开始/结束等关键节点才写 keyframe。
    ============================================================ */
 
+// ★ 固定存档槽：浏览器写 localStorage 的固定键；以后转为桌面端时
+//   对应固定文件 saves/asaka.json，不提供运行时导入/导出。
 const STORAGE_KEY = 'LaiAsaka_AsakaSave_v2';
 
 // 允许写入“重要节点”的白名单。不在表里的节点只能记录进度，不能成为回档点。
@@ -41,8 +43,21 @@ function emptyData(){
     storySeen: {},
     // 剧情选择写入的 flags（信任、阵营态度、后续分支）
     flags: {},
-    // 队友好感度（主模式长期数据）
+    // 队友好感度（主模式长期数据；玩家只看到定性描述）
     affection: {},
+    // ★ 队伍成员与长期属性（Aselevel、技能经验、默契等）；剧情/战局结算写入。
+    partyRoster: [],
+    partyGear: {},
+    attributes: {},
+    compatibility: {},
+    abilities: [],
+    // ★ 主模式自己的信用点与住所状态，和 Straight 的 credits 分开。
+    credits: 0,
+    home: { purchased: false, node: null },
+    // ★ 任务/计划进程：当前主线、阶段、完成记录。由任务系统与剧情效果共同写。
+    missions: { current: null, active: {}, done: {} },
+    // 主模式建立新档时是否已锁定玩法模板
+    profileLocked: null,
     // 关键选择轨迹
     trail: [],
     // 主模式当前库存（序列化后的 Inventory；与 Straight 的 save.data.inventory 完全独立）
@@ -75,6 +90,14 @@ export class AsakaSave {
       if (!data.affection || typeof data.affection !== 'object') data.affection = {};
       if (!data.storySeen || typeof data.storySeen !== 'object') data.storySeen = {};
       if (!Array.isArray(data.trail)) data.trail = [];
+      if (!Array.isArray(data.partyRoster)) data.partyRoster = [];
+      if (!data.partyGear || typeof data.partyGear !== 'object') data.partyGear = {};
+      if (!data.attributes || typeof data.attributes !== 'object') data.attributes = {};
+      if (!data.compatibility || typeof data.compatibility !== 'object') data.compatibility = {};
+      if (!Array.isArray(data.abilities)) data.abilities = [];
+      if (typeof data.credits !== 'number') data.credits = 0;
+      if (!data.home || typeof data.home !== 'object') data.home = { purchased: false, node: null };
+      if (!data.missions || typeof data.missions !== 'object') data.missions = { current: null, active: {}, done: {} };
       if (!data.keyframes || typeof data.keyframes !== 'object') data.keyframes = {};
       if (!data.latest || typeof data.latest !== 'object') data.latest = null;
       // v1 只有一个 autosave：迁移成“该节点的 keyframe + 最新状态”。
@@ -103,6 +126,15 @@ export class AsakaSave {
     this.data.createdAt = Date.now();
     this.data.updatedAt = Date.now();
     this.data.node = 'prologue_start';
+    this.data.credits = 4200;
+    this.data.partyRoster = [];
+    this.data.partyGear = {};
+    this.data.attributes = {};
+    this.data.compatibility = {};
+    this.data.abilities = [];
+    this.data.home = { purchased: false, node: null };
+    this.data.missions = { current: null, active: {}, done: {} };
+    this.data.profileLocked = null;
     this._unlock('root');
     this._unlock('prologue_start');
     this.save();
@@ -113,6 +145,11 @@ export class AsakaSave {
     try {
       this.data.updatedAt = Date.now();
       localStorage.setItem(this.key, JSON.stringify(this.data));
+      try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('asaka-saved', { detail: { at: this.data.updatedAt, node: this.data.node } }));
+        }
+      } catch (_) {}
       return true;
     } catch (e) {
       console.warn('[AsakaSave] 写入失败', e);
@@ -135,6 +172,14 @@ export class AsakaSave {
       affection: Object.assign({}, this.data.affection),
       storySeen: Object.assign({}, this.data.storySeen),
       trail: this.data.trail.slice(-32),
+      partyRoster: JSON.parse(JSON.stringify(this.data.partyRoster || [])),
+      partyGear: JSON.parse(JSON.stringify(this.data.partyGear || {})),
+      attributes: JSON.parse(JSON.stringify(this.data.attributes || {})),
+      compatibility: JSON.parse(JSON.stringify(this.data.compatibility || {})),
+      abilities: JSON.parse(JSON.stringify(this.data.abilities || [])),
+      credits: this.data.credits || 0,
+      home: JSON.parse(JSON.stringify(this.data.home || {})),
+      missions: JSON.parse(JSON.stringify(this.data.missions || {})),
       inventory: this.data.inventory ? JSON.parse(JSON.stringify(this.data.inventory)) : null,
       party: this.data.party ? JSON.parse(JSON.stringify(this.data.party)) : {},
     };
@@ -207,6 +252,14 @@ export class AsakaSave {
     this.data.affection = Object.assign({}, snap.affection || {});
     this.data.storySeen = Object.assign({}, snap.storySeen || {});
     this.data.trail = Array.isArray(snap.trail) ? snap.trail.slice() : [];
+    if (Array.isArray(snap.partyRoster)) this.data.partyRoster = snap.partyRoster.slice();
+    if (snap.partyGear) this.data.partyGear = JSON.parse(JSON.stringify(snap.partyGear));
+    if (snap.attributes) this.data.attributes = JSON.parse(JSON.stringify(snap.attributes));
+    if (snap.compatibility) this.data.compatibility = JSON.parse(JSON.stringify(snap.compatibility));
+    if (Array.isArray(snap.abilities)) this.data.abilities = snap.abilities.slice();
+    if (typeof snap.credits === 'number') this.data.credits = snap.credits;
+    if (snap.home) this.data.home = JSON.parse(JSON.stringify(snap.home));
+    if (snap.missions) this.data.missions = JSON.parse(JSON.stringify(snap.missions));
     if (snap.inventory) this.data.inventory = JSON.parse(JSON.stringify(snap.inventory));
     if (snap.party) this.data.party = JSON.parse(JSON.stringify(snap.party));
     this._unlock(this.data.node);

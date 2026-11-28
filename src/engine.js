@@ -1129,6 +1129,8 @@ const buildHumanoid = (spec, opts) => {
       const longBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.25, 8), gunMat);
       longBarrel.rotation.x = Math.PI / 2;
       longBarrel.position.set(0.25, 1.55, 0.85);
+      // ★ 实际武器模型由 GameWorld 按枪械/配件生成；这里只是旧占位件，必须能被替换。
+      longBarrel.name = '__default_barrel__';
       g.add(longBarrel);
     }
     if (rank === 'assault' || rank === 'elite' || rank === 'guard' || isBoss) {
@@ -1258,6 +1260,8 @@ const buildHumanoid = (spec, opts) => {
   // 手持武器（枪管指向局部 +z）
 const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.7), gunMat);
 muzzle.position.set(0.25, 1.55, 0.40);
+// ★ 占位裸枪：GameWorld 会按实际武器与配件替换它，避免所有敌人永远端同一块方盒。
+muzzle.name = '__default_gun__';
 g.add(muzzle);
 
   // 地面光环

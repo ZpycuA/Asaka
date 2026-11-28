@@ -1,0 +1,978 @@
+{
+ "id": "asaka_city",
+ "size": 320,
+ "playerSpawn": {
+  "x": 0,
+  "z": 138,
+  "angle": 0
+ },
+ "obstacles": [
+  {
+   "x": 0,
+   "z": -160,
+   "w": 320,
+   "d": 1,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "highWall"
+  },
+  {
+   "x": 0,
+   "z": 160,
+   "w": 320,
+   "d": 1,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "highWall"
+  },
+  {
+   "x": -160,
+   "z": 0,
+   "w": 1,
+   "d": 320,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "highWall"
+  },
+  {
+   "x": 160,
+   "z": 0,
+   "w": 1,
+   "d": 320,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "highWall"
+  },
+  {
+   "x": -129,
+   "z": -127,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": -109,
+   "z": -112,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": -118,
+   "z": -140,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -129,
+   "z": -67,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": -109,
+   "z": -52,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -129,
+   "z": -7,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -109,
+   "z": 8,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -118,
+   "z": -20,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -146,
+   "z": 4,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": -129,
+   "z": 53,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -109,
+   "z": 68,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -129,
+   "z": 113,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -109,
+   "z": 128,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 4.5,
+   "type": "building"
+  },
+  {
+   "x": -118,
+   "z": 100,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -69,
+   "z": -127,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": -49,
+   "z": -112,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -69,
+   "z": -67,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -49,
+   "z": -52,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 4.5,
+   "type": "building"
+  },
+  {
+   "x": -58,
+   "z": -80,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -69,
+   "z": -7,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -49,
+   "z": 8,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -86,
+   "z": 4,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": -69,
+   "z": 53,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": -49,
+   "z": 68,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -58,
+   "z": 40,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -69,
+   "z": 113,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": -49,
+   "z": 128,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 4.5,
+   "type": "building"
+  },
+  {
+   "x": -9,
+   "z": -127,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": 11,
+   "z": -112,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 4.5,
+   "type": "building"
+  },
+  {
+   "x": 2,
+   "z": -140,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -26,
+   "z": -116,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": -9,
+   "z": -67,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": 11,
+   "z": -52,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": -26,
+   "z": -56,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": -9,
+   "z": -7,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": 11,
+   "z": 8,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 2,
+   "z": -20,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -26,
+   "z": 4,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": -9,
+   "z": 53,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": 11,
+   "z": 68,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 4.5,
+   "type": "building"
+  },
+  {
+   "x": -26,
+   "z": 64,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": -9,
+   "z": 113,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": 11,
+   "z": 128,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 2,
+   "z": 100,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": -26,
+   "z": 124,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": 51,
+   "z": -127,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": 71,
+   "z": -112,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 51,
+   "z": -67,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": 71,
+   "z": -52,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 62,
+   "z": -80,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": 51,
+   "z": -7,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": 71,
+   "z": 8,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 4.5,
+   "type": "building"
+  },
+  {
+   "x": 34,
+   "z": 4,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": 51,
+   "z": 53,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": 71,
+   "z": 68,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": 62,
+   "z": 40,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": 51,
+   "z": 113,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": 71,
+   "z": 128,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 111,
+   "z": -127,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": 131,
+   "z": -112,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 122,
+   "z": -140,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": 111,
+   "z": -67,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": 131,
+   "z": -52,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": 111,
+   "z": -7,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 6.5,
+   "type": "building"
+  },
+  {
+   "x": 131,
+   "z": 8,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": 122,
+   "z": -20,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": 94,
+   "z": 4,
+   "w": 2.4,
+   "d": 2.4,
+   "yMin": 0,
+   "yMax": 1.5,
+   "type": "crate"
+  },
+  {
+   "x": 111,
+   "z": 53,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 5,
+   "type": "building"
+  },
+  {
+   "x": 131,
+   "z": 68,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 6,
+   "type": "building"
+  },
+  {
+   "x": 111,
+   "z": 113,
+   "w": 18,
+   "d": 16,
+   "yMin": 0,
+   "yMax": 8,
+   "type": "building"
+  },
+  {
+   "x": 131,
+   "z": 128,
+   "w": 14,
+   "d": 18,
+   "yMin": 0,
+   "yMax": 7.5,
+   "type": "building"
+  },
+  {
+   "x": 122,
+   "z": 100,
+   "w": 8,
+   "d": 0.8,
+   "yMin": 0,
+   "yMax": 1.1,
+   "type": "lowWall"
+  },
+  {
+   "x": 0,
+   "z": 0,
+   "w": 10,
+   "d": 10,
+   "yMin": 0,
+   "yMax": 1.6,
+   "type": "crate"
+  },
+  {
+   "x": -38,
+   "z": 24,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  },
+  {
+   "x": 42,
+   "z": -18,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  },
+  {
+   "x": -22,
+   "z": -46,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  },
+  {
+   "x": 36,
+   "z": 52,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  },
+  {
+   "x": 0,
+   "z": 96,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  },
+  {
+   "x": -76,
+   "z": 0,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  },
+  {
+   "x": 76,
+   "z": -72,
+   "w": 5,
+   "d": 2.6,
+   "yMin": 0,
+   "yMax": 2.8,
+   "type": "crate"
+  }
+ ],
+ "containers": [
+  {
+   "x": -52,
+   "z": -22
+  },
+  {
+   "x": 18,
+   "z": -52
+  },
+  {
+   "x": 52,
+   "z": 22
+  },
+  {
+   "x": -18,
+   "z": 52
+  },
+  {
+   "x": 92,
+   "z": -96
+  },
+  {
+   "x": -92,
+   "z": 96
+  },
+  {
+   "x": 0,
+   "z": 120
+  },
+  {
+   "x": -120,
+   "z": -40
+  }
+ ],
+ "extracts": [
+  {
+   "x": 0,
+   "z": -144
+  },
+  {
+   "x": 144,
+   "z": 0
+  },
+  {
+   "x": -144,
+   "z": 0
+  },
+  {
+   "x": 0,
+   "z": 144
+  }
+ ],
+ "enemySpawns": [
+  {
+   "x": -74.2,
+   "z": -70.0,
+   "spec": "nipsel_assault",
+   "squad": "nipsel-a",
+   "patrolRadius": 18,
+   "angle": 0.0
+  },
+  {
+   "x": -90.0,
+   "z": -57.0,
+   "spec": "nipsel_guard",
+   "squad": "nipsel-a",
+   "patrolRadius": 18,
+   "angle": 1.57
+  },
+  {
+   "x": -95.6,
+   "z": -70.0,
+   "spec": "nipsel_sniper",
+   "squad": "nipsel-a",
+   "patrolRadius": 18,
+   "angle": 3.14
+  },
+  {
+   "x": -90.0,
+   "z": -76.1,
+   "spec": "nipsel_elite",
+   "squad": "nipsel-a",
+   "patrolRadius": 18,
+   "angle": 4.71
+  },
+  {
+   "x": 96.4,
+   "z": -70.0,
+   "spec": "bank_guard",
+   "squad": "bank-a",
+   "patrolRadius": 18,
+   "angle": 0.0
+  },
+  {
+   "x": 90.0,
+   "z": -60.5,
+   "spec": "bank_sniper",
+   "squad": "bank-a",
+   "patrolRadius": 18,
+   "angle": 1.57
+  },
+  {
+   "x": 78.7,
+   "z": -70.0,
+   "spec": "bank_guard",
+   "squad": "bank-a",
+   "patrolRadius": 18,
+   "angle": 3.14
+  },
+  {
+   "x": 90.0,
+   "z": -79.9,
+   "spec": "bank_sniper",
+   "squad": "bank-a",
+   "patrolRadius": 18,
+   "angle": 4.71
+  },
+  {
+   "x": -83.2,
+   "z": 70.0,
+   "spec": "unknown_member",
+   "squad": "unk-a",
+   "patrolRadius": 18,
+   "angle": 0.0
+  },
+  {
+   "x": -90.0,
+   "z": 78.4,
+   "spec": "unknown_leader",
+   "squad": "unk-a",
+   "patrolRadius": 18,
+   "angle": 1.57
+  },
+  {
+   "x": -94.9,
+   "z": 70.0,
+   "spec": "unknown_member",
+   "squad": "unk-a",
+   "patrolRadius": 18,
+   "angle": 3.14
+  },
+  {
+   "x": -90.0,
+   "z": 61.3,
+   "spec": "unknown_leader",
+   "squad": "unk-a",
+   "patrolRadius": 18,
+   "angle": 4.71
+  },
+  {
+   "x": 102.6,
+   "z": 70.0,
+   "spec": "nipsel_assault",
+   "squad": "nipsel-b",
+   "patrolRadius": 18,
+   "angle": 0.0
+  },
+  {
+   "x": 90.0,
+   "z": 75.7,
+   "spec": "nipsel_guard",
+   "squad": "nipsel-b",
+   "patrolRadius": 18,
+   "angle": 1.57
+  },
+  {
+   "x": 76.3,
+   "z": 70.0,
+   "spec": "nipsel_sniper",
+   "squad": "nipsel-b",
+   "patrolRadius": 18,
+   "angle": 3.14
+  },
+  {
+   "x": 90.0,
+   "z": 64.1,
+   "spec": "nipsel_elite",
+   "squad": "nipsel-b",
+   "patrolRadius": 18,
+   "angle": 4.71
+  },
+  {
+   "x": 0,
+   "z": 30,
+   "spec": "nipsel_assault",
+   "squad": "street",
+   "patrolRadius": 24
+  },
+  {
+   "x": -30,
+   "z": 0,
+   "spec": "unknown_member",
+   "squad": "street",
+   "patrolRadius": 24
+  },
+  {
+   "x": 30,
+   "z": 0,
+   "spec": "bank_guard",
+   "squad": "street",
+   "patrolRadius": 24
+  },
+  {
+   "x": 0,
+   "z": -30,
+   "spec": "nipsel_guard",
+   "squad": "street",
+   "patrolRadius": 24
+  }
+ ],
+ "storyTriggers": []
+}
